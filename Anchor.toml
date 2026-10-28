@@ -5,14 +5,17 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-prediction_market = "GeLQ6ETg5VPU86bCBKAnA7pRygoJaf5uXd5g6upvzfmD"
+prediction_market = "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER"
+
+[programs.devnet]
+prediction_market = "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER"
 
 [provider]
 cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.spec.ts"
 
 [test]
 startup_wait = 5000
