@@ -48,21 +48,22 @@ This allows liquidity providers or arbitrageurs to exit risk without waiting for
 
 ## 🔒 Security Architecture & State Machine
 
-           ┌─────────── create_market ───────────┐
-           │                                     │
-           ▼                                     ▼
-    [ Open / Trading ]                    [ Dual-Signature ]
-           │                          Creator & Oracle Co-sign
-           │  (market_expiry)
-           ▼
-[ Resolution Window ] ── (100,000s)
-│               │
-resolve_market    void_market (Oracle or Timeout)
-│               │
-▼               ▼
-[ Resolved ]     [ Voided / Burn ]
-1:1 Payout        2:1 Refund
-
+```
+               ┌─────────── create_market ───────────┐
+               │                                     │
+               ▼                                     ▼
+        [ Open / Trading ]                    [ Dual-Signature ]
+               │                          Creator & Oracle Co-sign
+               │  (market_expiry)
+               ▼
+      [ Resolution Window ] ── (100,000s)
+         │               │
+  resolve_market    void_market (Oracle or Timeout)
+         │               │
+         ▼               ▼
+    [ Resolved ]     [ Voided / Burn ]
+      1:1 Payout        2:1 Refund
+```
 
 - **Co-Signing Requirement**: `create_market` requires cryptographic signatures from both the `creator` and the designated `oracle`.
 - **Oracle Separation Invariant**: To eliminate insider frontrunning and outcome manipulation, the oracle public key is **strictly prevented by on-chain constraints** from executing bets, swaps, or liquidity actions within that specific market.
@@ -96,17 +97,20 @@ anchor build
 
 # Execute localnet test suite (including full_round lifecycle)
 anchor test
-Key Test Coverage:
-Account Constraint Validation: Verifying unauthorized accounts cannot resolve markets.
+```
 
-Oracle Isolation: Confirming the oracle address is rejected when attempting user_bet_on.
+### Key Test Coverage:
+* **Account Constraint Validation**: Verifying unauthorized accounts cannot resolve markets.
+* **Oracle Isolation**: Confirming the oracle address is rejected when attempting `user_bet_on`.
+* **Resolution & Void Edge Cases**: Testing 1:1 payout math, 2:1 void redemption, and window timeout boundaries.
 
-Resolution & Void Edge Cases: Testing 1:1 payout math, 2:1 void redemption, and window timeout boundaries.
+---
 
-🚀 Running the Client
+## 🚀 Running the Client
+
 The client connects directly to Solana RPC endpoints without intermediary servers.
 
-Bash
+```bash
 # Navigate to the client directory
 cd app
 
@@ -118,4 +122,6 @@ cp .env.example .env.local
 
 # Start development server
 npm run dev
-Point your Phantom or Solflare wallet to Solana Devnet. Ensure your active wallet holds Devnet SOL and the designated collateral mint for initialization and betting interactions.
+```
+
+Point your Phantom or Solflare wallet to **Solana Devnet**. Ensure your active wallet holds Devnet SOL and the designated collateral mint for initialization and betting interactions.
