@@ -14,7 +14,7 @@ import {
   User,
 } from "./helpers";
 
-describe("裁决 resolve_market", () => {
+describe("resolve resolve_market", () => {
   let env: TestEnv;
   let house: User;
   let mint: PublicKey;
@@ -25,7 +25,7 @@ describe("裁决 resolve_market", () => {
     mint = await createCollateralMint(env);
   });
 
-  it("过期后 oracle 可以公布赢家", async () => {
+  it("after expiry the oracle can publish the winner", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
@@ -34,11 +34,11 @@ describe("裁决 resolve_market", () => {
     });
     await sendResolveMarket(env, house, market, "no");
     const onchain = await fetchMarket(env, market);
-    sameJson(onchain.status, { resolved: {} }, "状态应是 Resolved");
-    sameJson(onchain.winner, { no: {} }, "赢家应是 No");
+    sameJson(onchain.status, { resolved: {} }, "status should be Resolved");
+    sameJson(onchain.winner, { no: {} }, "winner should be No");
   });
 
-  it("没到过期时间不能裁决", async () => {
+  it("cannot resolve before expiry", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
@@ -51,22 +51,22 @@ describe("裁决 resolve_market", () => {
     );
   });
 
-  it("不是 oracle 不能裁决", async () => {
+  it("non-oracle cannot resolve", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
       collateralAmount: tokens(10),
       alreadyExpired: true,
     });
-    const stranger = await newUser(env, "路人");
+    const stranger = await newUser(env, "stranger");
     await assertTxFails(
       () => sendResolveMarket(env, stranger, market, "yes"),
       "Unauthorized"
     );
   });
 
-  it("开盘人不是 oracle 时不能裁决，指定的 oracle 可以", async () => {
-    const oracle = await newUser(env, "预言机");
+  it("creator cannot resolve unless they are oracle; the designated oracle can", async () => {
+    const oracle = await newUser(env, "oracle");
     const market = await makeOpenMarket(env, {
       creator: house,
       oracle,
@@ -80,11 +80,11 @@ describe("裁决 resolve_market", () => {
     );
     await sendResolveMarket(env, oracle, market, "yes");
     const onchain = await fetchMarket(env, market);
-    sameJson(onchain.status, { resolved: {} }, "oracle 应能裁决");
-    sameJson(onchain.winner, { yes: {} }, "赢家应是 Yes");
+    sameJson(onchain.status, { resolved: {} }, "oracle should be able to resolve");
+    sameJson(onchain.winner, { yes: {} }, "winner should be Yes");
   });
 
-  it.skip("裁决窗关闭后不能再判 Yes/No（建盘禁止过去的 expiry 后，100000 秒窗口测不了）", async () => {
+  it.skip("cannot resolve Yes/No after the window (create_market rejects past expiry, 100000s window is untestable)", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
@@ -97,7 +97,7 @@ describe("裁决 resolve_market", () => {
     );
   });
 
-  it("已经裁决过的盘口不能再裁决", async () => {
+  it("an already resolved market cannot be resolved again", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,

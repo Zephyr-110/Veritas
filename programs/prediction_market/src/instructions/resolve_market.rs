@@ -29,6 +29,6 @@ pub fn resolve_market(ctx: Context<ResolveMarket>, market_winner: MarketOutcome)
     let market = &mut ctx.accounts.market;
     market.winner = market_winner;
     market.status = MarketStatus::Resolved;
-    msg!("盘口 {:?} 裁决完毕，赢家为 {:?} ", market.id, market.winner);
+    msg!("market {:?} resolved, winner {:?} ", market.id, market.winner);
     Ok(())
 }

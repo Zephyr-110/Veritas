@@ -18,7 +18,7 @@ import {
   waitUntilExpired,
 } from "./helpers";
 
-describe("下注 user_bet_on", () => {
+describe("bet user_bet_on", () => {
   let env: TestEnv;
   let house: User;
   let mint: PublicKey;
@@ -29,7 +29,7 @@ describe("下注 user_bet_on", () => {
     mint = await createCollateralMint(env);
   });
 
-  it("买 Yes：先拆成完整套，再把 No 卖进池子", async () => {
+  it("buy Yes: split a complete set, then sell No into the pool", async () => {
     const start = tokens(100);
     const bet = tokens(10);
     const market = await makeOpenMarket(env, {
@@ -37,7 +37,7 @@ describe("下注 user_bet_on", () => {
       collateralMint: mint,
       collateralAmount: start,
     });
-    const trader = await newFundedUser(env, "玩家", mint, bet);
+    const trader = await newFundedUser(env, "trader", mint, bet);
 
     const before = await readPosition(env, market, trader.pubkey);
     const out = quoteSwapOut(before.yesPool, before.noPool, bet);
@@ -47,15 +47,15 @@ describe("下注 user_bet_on", () => {
     });
     const after = await readPosition(env, market, trader.pubkey);
 
-    eqAmount(after.collateral, before.collateral - bet, "玩家抵押物减少");
-    eqAmount(after.vault, before.vault + bet, "金库增加");
-    eqAmount(after.no, 0n, "No 应全部卖进池子");
-    eqAmount(after.yes, bet + out, "玩家手里的 Yes = 拆套数量 + 换出数量");
-    eqAmount(after.yesPool, before.yesPool - out, "Yes 池减少兑出量");
-    eqAmount(after.noPool, before.noPool + bet, "No 池吃进卖出的 No");
+    eqAmount(after.collateral, before.collateral - bet, "trader collateral decreases");
+    eqAmount(after.vault, before.vault + bet, "vault increases");
+    eqAmount(after.no, 0n, "all No should be sold into the pool");
+    eqAmount(after.yes, bet + out, "trader Yes = split amount + swap output");
+    eqAmount(after.yesPool, before.yesPool - out, "Yes pool decreases by the output");
+    eqAmount(after.noPool, before.noPool + bet, "No pool takes in the sold No");
   });
 
-  it("买 No：对称路径成立", async () => {
+  it("buy No: the symmetric path holds", async () => {
     const start = tokens(100);
     const bet = tokens(8);
     const market = await makeOpenMarket(env, {
@@ -63,7 +63,7 @@ describe("下注 user_bet_on", () => {
       collateralMint: mint,
       collateralAmount: start,
     });
-    const trader = await newFundedUser(env, "玩家", mint, bet);
+    const trader = await newFundedUser(env, "trader", mint, bet);
     const before = await readPosition(env, market, trader.pubkey);
     const out = quoteSwapOut(before.noPool, before.yesPool, bet);
 
@@ -73,19 +73,19 @@ describe("下注 user_bet_on", () => {
     });
     const after = await readPosition(env, market, trader.pubkey);
 
-    eqAmount(after.yes, 0n, "Yes 应全部卖进池子");
-    eqAmount(after.no, bet + out, "玩家手里的 No");
-    eqAmount(after.noPool, before.noPool - out, "No 池减少兑出量");
-    eqAmount(after.yesPool, before.yesPool + bet, "Yes 池吃进卖出的 Yes");
+    eqAmount(after.yes, 0n, "all Yes should be sold into the pool");
+    eqAmount(after.no, bet + out, "trader No balance");
+    eqAmount(after.noPool, before.noPool - out, "No pool decreases by the output");
+    eqAmount(after.yesPool, before.yesPool + bet, "Yes pool takes in the sold Yes");
   });
 
-  it("下注数量为 0 会失败", async () => {
+  it("a zero bet fails", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
       collateralAmount: tokens(10),
     });
-    const trader = await newFundedUser(env, "玩家", mint, tokens(1));
+    const trader = await newFundedUser(env, "trader", mint, tokens(1));
     await assertTxFails(
       () =>
         sendUserBetOn(env, trader, market, {
@@ -96,13 +96,13 @@ describe("下注 user_bet_on", () => {
     );
   });
 
-  it("minOut 过大时触发滑点保护", async () => {
+  it("minOut too high triggers slippage protection", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
       collateralAmount: tokens(50),
     });
-    const trader = await newFundedUser(env, "玩家", mint, tokens(5));
+    const trader = await newFundedUser(env, "trader", mint, tokens(5));
     await assertTxFails(
       () =>
         sendUserBetOn(env, trader, market, {
@@ -114,7 +114,7 @@ describe("下注 user_bet_on", () => {
     );
   });
 
-  it("盘口已裁决后不能再下注", async () => {
+  it("cannot bet after the market is resolved", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
@@ -122,7 +122,7 @@ describe("下注 user_bet_on", () => {
       alreadyExpired: true,
     });
     await sendResolveMarket(env, house, market, "yes");
-    const trader = await newFundedUser(env, "玩家", mint, tokens(1));
+    const trader = await newFundedUser(env, "trader", mint, tokens(1));
     await assertTxFails(
       () =>
         sendUserBetOn(env, trader, market, {
@@ -133,14 +133,14 @@ describe("下注 user_bet_on", () => {
     );
   });
 
-  it("过期但未裁决时不能下注", async () => {
+  it("cannot bet after expiry if unresolved", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
       collateralAmount: tokens(10),
       expireInSeconds: 2,
     });
-    const trader = await newFundedUser(env, "玩家", mint, tokens(1));
+    const trader = await newFundedUser(env, "trader", mint, tokens(1));
     await waitUntilExpired(env, market);
     await assertTxFails(
       () =>
@@ -152,7 +152,7 @@ describe("下注 user_bet_on", () => {
     );
   });
 
-  it("拿别的盘口的金库来下注会被 seeds 约束拦下", async () => {
+  it("betting with another market's vault is rejected by seeds", async () => {
     const marketA = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
@@ -165,9 +165,9 @@ describe("下注 user_bet_on", () => {
     });
     assert.ok(
       !marketA.collateralVault.equals(marketB.collateralVault),
-      "两个盘口的金库地址必须不同，否则本用例无意义"
+      "vaults of the two markets must differ, otherwise this case is meaningless"
     );
-    const trader = await newFundedUser(env, "玩家", mint, tokens(1));
+    const trader = await newFundedUser(env, "trader", mint, tokens(1));
     await assertTxFails(
       () =>
         sendUserBetOn(env, trader, marketA, {
@@ -178,9 +178,9 @@ describe("下注 user_bet_on", () => {
       "ConstraintSeeds"
     );
   });
-  it("预言机不能下注，开盘人可以", async () => {
-    const oracle = await newFundedUser(env, "预言机", mint, tokens(2));
-    const creator = await newFundedUser(env, "开盘人", mint, tokens(30));
+  it("oracle cannot bet; creator can", async () => {
+    const oracle = await newFundedUser(env, "oracle", mint, tokens(2));
+    const creator = await newFundedUser(env, "creator", mint, tokens(30));
     const market = await makeOpenMarket(env, {
       creator,
       oracle,
@@ -200,6 +200,6 @@ describe("下注 user_bet_on", () => {
       tokenType: "yes",
     });
     const pos = await readPosition(env, market, creator.pubkey);
-    assert.ok(pos.yes > 0n, "开盘人应能拿到 Yes");
+    assert.ok(pos.yes > 0n, "creator should receive Yes");
   });
 });

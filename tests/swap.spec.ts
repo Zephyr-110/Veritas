@@ -20,7 +20,7 @@ import {
   waitUntilExpired,
 } from "./helpers";
 
-describe("换汇 swap", () => {
+describe("swap", () => {
   let env: TestEnv;
   let house: User;
   let mint: PublicKey;
@@ -31,13 +31,13 @@ describe("换汇 swap", () => {
     mint = await createCollateralMint(env);
   });
 
-  it("把手里的 Yes 换成 No，数量按恒定乘积公式走", async () => {
+  it("swap Yes for No; amount follows the constant-product formula", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
       collateralAmount: tokens(100),
     });
-    const trader = await newFundedUser(env, "玩家", mint, tokens(20));
+    const trader = await newFundedUser(env, "trader", mint, tokens(20));
     await sendUserBetOn(env, trader, market, {
       collateralAmount: tokens(20),
       tokenType: "yes",
@@ -52,13 +52,13 @@ describe("换汇 swap", () => {
     });
     const after = await readPosition(env, market, trader.pubkey);
 
-    eqAmount(after.yes, before.yes - sellYes, "Yes 减少卖出量");
-    eqAmount(after.no, before.no + out, "No 增加兑出量");
-    eqAmount(after.yesPool, before.yesPool + sellYes, "Yes 池吃进");
-    eqAmount(after.noPool, before.noPool - out, "No 池兑出");
+    eqAmount(after.yes, before.yes - sellYes, "Yes decreases by the sold amount");
+    eqAmount(after.no, before.no + out, "No increases by the output");
+    eqAmount(after.yesPool, before.yesPool + sellYes, "Yes pool takes in");
+    eqAmount(after.noPool, before.noPool - out, "No pool output");
   });
 
-  it("0 位精度抵押币下，换汇结果仍与公式一致", async () => {
+  it("with 0-decimal collateral, swap output still matches the formula", async () => {
     const mint0 = await createCollateralMint(env, 0);
     const market = await makeOpenMarket(env, {
       creator: house,
@@ -66,7 +66,7 @@ describe("换汇 swap", () => {
       collateralAmount: tokens(100, 0),
       decimals: 0,
     });
-    const trader = await newFundedUser(env, "玩家", mint0, tokens(20, 0));
+    const trader = await newFundedUser(env, "trader", mint0, tokens(20, 0));
     await sendUserBetOn(env, trader, market, {
       collateralAmount: tokens(20, 0),
       tokenType: "yes",
@@ -75,28 +75,28 @@ describe("换汇 swap", () => {
     const before = await readPosition(env, market, trader.pubkey);
     const sellYes = tokens(5, 0);
     const out = quoteSwapOut(before.noPool, before.yesPool, sellYes);
-    assert.ok(out > 0n, "5 个最小单位应兑出非零");
+    assert.ok(out > 0n, "5 units should yield a non-zero output");
     await sendSwap(env, trader, market, {
       amountIn: sellYes,
       tokenType: "no",
     });
     const after = await readPosition(env, market, trader.pubkey);
-    eqAmount(after.no, before.no + out, "兑出量与公式一致");
+    eqAmount(after.no, before.no + out, "output matches the formula");
   });
 
-  it("输入小于手续费粒度时兑出为 0，被滑点保护拦下", async () => {
+  it("input below fee granularity yields 0 and is blocked by slippage", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
       collateralAmount: tokens(100),
     });
-    const trader = await newFundedUser(env, "玩家", mint, tokens(1));
+    const trader = await newFundedUser(env, "trader", mint, tokens(1));
     await sendUserBetOn(env, trader, market, {
       collateralAmount: tokens(1),
       tokenType: "yes",
     });
     const before = await readPosition(env, market, trader.pubkey);
-    eqAmount(quoteSwapOut(before.noPool, before.yesPool, 1n), 0n, "1 个最小单位应兑不出");
+    eqAmount(quoteSwapOut(before.noPool, before.yesPool, 1n), 0n, "1 unit should not redeem anything");
     await assertTxFails(
       () =>
         sendSwap(env, trader, market, {
@@ -107,13 +107,13 @@ describe("换汇 swap", () => {
     );
   });
 
-  it("余额不够时换汇失败", async () => {
+  it("swap fails when balance is insufficient", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
       collateralAmount: tokens(50),
     });
-    const trader = await newFundedUser(env, "玩家", mint, tokens(5));
+    const trader = await newFundedUser(env, "trader", mint, tokens(5));
     await sendUserBetOn(env, trader, market, {
       collateralAmount: tokens(5),
       tokenType: "yes",
@@ -128,13 +128,13 @@ describe("换汇 swap", () => {
     );
   });
 
-  it("minOut 过大时触发滑点保护", async () => {
+  it("minOut too high triggers slippage protection", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
       collateralAmount: tokens(50),
     });
-    const trader = await newFundedUser(env, "玩家", mint, tokens(5));
+    const trader = await newFundedUser(env, "trader", mint, tokens(5));
     await sendUserBetOn(env, trader, market, {
       collateralAmount: tokens(5),
       tokenType: "yes",
@@ -150,13 +150,13 @@ describe("换汇 swap", () => {
     );
   });
 
-  it("minOut 恰好等于公式输出时，换汇成功", async () => {
+  it("swap succeeds when minOut equals the formula output exactly", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
       collateralAmount: tokens(100),
     });
-    const trader = await newFundedUser(env, "玩家", mint, tokens(20));
+    const trader = await newFundedUser(env, "trader", mint, tokens(20));
     await sendUserBetOn(env, trader, market, {
       collateralAmount: tokens(20),
       tokenType: "yes",
@@ -165,7 +165,7 @@ describe("换汇 swap", () => {
     const before = await readPosition(env, market, trader.pubkey);
     const sellYes = tokens(5);
     const out = quoteSwapOut(before.noPool, before.yesPool, sellYes);
-    assert.ok(out > 0n, "本用例需要一个非零兑出量");
+    assert.ok(out > 0n, "this case needs a non-zero output");
     await sendSwap(env, trader, market, {
       amountIn: sellYes,
       tokenType: "no",
@@ -173,17 +173,17 @@ describe("换汇 swap", () => {
     });
     const after = await readPosition(env, market, trader.pubkey);
 
-    eqAmount(after.no, before.no + out, "恰好达标的 minOut 应放行");
-    eqAmount(after.noPool, before.noPool - out, "No 池兑出");
+    eqAmount(after.no, before.no + out, "minOut that exactly matches should pass");
+    eqAmount(after.noPool, before.noPool - out, "No pool output");
   });
 
-  it("池子明显倾斜时，兑出量仍与公式一致且不为 0", async () => {
+  it("when pools are clearly skewed, output still matches the formula and is non-zero", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
       collateralAmount: tokens(5000),
     });
-    const trader = await newFundedUser(env, "小散", mint, tokens(5));
+    const trader = await newFundedUser(env, "retail", mint, tokens(5));
     await sendUserBetOn(env, trader, market, {
       collateralAmount: tokens(5),
       tokenType: "yes",
@@ -192,24 +192,24 @@ describe("换汇 swap", () => {
     const before = await readPosition(env, market, trader.pubkey);
     const sellYes = tokens(5);
     const out = quoteSwapOut(before.noPool, before.yesPool, sellYes);
-    assert.ok(out > 0n, "小单换汇不应被取整吞没");
+    assert.ok(out > 0n, "a tiny swap should not be rounded to zero");
     await sendSwap(env, trader, market, {
       amountIn: sellYes,
       tokenType: "no",
     });
     const after = await readPosition(env, market, trader.pubkey);
-    eqAmount(after.no, before.no + out, "兑出量与公式一致");
-    eqAmount(after.noPool, before.noPool - out, "No 池兑出");
+    eqAmount(after.no, before.no + out, "output matches the formula");
+    eqAmount(after.noPool, before.noPool - out, "No pool output");
   });
 
-  it("过期但未裁决时不能换汇", async () => {
+  it("cannot swap after expiry if unresolved", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
       collateralAmount: tokens(10),
       expireInSeconds: 2,
     });
-    const trader = await newFundedUser(env, "玩家", mint, tokens(1));
+    const trader = await newFundedUser(env, "trader", mint, tokens(1));
     await openTokenAccount(env, market.yesMint, trader.pubkey);
     await openTokenAccount(env, market.noMint, trader.pubkey);
     await waitUntilExpired(env, market);
@@ -223,7 +223,7 @@ describe("换汇 swap", () => {
     );
   });
 
-  it("裁决后不能换汇", async () => {
+  it("cannot swap after resolve", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
@@ -231,7 +231,7 @@ describe("换汇 swap", () => {
       alreadyExpired: true,
     });
     await sendResolveMarket(env, house, market, "yes");
-    const trader = await newFundedUser(env, "玩家", mint, tokens(1));
+    const trader = await newFundedUser(env, "trader", mint, tokens(1));
     await openTokenAccount(env, market.yesMint, trader.pubkey);
     await openTokenAccount(env, market.noMint, trader.pubkey);
     await assertTxFails(

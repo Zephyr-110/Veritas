@@ -5,17 +5,17 @@ use crate::state::*;
 #[account]
 #[derive(InitSpace)]
 pub struct Market {
-    pub oracle: Pubkey, // 谁有权公布结果
-    pub expiry: u64, // 过期时间，是否过期我们要在program手动校验，需要外边传
-    pub creator: Pubkey, // 庄主
+    pub oracle: Pubkey, // who is allowed to publish the result
+    pub expiry: u64, // expiry; the program must check it, caller has to pass it in
+    pub creator: Pubkey, // the house
     pub id: [u8; 16],
     pub bump: u8,
-    pub yes_mint: Pubkey, // 亲儿子地址
-    pub no_mint: Pubkey, // 亲儿子地址
-    pub status: MarketStatus, // 当前状态
-    pub collateral_mint: Pubkey, // 用什么币结算
-    pub winner: MarketOutcome, // 赢家是谁
-    pub market_collateral_bump: u8, // 盘口抵押物扰动值
+    pub yes_mint: Pubkey, // the market's own mint
+    pub no_mint: Pubkey, // the market's own mint
+    pub status: MarketStatus, // current status
+    pub collateral_mint: Pubkey, // which token is used for settlement
+    pub winner: MarketOutcome, // who won
+    pub market_collateral_bump: u8, // market collateral bump
     pub prediction: [u8; 64],
 }
 

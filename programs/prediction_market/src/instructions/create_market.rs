@@ -12,9 +12,9 @@ use anchor_spl::token_interface::*;
 #[instruction(param: CreateMarketParams)]
 pub struct CreateMarket<'info> {
     #[account(mut)]
-    pub creator: Signer<'info>, // 庄主
+    pub creator: Signer<'info>, // the house
 
-    pub oracle: Signer<'info>, // 裁决者
+    pub oracle: Signer<'info>, // resolver
 
     #[account(
         init,
@@ -23,9 +23,9 @@ pub struct CreateMarket<'info> {
         seeds = [b"market", param.market_id.as_ref()],
         bump
     )]
-    pub market: Box<Account<'info, Market>>, // 盘口
+    pub market: Box<Account<'info, Market>>, // the market
 
-    pub collateral_mint: Box<InterfaceAccount<'info, Mint>>, // 抵押物铸币厂账户，不需要限制抵押物，也不需要限制开盘者
+    pub collateral_mint: Box<InterfaceAccount<'info, Mint>>, // collateral mint; no restriction on which collateral or who creates
 
     #[account(
         init,
@@ -35,7 +35,7 @@ pub struct CreateMarket<'info> {
         seeds = [b"lp_mint", market.key().as_ref()],
         bump
     )]
-    pub lp_mint: Box<InterfaceAccount<'info, Mint>>, // 份额币铸币厂
+    pub lp_mint: Box<InterfaceAccount<'info, Mint>>, // LP mint
 
     #[account(
         init,
@@ -45,7 +45,7 @@ pub struct CreateMarket<'info> {
         seeds = [b"yes_mint", market.key().as_ref()],
         bump
     )]
-    pub yes_mint: Box<InterfaceAccount<'info, Mint>>, // Yes 币
+    pub yes_mint: Box<InterfaceAccount<'info, Mint>>, // Yes token
 
     #[account(
         init,
@@ -55,7 +55,7 @@ pub struct CreateMarket<'info> {
         seeds = [b"no_mint", market.key().as_ref()],
         bump
     )]
-    pub no_mint: Box<InterfaceAccount<'info, Mint>>, // No 币
+    pub no_mint: Box<InterfaceAccount<'info, Mint>>, // No token
 
     #[account(
         init,
@@ -64,7 +64,7 @@ pub struct CreateMarket<'info> {
         associated_token::authority = creator,
         associated_token::token_program = token_program
     )]
-    pub lp_creator_ata: Box<InterfaceAccount<'info, TokenAccount>>, // 开盘者的份额币 ATA
+    pub lp_creator_ata: Box<InterfaceAccount<'info, TokenAccount>>, // creator LP ATA
 
     #[account(
         init,
@@ -74,7 +74,7 @@ pub struct CreateMarket<'info> {
         seeds = [b"collateral_vault", market.key().as_ref()],
         bump
     )]
-    pub collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>, // 抵押物池
+    pub collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>, // collateral vault
 
     #[account(
         mut,
@@ -82,7 +82,7 @@ pub struct CreateMarket<'info> {
         associated_token::authority = creator,
         associated_token::token_program = token_program
     )]
-    pub creator_collateral_ata: Box<InterfaceAccount<'info, TokenAccount>>, // 开盘者抵押物 ATA，因为要注资，所以加上
+    pub creator_collateral_ata: Box<InterfaceAccount<'info, TokenAccount>>, // creator collateral ATA, included because initial liquidity is deposited
 
     #[account(
         init,
@@ -92,7 +92,7 @@ pub struct CreateMarket<'info> {
         seeds = [b"yes_pool", market.key().as_ref()],
         bump
     )]
-    pub yes_pool: Box<InterfaceAccount<'info, TokenAccount>>, // Yes 币池
+    pub yes_pool: Box<InterfaceAccount<'info, TokenAccount>>, // Yes pool
 
     #[account(
         init,
@@ -102,7 +102,7 @@ pub struct CreateMarket<'info> {
         seeds = [b"no_pool", market.key().as_ref()],
         bump
     )]
-    pub no_pool: Box<InterfaceAccount<'info, TokenAccount>>, // No 币池
+    pub no_pool: Box<InterfaceAccount<'info, TokenAccount>>, // No pool
 
     pub clock: Sysvar<'info, Clock>,
 
@@ -125,7 +125,7 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
     require!(param.expiry != u64::MAX && param.expiry > (ctx.accounts.clock.unix_timestamp as u64), ErrorCode::InvalidAmount);
     require!(param.collateral_amount > 0, ErrorCode::InvalidAmount);
 
-    // ===================== 先给字段赋值 =====================
+    // ===================== assign fields first =====================
 
     let market = &mut ctx.accounts.market;
     market.creator = ctx.accounts.creator.key();
@@ -139,11 +139,11 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
     market.collateral_mint = ctx.accounts.collateral_mint.key();
     market.market_collateral_bump = ctx.bumps.collateral_vault;
     market.prediction = param.prediction;
-    msg!("建盘---------");
+    msg!("create market---------");
     msg!("Market ID：{:?}", param.market_id);
-    msg!("建盘 Collateral 为：{:?}", market.collateral_mint.key());
+    msg!("create market collateral: {:?}", market.collateral_mint.key());
 
-    // ===================== 给抵押物池转账 =====================
+    // ===================== transfer into the collateral vault =====================
 
     let decimals = ctx.accounts.collateral_mint.decimals;
 
@@ -156,12 +156,12 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
     let collateral_cpi_program = ctx.accounts.token_program.key();
     let collateral_cpi_context = CpiContext::new(collateral_cpi_program, collateral_cpi_account);
     transfer_checked(collateral_cpi_context, param.collateral_amount, decimals)?;
-    msg!("建盘---------");
-    msg!("庄家给该盘注资 {:?} ", param.collateral_amount);
+    msg!("create market---------");
+    msg!("house seeded the market with {:?} ", param.collateral_amount);
 
-    // ===================== 往池子里倒币 =====================
+    // ===================== mint tokens into the pools =====================
 
-    // 1.Yes 币
+    // 1.Yes token
     let yes_cpi_account = MintTo {
         mint: ctx.accounts.yes_mint.to_account_info(),
         to: ctx.accounts.yes_pool.to_account_info(),
@@ -175,10 +175,10 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
         seeds
     );
     mint_to(yes_cpi_context, param.collateral_amount)?;
-    msg!("建盘---------");
-    msg!("庄家入池 Yes 币 {:?} 个", param.collateral_amount);
+    msg!("create market---------");
+    msg!("house added {:?} Yes to the pool", param.collateral_amount);
 
-    // 2.No 币
+    // 2.No token
     let no_cpi_account = MintTo {
         mint: ctx.accounts.no_mint.to_account_info(),
         to: ctx.accounts.no_pool.to_account_info(),
@@ -191,10 +191,10 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
         seeds
     );
     mint_to(no_cpi_context, param.collateral_amount)?;
-    msg!("建盘---------");
-    msg!("庄家入池 No 币 {:?} 个", param.collateral_amount);
+    msg!("create market---------");
+    msg!("house added {:?} No to the pool", param.collateral_amount);
 
-    // ===================== 铸份额币 =====================
+    // ===================== mint LP =====================
 
     let lp_cpi_account = MintTo {
         mint: ctx.accounts.lp_mint.to_account_info(),
@@ -208,8 +208,8 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
         seeds
     );
     mint_to(lp_cpi_context, param.collateral_amount)?;
-    msg!("建盘---------");
-    msg!("庄家得到 份额 币 {:?} 个", param.collateral_amount);
+    msg!("create market---------");
+    msg!("house received {:?} LP", param.collateral_amount);
 
     Ok(())
 }

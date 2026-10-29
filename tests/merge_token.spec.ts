@@ -23,7 +23,7 @@ import {
   waitUntilExpired,
 } from "./helpers";
 
-describe("合并代币 merge_token", () => {
+describe("merge tokens merge_token", () => {
   let env: TestEnv;
   let house: User;
   let mint: PublicKey;
@@ -34,13 +34,13 @@ describe("合并代币 merge_token", () => {
     mint = await createCollateralMint(env);
   });
 
-  it("同时烧掉 1 Yes + 1 No，金库按 1:1 退抵押物", async () => {
+  it("burn 1 Yes + 1 No together, vault returns collateral 1:1", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
       collateralAmount: tokens(100),
     });
-    const trader = await newFundedUser(env, "玩家", mint, tokens(20));
+    const trader = await newFundedUser(env, "trader", mint, tokens(20));
     await sendUserBetOn(env, trader, market, {
       collateralAmount: tokens(20),
       tokenType: "yes",
@@ -58,33 +58,33 @@ describe("合并代币 merge_token", () => {
     await sendMergeToken(env, trader, market, mergeAmount);
     const after = await readPosition(env, market, trader.pubkey);
 
-    eqAmount(after.yes, before.yes - mergeAmount, "Yes 烧掉合并量");
-    eqAmount(after.no, before.no - mergeAmount, "No 烧掉合并量");
+    eqAmount(after.yes, before.yes - mergeAmount, "Yes burned equals the merge amount");
+    eqAmount(after.no, before.no - mergeAmount, "No burned equals the merge amount");
     eqAmount(
       after.collateral,
       before.collateral + mergeAmount,
-      "玩家拿回等额抵押物"
+      "trader gets equal collateral back"
     );
-    eqAmount(after.vault, before.vault - mergeAmount, "金库减少等额抵押物");
+    eqAmount(after.vault, before.vault - mergeAmount, "vault decreases by equal collateral");
     eqAmount(
       await mintSupply(env, market.yesMint),
       await mintSupply(env, market.noMint),
-      "合并后两币供给仍相等"
+      "after merge, both supplies stay equal"
     );
     eqAmount(
       after.vault,
       await mintSupply(env, market.yesMint),
-      "金库应等于单边总供给"
+      "vault should equal one-side total supply"
     );
   });
 
-  it("只有单边代币时不能合并", async () => {
+  it("cannot merge with only one side", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
       collateralAmount: tokens(50),
     });
-    const trader = await newFundedUser(env, "玩家", mint, tokens(5));
+    const trader = await newFundedUser(env, "trader", mint, tokens(5));
     await sendUserBetOn(env, trader, market, {
       collateralAmount: tokens(5),
       tokenType: "yes",
@@ -95,14 +95,14 @@ describe("合并代币 merge_token", () => {
     );
   });
 
-  it("裁决后仍可合并：两种币各烧一枚，退回一份抵押物", async () => {
+  it("merge still works after resolve: burn one of each, return one collateral", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
       collateralAmount: tokens(50),
       expireInSeconds: 20,
     });
-    const trader = await newFundedUser(env, "玩家", mint, tokens(10));
+    const trader = await newFundedUser(env, "trader", mint, tokens(10));
     await sendUserBetOn(env, trader, market, {
       collateralAmount: tokens(10),
       tokenType: "yes",
@@ -127,21 +127,21 @@ describe("合并代币 merge_token", () => {
     eqAmount(
       after.collateral,
       before.collateral + mergeAmount,
-      "裁决后合并仍退回等额抵押物"
+      "merge after resolve still returns equal collateral"
     );
-    eqAmount(after.vault, before.vault - mergeAmount, "金库减少等额");
+    eqAmount(after.vault, before.vault - mergeAmount, "vault decreases by the same amount");
     eqAmount(
       await mintSupply(env, market.yesMint),
       yesSupplyBefore - mergeAmount,
-      "Yes 供给同步减少"
+      "Yes supply decreases in lockstep"
     );
     eqAmount(
       await mintSupply(env, market.noMint),
       noSupplyBefore - mergeAmount,
-      "No 供给同步减少"
+      "No supply decreases in lockstep"
     );
   });
-  it("作废后仍可合并完整套，1 Yes + 1 No 换 1 抵押物", async () => {
+  it("after void, a complete set still merges: 1 Yes + 1 No for 1 collateral", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
@@ -155,21 +155,21 @@ describe("合并代币 merge_token", () => {
     await sendGetLiquidity(env, house, market, beforeWithdraw.lp);
     const before = await readPosition(env, market, house.pubkey);
     const mergeAmount = before.yes < before.no ? before.yes : before.no;
-    assert.ok(mergeAmount > 0n, "撤份额后应有可合并的完整套");
+    assert.ok(mergeAmount > 0n, "after LP withdraw there should be a complete set to merge");
     await sendMergeToken(env, house, market, mergeAmount);
     const after = await readPosition(env, market, house.pubkey);
-    eqAmount(after.yes, before.yes - mergeAmount, "Yes 应烧掉");
-    eqAmount(after.no, before.no - mergeAmount, "No 应烧掉");
+    eqAmount(after.yes, before.yes - mergeAmount, "Yes should be burned");
+    eqAmount(after.no, before.no - mergeAmount, "No should be burned");
     eqAmount(
       after.collateral,
       before.collateral + mergeAmount,
-      "合并应兑出等额抵押物"
+      "merge should return equal collateral"
     );
   });
 });
 
 function assertEnoughBoth(yes: bigint, no: bigint) {
   if (yes === 0n || no === 0n) {
-    throw new Error("换汇后玩家应该同时持有 Yes 和 No，才能测合并");
+    throw new Error("after swap the trader should hold both Yes and No, or merge cannot be tested");
   }
 }

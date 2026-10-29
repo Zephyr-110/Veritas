@@ -28,7 +28,7 @@ export function extraSigners(
 
 export function getHouse(env: TestEnv): User {
   return {
-    name: "庄家",
+    name: "house",
     keypair: env.payer,
     pubkey: env.payerPubkey,
   };

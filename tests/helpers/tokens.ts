@@ -171,6 +171,6 @@ export function eqAmount(
   const left = actual.toString();
   const right = expected.toString();
   if (left !== right) {
-    throw new Error(`${message}\n实际: ${left}\n期望: ${right}`);
+    throw new Error(`${message}\nactual: ${left}\nexpected: ${right}`);
   }
 }

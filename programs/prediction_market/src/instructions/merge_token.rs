@@ -27,7 +27,7 @@ pub struct MergeToken<'info> {
     pub collateral_ata: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(address = market.collateral_mint)]
-    pub collateral_mint: Box<InterfaceAccount<'info, Mint>>,// 存放用户抵押物 ATA
+    pub collateral_mint: Box<InterfaceAccount<'info, Mint>>,// user collateral ATA
 
     #[account(
         mut,
@@ -82,9 +82,9 @@ pub fn merge_token(ctx: Context<MergeToken>, merge_amount: u64) -> Result<()> {
     require!(merge_amount > 0, ErrorCode::InvalidAmount);
     require!(input_or, ErrorCode::InsufficientBalance);
 
-    // ======================== 合并 Token ========================
+    // ======================== merge tokens ========================
 
-    // 1. 先把代币销毁
+    // 1. burn the tokens first
 
     // Yes
     let yes_cpi_account = Burn {
@@ -106,7 +106,7 @@ pub fn merge_token(ctx: Context<MergeToken>, merge_amount: u64) -> Result<()> {
     let no_cpi_context = CpiContext::new(no_cpi_program, no_cpi_account);
     burn(no_cpi_context, merge_amount)?;
 
-    // 2. 给用户取钱
+    // 2. pay the user
     let collateral_seeds: &[&[&[u8]]] = &[&[b"market", ctx.accounts.market.id.as_ref(), &[ctx.accounts.market.bump]]];
     let collateral_cpi_account = TransferChecked {
         from: ctx.accounts.collateral_vault.to_account_info(),
@@ -120,8 +120,8 @@ pub fn merge_token(ctx: Context<MergeToken>, merge_amount: u64) -> Result<()> {
         collateral_cpi_account,
         collateral_seeds,
     );
-    msg!("合并代币---------");
-    msg!("用户{:?}合并了 {:?} 个代币", ctx.accounts.signer.key(), merge_amount);
+    msg!("merge tokens---------");
+    msg!("user {:?} merged {:?} tokens", ctx.accounts.signer.key(), merge_amount);
     transfer_checked(collateral_cpi_context, merge_amount, ctx.accounts.collateral_mint.decimals)?;
     Ok(())
 }

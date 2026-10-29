@@ -35,7 +35,7 @@ pub struct GetCollateral<'info> {
     pub token_ata: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(address = market.collateral_mint)]
-    pub collateral_mint: Box<InterfaceAccount<'info, Mint>>, // 抵押物铸币厂
+    pub collateral_mint: Box<InterfaceAccount<'info, Mint>>, // collateral mint
 
     #[account(
         mut,
@@ -59,7 +59,7 @@ pub fn get_collateral(ctx: Context<GetCollateral>, amount: u64, ) -> Result<()> 
     require!(amount > 0 && ctx.accounts.market.status == MarketStatus::Resolved || amount >= 2 && ctx.accounts.market.status == MarketStatus::Burn, ErrorCode::InvalidAmount);
     require!(ctx.accounts.token_ata.amount >= amount, ErrorCode::InsufficientBalance);
 
-    // 销毁代币
+    // burn tokens
     let token_cpi_account = Burn {
         mint: ctx.accounts.token_mint.to_account_info(),
         from: ctx.accounts.token_ata.to_account_info(),
@@ -71,7 +71,7 @@ pub fn get_collateral(ctx: Context<GetCollateral>, amount: u64, ) -> Result<()> 
         token_cpi_account,
     );
     burn(token_cpi_context, amount)?;
-    // 为赢家发放对应额度的抵押物
+    // pay the corresponding collateral to the winner
 
     let seeds: &[&[&[u8]]] = &[&[b"market", ctx.accounts.market.id.as_ref(), &[ctx.accounts.market.bump]]];
     let collateral_cpi_account = TransferChecked {
@@ -90,10 +90,10 @@ pub fn get_collateral(ctx: Context<GetCollateral>, amount: u64, ) -> Result<()> 
     if ctx.accounts.market.status == MarketStatus::Burn {
         let get_amount = amount.checked_div(2).unwrap();
         transfer_checked(collateral_cpi_context, get_amount, ctx.accounts.collateral_mint.decimals)?;
-        msg!("赢家 {:?} 兑换了 {:?} 枚抵押物", ctx.accounts.signer.key(), get_amount);
+        msg!("winner {:?} redeemed {:?} collateral", ctx.accounts.signer.key(), get_amount);
     } else {
         transfer_checked(collateral_cpi_context, amount, ctx.accounts.collateral_mint.decimals)?;
-        msg!("赢家 {:?} 兑换了 {:?} 枚抵押物", ctx.accounts.signer.key(), amount);
+        msg!("winner {:?} redeemed {:?} collateral", ctx.accounts.signer.key(), amount);
     }
 
     Ok(())

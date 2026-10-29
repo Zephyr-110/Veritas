@@ -24,22 +24,22 @@ export async function assertTxFails(
       assert.strictEqual(
         code,
         errorName,
-        `期望错误码 ${errorName}，实际错误码 ${code}\n${describeError(err)}`
+        `expected error ${errorName}, got ${code}\n${describeError(err)}`
       );
       return;
     }
     const text = describeError(err);
     assert.ok(
       text.includes(errorName),
-      `期望遇到 ${errorName}，实际错误是:\n${text}`
+      `expected ${errorName}, got:\n${text}`
     );
     return;
   }
-  assert.fail(`期望交易失败（${errorName}），但成功了`);
+  assert.fail(`expected tx to fail (${errorName}), but it succeeded`);
 }
 
 export function sameJson(actual: unknown, expected: unknown, message: string) {
   const left = JSON.stringify(actual);
   const right = JSON.stringify(expected);
-  assert.equal(left, right, `${message}\n实际: ${left}\n期望: ${right}`);
+  assert.equal(left, right, `${message}\nactual: ${left}\nexpected: ${right}`);
 }

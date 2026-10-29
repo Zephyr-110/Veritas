@@ -27,6 +27,6 @@ pub struct VoidMarket<'info> {
 pub fn void_market(ctx: Context<VoidMarket>) -> Result<()> {
     let market = &mut ctx.accounts.market;
     market.status = MarketStatus::Burn;
-    msg!("盘口 {:?} 销毁完毕 ", market.id);
+    msg!("market {:?} voided ", market.id);
     Ok(())
 }

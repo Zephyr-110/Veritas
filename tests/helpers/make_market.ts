@@ -14,7 +14,7 @@ import {
 import { getHouse, User } from "./users";
 import { chainUnixTime, waitUntilChainTime } from "./wait";
 
-// 与合约 constants.rs 的 RESOLVE_WINDOW 保持一致
+// keep in sync with RESOLVE_WINDOW in constants.rs
 export const RESOLVE_WINDOW = 100_000;
 
 export function toPredictionBytes(title: string): number[] {
@@ -59,7 +59,7 @@ export async function makeOpenMarket(
   const marketId = opts.marketId ?? randomMarketId();
   if (opts.windowClosed) {
     throw new Error(
-      "建盘已禁止过去的 expiry，RESOLVE_WINDOW=100000 秒，测试里等不到窗关闭"
+      "create_market rejects past expiry; RESOLVE_WINDOW=100000s, tests cannot wait out the window"
     );
   }
 
@@ -71,7 +71,7 @@ export async function makeOpenMarket(
   );
 
   const now = await chainUnixTime(env.connection);
-  // 建盘要求 expiry > now。alreadyExpired 先建马上到期的盘，再等到过期。
+  // create_market requires expiry > now. alreadyExpired creates a soon-to-expire market, then waits.
   const expiryUnix = opts.alreadyExpired
     ? now + 6
     : now + (opts.expireInSeconds ?? 3600);

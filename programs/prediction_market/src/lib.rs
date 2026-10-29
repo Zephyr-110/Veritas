@@ -28,8 +28,7 @@ pub mod prediction_market {
         instructions::add_liquidity(ctx, collateral_amount)
     }
 
-
-    /// 下注
+    /// Place a bet
     pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<()> {
         instructions::user_bet_on(ctx, param)
     }

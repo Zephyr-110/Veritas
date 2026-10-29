@@ -26,14 +26,14 @@ pub struct Swap<'info> {
         seeds = [b"yes_mint", market.key().as_ref()],
         bump
     )]
-    pub yes_mint: Box<InterfaceAccount<'info, Mint>>, // 铸币厂
+    pub yes_mint: Box<InterfaceAccount<'info, Mint>>, // mint
 
     #[account(
         mint::authority = market,
         seeds = [b"no_mint", market.key().as_ref()],
         bump
     )]
-    pub no_mint: Box<InterfaceAccount<'info, Mint>>, // 铸币厂
+    pub no_mint: Box<InterfaceAccount<'info, Mint>>, // mint
 
     #[account(
         mut,
@@ -41,7 +41,7 @@ pub struct Swap<'info> {
         associated_token::authority = signer,
         associated_token::token_program = token_program
     )]
-    pub yes_token_ata: Box<InterfaceAccount<'info, TokenAccount>>, // 用户存代币的 ATA
+    pub yes_token_ata: Box<InterfaceAccount<'info, TokenAccount>>, // user token ATA
 
     #[account(
         mut,
@@ -49,7 +49,7 @@ pub struct Swap<'info> {
         associated_token::authority = signer,
         associated_token::token_program = token_program
     )]
-    pub no_token_ata: Box<InterfaceAccount<'info, TokenAccount>>, // 用户存代币的 ATA
+    pub no_token_ata: Box<InterfaceAccount<'info, TokenAccount>>, // user token ATA
 
     #[account(
         mut,
@@ -58,7 +58,7 @@ pub struct Swap<'info> {
         seeds = [b"yes_pool", market.key().as_ref()],
         bump
     )]
-    pub yes_pool: Box<InterfaceAccount<'info, TokenAccount>>, // Yes 币池
+    pub yes_pool: Box<InterfaceAccount<'info, TokenAccount>>, // Yes pool
 
     #[account(
         mut,
@@ -67,7 +67,7 @@ pub struct Swap<'info> {
         seeds = [b"no_pool", market.key().as_ref()],
         bump
     )]
-    pub no_pool: Box<InterfaceAccount<'info, TokenAccount>>, // No 币池
+    pub no_pool: Box<InterfaceAccount<'info, TokenAccount>>, // No pool
 
     pub clock: Sysvar<'info, Clock>,
 
@@ -92,8 +92,8 @@ pub fn swap(ctx: Context<Swap>, param: SwapParams) -> Result<()> {
     let seeds: &[&[&[u8]]] = &[&[b"market", ctx.accounts.market.id.as_ref(), &[ctx.accounts.market.bump]]];
     match token_type {
         MarketOutcome::Yes => {
-            // 1. No 入池
-            require!(ctx.accounts.no_token_ata.amount >= param.amount_in, ErrorCode::InsufficientBalance); // 没有那么多钱入池直接回滚
+            // 1. No into the pool
+            require!(ctx.accounts.no_token_ata.amount >= param.amount_in, ErrorCode::InsufficientBalance); // not enough to deposit, revert
             let no_amount = param.amount_in;
             let no_input_account = TransferChecked {
                 from: ctx.accounts.no_token_ata.to_account_info(),
@@ -107,7 +107,7 @@ pub fn swap(ctx: Context<Swap>, param: SwapParams) -> Result<()> {
                 no_input_account,
             );
             transfer_checked(no_input_context, no_amount, decimals)?;
-            // 2. Yes 入账
+            // 2. Yes to the user
             let yes_amount = get_amount(yes_pool_amount, no_pool_amount, param.amount_in);
             require!(yes_amount > 0 && yes_amount >= param.min_out, ErrorCode::SlippageExceeded);
             let yes_input_account = TransferChecked {
@@ -122,13 +122,13 @@ pub fn swap(ctx: Context<Swap>, param: SwapParams) -> Result<()> {
                 seeds,
             );
             transfer_checked(yes_input_context, yes_amount, decimals)?;
-            msg!("用户换汇---------");
-            msg!("用户 {:?} 兑换 Yes 币 {:?} 个", ctx.accounts.signer.key(), yes_amount);
+            msg!("user swap---------");
+            msg!("user {:?} received {:?} Yes", ctx.accounts.signer.key(), yes_amount);
         }
 
         MarketOutcome::No => {
-            // 1. Yes 入池
-            require!(ctx.accounts.yes_token_ata.amount >= param.amount_in, ErrorCode::InsufficientBalance); // 没有那么多钱入池直接回滚
+            // 1. Yes into the pool
+            require!(ctx.accounts.yes_token_ata.amount >= param.amount_in, ErrorCode::InsufficientBalance); // not enough to deposit, revert
             let yes_amount = param.amount_in;
             let yes_input_account = TransferChecked {
                 from: ctx.accounts.yes_token_ata.to_account_info(),
@@ -156,8 +156,8 @@ pub fn swap(ctx: Context<Swap>, param: SwapParams) -> Result<()> {
                 seeds,
             );
             transfer_checked(no_input_context, no_amount, decimals)?;
-            msg!("用户下注---------");
-            msg!("用户 {:?} 兑换 No 币 {:?} 个", ctx.accounts.signer.key(), no_amount);
+            msg!("user bet---------");
+            msg!("user {:?} received {:?} No", ctx.accounts.signer.key(), no_amount);
         }
     }
     Ok(())

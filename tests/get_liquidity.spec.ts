@@ -20,7 +20,7 @@ import {
   waitUntilExpired,
 } from "./helpers";
 
-describe("撤出流动性 get_liquidity", () => {
+describe("withdraw liquidity get_liquidity", () => {
   let env: TestEnv;
   let house: User;
   let mint: PublicKey;
@@ -31,7 +31,7 @@ describe("撤出流动性 get_liquidity", () => {
     mint = await createCollateralMint(env);
   });
 
-  it("按份额比例从 Yes/No 池取回代币，不直接拿金库抵押物", async () => {
+  it("withdraw Yes/No from pools by LP share, not collateral from the vault", async () => {
     const start = tokens(100);
     const market = await makeOpenMarket(env, {
       creator: house,
@@ -53,26 +53,26 @@ describe("撤出流动性 get_liquidity", () => {
     await sendGetLiquidity(env, house, market, withdraw);
     const after = await readPosition(env, market, house.pubkey);
 
-    eqAmount(after.lp, before.lp - withdraw, "份额减少");
-    eqAmount(after.lpSupply, before.lpSupply - withdraw, "份额总供给减少");
-    eqAmount(after.yes, before.yes + quote.yesOut, "取回 Yes");
-    eqAmount(after.no, before.no + quote.noOut, "取回 No");
-    eqAmount(after.yesPool, before.yesPool - quote.yesOut, "Yes 池减少");
-    eqAmount(after.noPool, before.noPool - quote.noOut, "No 池减少");
-    eqAmount(after.vault, before.vault, "撤份额不会动金库");
+    eqAmount(after.lp, before.lp - withdraw, "LP decreases");
+    eqAmount(after.lpSupply, before.lpSupply - withdraw, "LP supply decreases");
+    eqAmount(after.yes, before.yes + quote.yesOut, "withdraw Yes");
+    eqAmount(after.no, before.no + quote.noOut, "withdraw No");
+    eqAmount(after.yesPool, before.yesPool - quote.yesOut, "Yes pool decreases");
+    eqAmount(after.noPool, before.noPool - quote.noOut, "No pool decreases");
+    eqAmount(after.vault, before.vault, "withdrawing LP does not move the vault");
     eqAmount(
       await mintSupply(env, market.yesMint),
       await mintSupply(env, market.noMint),
-      "撤份额不改变两币供给"
+      "withdrawing LP does not change either token supply"
     );
     eqAmount(
       after.vault,
       await mintSupply(env, market.yesMint),
-      "金库仍等于单边总供给"
+      "vault still equals one-side total supply"
     );
   });
 
-  it("份额为 0 时撤资失败", async () => {
+  it("withdraw fails when LP amount is 0", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
@@ -86,7 +86,7 @@ describe("撤出流动性 get_liquidity", () => {
     );
   });
 
-  it("份额不足时撤资失败", async () => {
+  it("withdraw fails when LP is insufficient", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
@@ -100,7 +100,7 @@ describe("撤出流动性 get_liquidity", () => {
     );
   });
 
-  it("裁决后仍可撤份额，取回的是两种代币而不是抵押物", async () => {
+  it("LP can still withdraw after resolve; they get both tokens, not collateral", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
@@ -113,7 +113,7 @@ describe("撤出流动性 get_liquidity", () => {
     await openTokenAccount(env, market.noMint, house.pubkey);
 
     const before = await readPosition(env, market, house.pubkey);
-    assert.ok(before.lp > 0n, "庄家应持有全部开盘份额");
+    assert.ok(before.lp > 0n, "house should hold the full initial LP");
     const quote = quoteWithdrawLiquidity(
       before.yesPool,
       before.noPool,
@@ -124,14 +124,14 @@ describe("撤出流动性 get_liquidity", () => {
     await sendGetLiquidity(env, house, market, before.lp);
     const after = await readPosition(env, market, house.pubkey);
 
-    eqAmount(after.lp, 0n, "份额应撤完");
-    eqAmount(after.yes, before.yes + quote.yesOut, "取回 Yes");
-    eqAmount(after.no, before.no + quote.noOut, "取回 No");
-    eqAmount(after.yesPool, 0n, "全额撤出后 Yes 池应清空");
-    eqAmount(after.noPool, 0n, "全额撤出后 No 池应清空");
-    eqAmount(after.vault, before.vault, "裁决后撤份额同样不动金库");
+    eqAmount(after.lp, 0n, "LP should be fully withdrawn");
+    eqAmount(after.yes, before.yes + quote.yesOut, "withdraw Yes");
+    eqAmount(after.no, before.no + quote.noOut, "withdraw No");
+    eqAmount(after.yesPool, 0n, "Yes pool should be empty after a full withdraw");
+    eqAmount(after.noPool, 0n, "No pool should be empty after a full withdraw");
+    eqAmount(after.vault, before.vault, "withdrawing LP after resolve also leaves the vault untouched");
   });
-  it("作废后仍可撤份额，取回的是两种代币而不是抵押物", async () => {
+  it("LP can still withdraw after void; they get both tokens, not collateral", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
@@ -143,7 +143,7 @@ describe("撤出流动性 get_liquidity", () => {
     await openTokenAccount(env, market.noMint, house.pubkey);
 
     const before = await readPosition(env, market, house.pubkey);
-    assert.ok(before.lp > 0n, "庄家应持有全部开盘份额");
+    assert.ok(before.lp > 0n, "house should hold the full initial LP");
     const quote = quoteWithdrawLiquidity(
       before.yesPool,
       before.noPool,
@@ -154,9 +154,9 @@ describe("撤出流动性 get_liquidity", () => {
     await sendGetLiquidity(env, house, market, before.lp);
     const after = await readPosition(env, market, house.pubkey);
 
-    eqAmount(after.lp, 0n, "份额应撤完");
-    eqAmount(after.yes, before.yes + quote.yesOut, "取回 Yes");
-    eqAmount(after.no, before.no + quote.noOut, "取回 No");
-    eqAmount(after.vault, before.vault, "作废后撤份额同样不动金库");
+    eqAmount(after.lp, 0n, "LP should be fully withdrawn");
+    eqAmount(after.yes, before.yes + quote.yesOut, "withdraw Yes");
+    eqAmount(after.no, before.no + quote.noOut, "withdraw No");
+    eqAmount(after.vault, before.vault, "withdrawing LP after void also leaves the vault untouched");
   });
 });

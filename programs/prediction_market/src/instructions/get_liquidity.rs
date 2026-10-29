@@ -34,14 +34,14 @@ pub struct GetLiquidity<'info> {
         seeds = [b"yes_mint", market.key().as_ref()],
         bump
     )]
-    pub yes_mint: Box<InterfaceAccount<'info, Mint>>, // Yes 币
+    pub yes_mint: Box<InterfaceAccount<'info, Mint>>, // Yes token
 
     #[account(
         mint::authority = market,
         seeds = [b"no_mint", market.key().as_ref()],
         bump
     )]
-    pub no_mint: Box<InterfaceAccount<'info, Mint>>, // No 币
+    pub no_mint: Box<InterfaceAccount<'info, Mint>>, // No token
 
     #[account(
         mut,
@@ -97,7 +97,7 @@ pub fn get_liquidity(ctx: Context<GetLiquidity>, lp_amount: u64) -> Result<()> {
     require!(lp_amount > 0 , ErrorCode::ZeroLp);
     require!(lp_amount <= ctx.accounts.businessman_lp_ata.amount, ErrorCode::InsufficientBalance);
 
-    // ======================== 销毁 Lp ========================
+    // ======================== burn LP ========================
     let lp_cpi_account = Burn {
         mint: ctx.accounts.lp_mint.to_account_info(),
         from: ctx.accounts.businessman_lp_ata.to_account_info(),
@@ -107,7 +107,7 @@ pub fn get_liquidity(ctx: Context<GetLiquidity>, lp_amount: u64) -> Result<()> {
     let lo_cpi_context = CpiContext::new(lp_cpi_program, lp_cpi_account);
     burn(lo_cpi_context, lp_amount)?;
 
-    // ======================== 按比例收回 Token ========================
+    // ======================== withdraw tokens pro rata ========================
 
     let seeds: &[&[&[u8]]] = &[&[b"market", ctx.accounts.market.id.as_ref(), &[ctx.accounts.market.bump]]];
     // Yes
@@ -142,7 +142,7 @@ pub fn get_liquidity(ctx: Context<GetLiquidity>, lp_amount: u64) -> Result<()> {
     let no_cpi_program = ctx.accounts.token_program.key();
     let no_cpi_context = CpiContext::new_with_signer(no_cpi_program, no_cpi_account, seeds);
     transfer_checked(no_cpi_context, no_amount, ctx.accounts.no_mint.decimals)?;
-    msg!("做市商 {:?} 撤资成功：\n取走 Yes：{:?}个 \n No：{:?}个", ctx.accounts.signer.key(), yes_amount, no_amount);
+    msg!("LP {:?} withdrew:\nYes: {:?}\n No: {:?}", ctx.accounts.signer.key(), yes_amount, no_amount);
 
     Ok(())
 }

@@ -1,8 +1,8 @@
 /**
- * 测试分层：
- * - helpers/   环境、推地址、造币、报价、用户、建盘、发交易（mocha 不跑这里）
- * - *.spec.ts  一条指令一份用例，full_round 是建盘到兑奖的完整故事
- * 跑法：anchor test
+ * Test layout:
+ * - helpers/   env, PDAs, mints, quotes, users, market setup, send tx (mocha does not run these)
+ * - *.spec.ts  one spec per instruction; full_round is create-to-redeem
+ * Run: anchor test
  */
 export * from "./env";
 export * from "./pdas";

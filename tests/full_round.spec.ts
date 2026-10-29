@@ -25,7 +25,7 @@ import {
   waitUntilExpired,
 } from "./helpers";
 
-describe("全流程 full_round", () => {
+describe("full round full_round", () => {
   let env: TestEnv;
   let house: User;
   let mint: PublicKey;
@@ -36,7 +36,7 @@ describe("全流程 full_round", () => {
     mint = await createCollateralMint(env);
   });
 
-  it("建盘 → 做市 → 下注 → 换汇 → 合并 → 到期裁决 → 兑奖 → 撤份额", async () => {
+  it("create → LP → bet → swap → merge → expire/resolve → redeem → withdraw LP", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
@@ -45,10 +45,10 @@ describe("全流程 full_round", () => {
       title: "full round market",
     });
 
-    const lp = await newFundedUser(env, "做市商", mint, tokens(30));
+    const lp = await newFundedUser(env, "LP", mint, tokens(30));
     await sendAddLiquidity(env, lp, market, tokens(30));
 
-    const trader = await newFundedUser(env, "玩家", mint, tokens(20));
+    const trader = await newFundedUser(env, "trader", mint, tokens(20));
     await sendUserBetOn(env, trader, market, {
       collateralAmount: tokens(20),
       tokenType: "yes",
@@ -61,30 +61,30 @@ describe("全流程 full_round", () => {
     const beforeMerge = await readPosition(env, market, trader.pubkey);
     const mergeAmount =
       beforeMerge.yes < beforeMerge.no ? beforeMerge.yes : beforeMerge.no;
-    assert.ok(mergeAmount > 0n, "本局应存在可合并的完整套");
+    assert.ok(mergeAmount > 0n, "this round should have a complete set to merge");
     await sendMergeToken(env, trader, market, mergeAmount);
 
     await waitUntilExpired(env, market);
     await sendResolveMarket(env, house, market, "yes");
 
     const resolved = await fetchMarket(env, market);
-    sameJson(resolved.status, { resolved: {} }, "全流程结束时应已裁决");
-    sameJson(resolved.winner, { yes: {} }, "本局赢家是 Yes");
+    sameJson(resolved.status, { resolved: {} }, "the full round should be resolved at the end");
+    sameJson(resolved.winner, { yes: {} }, "winner of this round is Yes");
 
     const beforeClaim = await readPosition(env, market, trader.pubkey);
-    assert.ok(beforeClaim.yes > 0n, "本局应存在可兑的赢家代币");
+    assert.ok(beforeClaim.yes > 0n, "this round should have redeemable winning tokens");
     await sendGetCollateral(env, trader, market, market.yesMint, beforeClaim.yes);
     const afterClaim = await readPosition(env, market, trader.pubkey);
-    eqAmount(afterClaim.yes, 0n, "玩家 Yes 应兑完");
+    eqAmount(afterClaim.yes, 0n, "trader Yes should be fully redeemed");
 
     const lpBeforeExit = await readPosition(env, market, lp.pubkey);
-    assert.ok(lpBeforeExit.lp > 0n, "本局应存在可撤的份额");
+    assert.ok(lpBeforeExit.lp > 0n, "this round should have LP to withdraw");
     await sendGetLiquidity(env, lp, market, lpBeforeExit.lp);
     const lpAfterExit = await readPosition(env, market, lp.pubkey);
-    eqAmount(lpAfterExit.lp, 0n, "做市商份额应撤完");
+    eqAmount(lpAfterExit.lp, 0n, "LP shares should be fully withdrawn");
   });
 
-  it("全程对账：金库余额恒等于单边代币总供给", async () => {
+  it("full reconciliation: vault always equals one-side token supply", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
@@ -96,58 +96,58 @@ describe("全流程 full_round", () => {
       const pos = await readPosition(env, market, house.pubkey);
       const yesSupply = await mintSupply(env, market.yesMint);
       const noSupply = await mintSupply(env, market.noMint);
-      eqAmount(yesSupply, noSupply, `${stage}：Yes/No 总供给应相等`);
-      eqAmount(pos.vault, yesSupply, `${stage}：金库应等于单边总供给`);
+      eqAmount(yesSupply, noSupply, `${stage}: Yes/No total supply should be equal`);
+      eqAmount(pos.vault, yesSupply, `${stage}: vault should equal one-side total supply`);
     };
 
-    await check("建盘后");
+    await check("after create");
 
-    const lp = await newFundedUser(env, "做市商", mint, tokens(30));
+    const lp = await newFundedUser(env, "LP", mint, tokens(30));
     await sendAddLiquidity(env, lp, market, tokens(30));
-    await check("做市后");
+    await check("after LP");
 
-    const trader = await newFundedUser(env, "玩家", mint, tokens(20));
+    const trader = await newFundedUser(env, "trader", mint, tokens(20));
     await sendUserBetOn(env, trader, market, {
       collateralAmount: tokens(20),
       tokenType: "yes",
     });
-    await check("下注后");
+    await check("after bet");
 
     await sendSwap(env, trader, market, {
       amountIn: tokens(4),
       tokenType: "no",
     });
-    await check("换汇后");
+    await check("after swap");
 
     const beforeMerge = await readPosition(env, market, trader.pubkey);
     const mergeAmount =
       beforeMerge.yes < beforeMerge.no ? beforeMerge.yes : beforeMerge.no;
-    assert.ok(mergeAmount > 0n, "应存在可合并的完整套");
+    assert.ok(mergeAmount > 0n, "there should be a complete set to merge");
     await sendMergeToken(env, trader, market, mergeAmount);
-    await check("合并后");
+    await check("after merge");
 
     await waitUntilExpired(env, market);
     await sendResolveMarket(env, house, market, "yes");
-    await check("裁决后");
+    await check("after resolve");
 
     const beforeClaim = await readPosition(env, market, trader.pubkey);
-    assert.ok(beforeClaim.yes > 0n, "应存在可兑的赢家代币");
+    assert.ok(beforeClaim.yes > 0n, "there should be redeemable winning tokens");
     await sendGetCollateral(env, trader, market, market.yesMint, beforeClaim.yes);
     const afterClaim = await readPosition(env, market, trader.pubkey);
-    eqAmount(afterClaim.yes, 0n, "玩家 Yes 应兑完");
+    eqAmount(afterClaim.yes, 0n, "trader Yes should be fully redeemed");
     const yesLeft = await mintSupply(env, market.yesMint);
-    eqAmount(afterClaim.vault, yesLeft, "兑奖后金库应等于剩余赢家代币");
+    eqAmount(afterClaim.vault, yesLeft, "after redeem, vault should equal remaining winning tokens");
 
     const lpBeforeExit = await readPosition(env, market, lp.pubkey);
-    assert.ok(lpBeforeExit.lp > 0n, "应存在可撤的份额");
+    assert.ok(lpBeforeExit.lp > 0n, "there should be LP to withdraw");
     const vaultBeforeExit = lpBeforeExit.vault;
     await sendGetLiquidity(env, lp, market, lpBeforeExit.lp);
     const lpAfterExit = await readPosition(env, market, lp.pubkey);
-    eqAmount(lpAfterExit.lp, 0n, "份额应撤完");
-    eqAmount(lpAfterExit.vault, vaultBeforeExit, "撤份额不动金库");
+    eqAmount(lpAfterExit.lp, 0n, "LP should be fully withdrawn");
+    eqAmount(lpAfterExit.vault, vaultBeforeExit, "withdrawing LP leaves the vault untouched");
   });
 
-  it("多方对赌后全员清算：发行总量守恒，金库最终归零", async () => {
+  it("after a multi-party round, everyone settles: supply is conserved, vault ends at zero", async () => {
     const mint = await createCollateralMint(env);
     const market = await makeOpenMarket(env, {
       creator: house,
@@ -156,10 +156,10 @@ describe("全流程 full_round", () => {
       expireInSeconds: 40,
     });
 
-    const lp = await newFundedUser(env, "做市商", mint, tokens(30));
+    const lp = await newFundedUser(env, "LP", mint, tokens(30));
     await sendAddLiquidity(env, lp, market, tokens(30));
-    const bull = await newFundedUser(env, "多头", mint, tokens(20));
-    const bear = await newFundedUser(env, "空头", mint, tokens(15));
+    const bull = await newFundedUser(env, "long", mint, tokens(20));
+    const bear = await newFundedUser(env, "short", mint, tokens(15));
     await sendUserBetOn(env, bull, market, {
       collateralAmount: tokens(20),
       tokenType: "yes",
@@ -180,49 +180,49 @@ describe("全流程 full_round", () => {
       eqAmount(
         positions[0].vault + held,
         totalSupply,
-        `${stage}：金库加所有持币人应等于发行总量`
+        `${stage}: vault plus all holders should equal total supply`
       );
     };
 
-    await audit("建仓后");
+    await audit("after opening the position");
     await sendSwap(env, bull, market, {
       amountIn: tokens(5),
       tokenType: "no",
     });
-    await audit("换汇后");
+    await audit("after swap");
 
     await waitUntilExpired(env, market);
     await sendResolveMarket(env, house, market, "yes");
-    await audit("裁决后");
+    await audit("after resolve");
 
     const bullBefore = await readPosition(env, market, bull.pubkey);
-    assert.ok(bullBefore.yes > 0n, "多头应持有赢家代币");
+    assert.ok(bullBefore.yes > 0n, "long should hold the winning token");
     await sendGetCollateral(env, bull, market, market.yesMint, bullBefore.yes);
 
     const lpBefore = await readPosition(env, market, lp.pubkey);
-    assert.ok(lpBefore.lp > 0n, "做市商应持有份额");
+    assert.ok(lpBefore.lp > 0n, "LP should hold shares");
     await sendGetLiquidity(env, lp, market, lpBefore.lp);
     const lpAfter = await readPosition(env, market, lp.pubkey);
-    assert.ok(lpAfter.yes > 0n, "做市商撤出的 Yes 是赢家代币");
+    assert.ok(lpAfter.yes > 0n, "Yes withdrawn by the LP is the winning token");
     await sendGetCollateral(env, lp, market, market.yesMint, lpAfter.yes);
 
     const houseBefore = await readPosition(env, market, house.pubkey);
-    assert.ok(houseBefore.lp > 0n, "庄家应持有开盘份额");
+    assert.ok(houseBefore.lp > 0n, "house should hold the initial LP");
     await openTokenAccount(env, market.yesMint, house.pubkey);
     await openTokenAccount(env, market.noMint, house.pubkey);
     await sendGetLiquidity(env, house, market, houseBefore.lp);
     const houseAfter = await readPosition(env, market, house.pubkey);
-    assert.ok(houseAfter.yes > 0n, "庄家撤出的 Yes 是赢家代币");
+    assert.ok(houseAfter.yes > 0n, "Yes withdrawn by the house is the winning token");
     await sendGetCollateral(env, house, market, market.yesMint, houseAfter.yes);
 
-    await audit("全员清算后");
+    await audit("after everyone settles");
 
     const final = await readPosition(env, market, house.pubkey);
-    eqAmount(await mintSupply(env, market.yesMint), 0n, "赢家代币应全部烧完");
-    eqAmount(final.vault, 0n, "金库应清零，没有抵押物被锁死");
+    eqAmount(await mintSupply(env, market.yesMint), 0n, "winning tokens should be fully burned");
+    eqAmount(final.vault, 0n, "vault should be zero; no collateral left locked");
     assert.ok(
       (await mintSupply(env, market.noMint)) > 0n,
-      "输家代币仍在流通，但已无对应抵押物"
+      "losing tokens remain in circulation but no longer map to collateral"
     );
   });
 });

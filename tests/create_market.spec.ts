@@ -27,7 +27,7 @@ import {
   User,
 } from "./helpers";
 
-describe("建盘 create_market", () => {
+describe("create market create_market", () => {
   let env: TestEnv;
   let house: User;
   let mint: PublicKey;
@@ -38,7 +38,7 @@ describe("建盘 create_market", () => {
     mint = await createCollateralMint(env);
   });
 
-  it("庄家注资后，盘口、币池、份额都按抵押数量开出来", async () => {
+  it("after the house seeds, market, pools, and LP open at the collateral amount", async () => {
     const startCollateral = tokens(100);
     const market = await makeOpenMarket(env, {
       creator: house,
@@ -50,31 +50,31 @@ describe("建盘 create_market", () => {
     const onchain = await fetchMarket(env, market);
     const pos = await readPosition(env, market, house.pubkey);
 
-    assert.deepStrictEqual(Array.from(onchain.id), market.id, "盘口 ID");
+    assert.deepStrictEqual(Array.from(onchain.id), market.id, "market id");
     assert.deepStrictEqual(
       Array.from(onchain.prediction),
       market.prediction,
-      "盘口标题"
+      "market title"
     );
-    sameJson(onchain.status, { open: {} }, "盘口状态应是 Open");
-    assert.ok(onchain.creator.equals(house.pubkey), "庄家应是 creator");
-    assert.ok(onchain.oracle.equals(house.pubkey), "默认 oracle 是庄家自己");
+    sameJson(onchain.status, { open: {} }, "market status should be Open");
+    assert.ok(onchain.creator.equals(house.pubkey), "house should be creator");
+    assert.ok(onchain.oracle.equals(house.pubkey), "default oracle is the house itself");
     assert.ok(onchain.yesMint.equals(market.yesMint), "Yes mint");
     assert.ok(onchain.noMint.equals(market.noMint), "No mint");
     assert.ok(
       onchain.collateralMint.equals(mint),
-      "抵押物 mint 应是测试代币"
+      "collateral mint should be the test token"
     );
-    eqAmount(onchain.expiry, market.expiry, "过期时间");
-    eqAmount(pos.vault, startCollateral, "金库抵押物");
-    eqAmount(pos.yesPool, startCollateral, "Yes 池");
-    eqAmount(pos.noPool, startCollateral, "No 池");
-    eqAmount(pos.lp, startCollateral, "庄家拿到的份额");
-    eqAmount(pos.lpSupply, startCollateral, "份额总供给");
+    eqAmount(onchain.expiry, market.expiry, "expiry");
+    eqAmount(pos.vault, startCollateral, "vault collateral");
+    eqAmount(pos.yesPool, startCollateral, "Yes pool");
+    eqAmount(pos.noPool, startCollateral, "No pool");
+    eqAmount(pos.lp, startCollateral, "LP received by the house");
+    eqAmount(pos.lpSupply, startCollateral, "LP supply");
   });
 
-  it("可以指定另一把钥匙当 oracle，建盘必须副署", async () => {
-    const oracle = await newUser(env, "预言机");
+  it("another key can be oracle; create_market requires co-sign", async () => {
+    const oracle = await newUser(env, "oracle");
     const market = await makeOpenMarket(env, {
       creator: house,
       oracle,
@@ -82,16 +82,16 @@ describe("建盘 create_market", () => {
       collateralAmount: tokens(10),
     });
     const onchain = await fetchMarket(env, market);
-    assert.ok(onchain.creator.equals(house.pubkey), "开盘人应是庄家");
-    assert.ok(onchain.oracle.equals(oracle.pubkey), "oracle 应是指定的钥匙");
+    assert.ok(onchain.creator.equals(house.pubkey), "creator should be the house");
+    assert.ok(onchain.oracle.equals(oracle.pubkey), "oracle should be the designated key");
     assert.ok(
       !onchain.creator.equals(onchain.oracle),
-      "本用例开盘人和裁判不是同一人"
+      "in this case creator and resolver are not the same person"
     );
   });
 
-  it("oracle 不签名时建盘失败", async () => {
-    const oracle = await newUser(env, "预言机");
+  it("create_market fails when oracle does not sign", async () => {
+    const oracle = await newUser(env, "oracle");
     await mintToUser(env, mint, house.pubkey, tokens(10));
     await assertTxFails(
       () =>
@@ -108,7 +108,7 @@ describe("建盘 create_market", () => {
     );
   });
 
-  it("抵押币精度原样传给三个子币", async () => {
+  it("collateral decimals are copied to the three child mints", async () => {
     const mint9 = await createCollateralMint(env, 9);
     const market = await makeOpenMarket(env, {
       creator: house,
@@ -118,20 +118,20 @@ describe("建盘 create_market", () => {
     });
 
     const onchain = await fetchMarket(env, market);
-    assert.ok(onchain.collateralMint.equals(mint9), "抵押物 mint");
+    assert.ok(onchain.collateralMint.equals(mint9), "collateral mint");
     for (const [name, mintKey] of [
       ["Yes", market.yesMint],
       ["No", market.noMint],
       ["LP", market.lpMint],
     ] as const) {
       const info = await fetchMint(env, mintKey);
-      assert.strictEqual(info.decimals, 9, `${name} mint 精度应等于抵押币精度`);
+      assert.strictEqual(info.decimals, 9, `${name} mint decimals should equal collateral decimals`);
     }
     const pos = await readPosition(env, market, house.pubkey);
-    eqAmount(pos.vault, tokens(100, 9), "金库按 9 位精度入账");
+    eqAmount(pos.vault, tokens(100, 9), "vault is credited at 9 decimals");
   });
 
-  it("金库与三个铸币厂的权限都归属盘口 PDA", async () => {
+  it("vault and the three mints are all owned/authorized by the market PDA", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
@@ -139,21 +139,21 @@ describe("建盘 create_market", () => {
     });
 
     const vault = await fetchTokenAccount(env, market.collateralVault);
-    assert.ok(vault.owner.equals(market.market), "金库 owner 应是盘口 PDA");
+    assert.ok(vault.owner.equals(market.market), "vault owner should be the market PDA");
     for (const mintKey of [market.yesMint, market.noMint, market.lpMint]) {
       const info = await fetchMint(env, mintKey);
       assert.ok(
         info.mintAuthority?.equals(market.market),
-        "铸币权应归盘口 PDA"
+        "mint authority should be the market PDA"
       );
       assert.ok(
         info.freezeAuthority?.equals(market.market),
-        "冻结权应归盘口 PDA"
+        "freeze authority should be the market PDA"
       );
     }
   });
 
-  it("抵押数量为 0 时建盘失败", async () => {
+  it("create_market fails when collateral amount is 0", async () => {
     await mintToUser(env, mint, house.pubkey, tokens(10));
     await assertTxFails(
       () =>
@@ -168,7 +168,7 @@ describe("建盘 create_market", () => {
     );
   });
 
-  it("同一个盘口 ID 不能建两次", async () => {
+  it("the same market id cannot be created twice", async () => {
     const market = await makeOpenMarket(env, {
       creator: house,
       collateralMint: mint,
@@ -188,8 +188,8 @@ describe("建盘 create_market", () => {
     );
   });
 
-  it("庄家抵押物余额不足时建盘失败", async () => {
-    const poor = await newFundedUser(env, "穷庄家", mint, 0n);
+  it("create_market fails when the house has insufficient collateral", async () => {
+    const poor = await newFundedUser(env, "broke house", mint, 0n);
     await assertTxFails(
       () =>
         sendCreateMarket(env, poor, {
@@ -203,8 +203,8 @@ describe("建盘 create_market", () => {
     );
   });
 
-  it("抵押物 ATA 不属于签名者时被约束拦下", async () => {
-    const other = await newFundedUser(env, "路人", mint, tokens(10));
+  it("rejected when the collateral ATA is not owned by the signer", async () => {
+    const other = await newFundedUser(env, "stranger", mint, tokens(10));
     await mintToUser(env, mint, house.pubkey, tokens(10));
     await assertTxFails(
       () =>
@@ -220,7 +220,7 @@ describe("建盘 create_market", () => {
     );
   });
 
-  it("过期时间已过去时不能建盘", async () => {
+  it("cannot create a market whose expiry is already past", async () => {
     await mintToUser(env, mint, house.pubkey, tokens(1));
     const past = (await chainUnixTime(env.connection)) - 600;
     await assertTxFails(
@@ -236,7 +236,7 @@ describe("建盘 create_market", () => {
     );
   });
 
-  it("到期时间不能是 u64::MAX", async () => {
+  it("expiry cannot be u64::MAX", async () => {
     await mintToUser(env, mint, house.pubkey, tokens(1));
     await assertTxFails(
       () =>
@@ -251,7 +251,7 @@ describe("建盘 create_market", () => {
     );
   });
 
-  it("prediction 支持空串与满 64 字节", async () => {
+  it("prediction accepts empty string and a full 64 bytes", async () => {
     await mintToUser(env, mint, house.pubkey, tokens(2));
     for (const text of ["", "A".repeat(64)]) {
       const marketId = randomMarketId();
@@ -269,7 +269,7 @@ describe("建盘 create_market", () => {
       assert.deepStrictEqual(
         Array.from(onchain.prediction),
         toPredictionBytes(text),
-        `prediction 应原样保存：${JSON.stringify(text)}`
+        `prediction should be stored as-is: ${JSON.stringify(text)}`
       );
     }
   });

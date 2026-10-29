@@ -27,10 +27,10 @@ pub struct UserBetOn<'info> {
         token::mint = collateral_mint,
         token::authority = signer,
     )]
-    pub collateral_ata: Box<InterfaceAccount<'info, TokenAccount>>, // 存放用户抵押物 ATA
+    pub collateral_ata: Box<InterfaceAccount<'info, TokenAccount>>, // user collateral ATA
 
     #[account(address = market.collateral_mint)]
-    pub collateral_mint: Box<InterfaceAccount<'info, Mint>>, // 抵押物铸币厂
+    pub collateral_mint: Box<InterfaceAccount<'info, Mint>>, // collateral mint
 
     #[account(
         mut,
@@ -38,7 +38,7 @@ pub struct UserBetOn<'info> {
         token::mint = collateral_mint,
         bump,
     )]
-    pub collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>, // 存抵押物的池子
+    pub collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>, // collateral vault
 
     #[account(
         mut,
@@ -47,7 +47,7 @@ pub struct UserBetOn<'info> {
         seeds = [b"yes_mint", market.key().as_ref()],
         bump
     )]
-    pub yes_mint: Box<InterfaceAccount<'info, Mint>>, // 铸币厂
+    pub yes_mint: Box<InterfaceAccount<'info, Mint>>, // mint
 
     #[account(
         mut,
@@ -56,7 +56,7 @@ pub struct UserBetOn<'info> {
         seeds = [b"no_mint", market.key().as_ref()],
         bump
     )]
-    pub no_mint: Box<InterfaceAccount<'info, Mint>>, // 铸币厂
+    pub no_mint: Box<InterfaceAccount<'info, Mint>>, // mint
 
     #[account(
         init_if_needed,
@@ -65,7 +65,7 @@ pub struct UserBetOn<'info> {
         associated_token::authority = signer,
         associated_token::token_program = token_program
     )]
-    pub yes_token_ata: Box<InterfaceAccount<'info, TokenAccount>>, // 用户存代币的 ATA
+    pub yes_token_ata: Box<InterfaceAccount<'info, TokenAccount>>, // user token ATA
 
     #[account(
         init_if_needed,
@@ -74,7 +74,7 @@ pub struct UserBetOn<'info> {
         associated_token::authority = signer,
         associated_token::token_program = token_program
     )]
-    pub no_token_ata: Box<InterfaceAccount<'info, TokenAccount>>, // 用户存代币的 ATA
+    pub no_token_ata: Box<InterfaceAccount<'info, TokenAccount>>, // user token ATA
 
     #[account(
         mut,
@@ -83,7 +83,7 @@ pub struct UserBetOn<'info> {
         seeds = [b"yes_pool", market.key().as_ref()],
         bump
     )]
-    pub yes_pool: Box<InterfaceAccount<'info, TokenAccount>>, // Yes 币池
+    pub yes_pool: Box<InterfaceAccount<'info, TokenAccount>>, // Yes pool
 
     #[account(
         mut,
@@ -92,7 +92,7 @@ pub struct UserBetOn<'info> {
         seeds = [b"no_pool", market.key().as_ref()],
         bump
     )]
-    pub no_pool: Box<InterfaceAccount<'info, TokenAccount>>, // No 币池
+    pub no_pool: Box<InterfaceAccount<'info, TokenAccount>>, // No pool
 
     pub clock: Sysvar<'info, Clock>,
 
@@ -117,7 +117,7 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
     require!(collateral_deduct > 0, ErrorCode::InvalidAmount);
     let decimals = ctx.accounts.collateral_mint.decimals;
     let market = &mut ctx.accounts.market;
-    // ======================== 扣钱 ========================
+    // ======================== take collateral ========================
 
     let collateral_cpi_account = TransferChecked {
         from: ctx.accounts.collateral_ata.to_account_info(),
@@ -131,12 +131,12 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
         collateral_cpi_account
     );
     transfer_checked(collateral_cpi_context, param.collateral_amount, decimals)?;
-    msg!("用户下注---------");
-    msg!("用户 {:?} 下注抵押物 {:?} 个", ctx.accounts.signer.key(), param.collateral_amount);
+    msg!("user bet---------");
+    msg!("user {:?} bet {:?} collateral", ctx.accounts.signer.key(), param.collateral_amount);
 
-    // ======================== 发币 ========================
+    // ======================== mint tokens ========================
     let market_seeds: &[&[&[u8]]] = &[&[b"market", market.id.as_ref(), &[market.bump]]];
-    // 1. Yes 币
+    // 1. Yes token
 
     let yes_cpi_account = MintTo {
         mint: ctx.accounts.yes_mint.to_account_info(),
@@ -146,7 +146,7 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
     let yes_cpi_program = ctx.accounts.token_program.key();
     let yes_cpi_context = CpiContext::new_with_signer(yes_cpi_program, yes_cpi_account, market_seeds);
     mint_to(yes_cpi_context, param.collateral_amount)?;
-    // 1. No 币
+    // 1. No token
 
     let no_cpi_account = MintTo {
         mint: ctx.accounts.no_mint.to_account_info(),
@@ -157,15 +157,15 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
     let no_cpi_context = CpiContext::new_with_signer(no_cpi_program, no_cpi_account, market_seeds);
     mint_to(no_cpi_context, param.collateral_amount)?;
 
-    // ======================== 兑换为用户想要的币 ========================
+    // ======================== swap into the token the user wants ========================
 
     let yes_pool_amount = ctx.accounts.yes_pool.amount;
     require!(yes_pool_amount > 0, ErrorCode::EmptyPool);
     let no_pool_amount = ctx.accounts.no_pool.amount;
     require!(no_pool_amount > 0, ErrorCode::EmptyPool);
     let token_type = if param.token_type == MarketOutcome::Yes { true } else { false };
-    if token_type {// No 转 Yes
-        // 1. No 入池
+    if token_type {// No to Yes
+        // 1. No into the pool
         let no_input_account = TransferChecked {
             from: ctx.accounts.no_token_ata.to_account_info(),
             mint: ctx.accounts.no_mint.to_account_info(),
@@ -178,7 +178,7 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
             no_input_account,
         );
         transfer_checked(no_input_context, param.collateral_amount, decimals)?;
-        // 2. Yes 入账
+        // 2. Yes to the user
         let yes_input_account = TransferChecked {
             from: ctx.accounts.yes_pool.to_account_info(),
             mint: ctx.accounts.yes_mint.to_account_info(),
@@ -193,11 +193,11 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
         let input_amount = get_amount(yes_pool_amount, no_pool_amount, param.collateral_amount);
         require!(input_amount > 0 && input_amount >= param.min_out, ErrorCode::SlippageExceeded);
         transfer_checked(yes_input_context, input_amount, decimals)?;
-        msg!("用户下注---------");
-        msg!("用户 {:?} 兑换 Yes 币 {:?} 个", ctx.accounts.signer.key(), input_amount);
+        msg!("user bet---------");
+        msg!("user {:?} received {:?} Yes", ctx.accounts.signer.key(), input_amount);
     } else {
-        // Yes 转 No
-        // 1. Yes 入池
+        // Yes to No
+        // 1. Yes into the pool
         let yes_input_account = TransferChecked {
             from: ctx.accounts.yes_token_ata.to_account_info(),
             mint: ctx.accounts.yes_mint.to_account_info(),
@@ -210,7 +210,7 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
             yes_input_account,
         );
         transfer_checked(yes_input_context, param.collateral_amount, decimals)?;
-        // 2. No 入账
+        // 2. No to the user
         let no_input_account = TransferChecked {
             from: ctx.accounts.no_pool.to_account_info(),
             mint: ctx.accounts.no_mint.to_account_info(),
@@ -225,8 +225,8 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
         let input_amount = get_amount(no_pool_amount, yes_pool_amount, param.collateral_amount);
         require!(input_amount > 0 && input_amount >= param.min_out, ErrorCode::SlippageExceeded);
         transfer_checked(no_input_context, input_amount, decimals)?;
-        msg!("用户下注---------");
-        msg!("用户 {:?} 兑换 No 币 {:?} 个", ctx.accounts.signer.key(), input_amount);
+        msg!("user bet---------");
+        msg!("user {:?} received {:?} No", ctx.accounts.signer.key(), input_amount);
     }
 
     Ok(())

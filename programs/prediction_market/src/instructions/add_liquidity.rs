@@ -21,7 +21,7 @@ pub struct AddLiquidity<'info> {
     )]
     pub market: Box<Account<'info, Market>>,
 
-    pub collateral_mint: Box<InterfaceAccount<'info, Mint>>, // 抵押物铸币厂账户，不需要限制抵押物，也不需要限制开盘者
+    pub collateral_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         mut,
@@ -30,7 +30,7 @@ pub struct AddLiquidity<'info> {
         seeds = [b"lp_mint", market.key().as_ref()],
         bump
     )]
-    pub lp_mint: Box<InterfaceAccount<'info, Mint>>, // 份额币铸币厂
+    pub lp_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         mut,
@@ -39,7 +39,7 @@ pub struct AddLiquidity<'info> {
         seeds = [b"yes_mint", market.key().as_ref()],
         bump
     )]
-    pub yes_mint: Box<InterfaceAccount<'info, Mint>>, // Yes 币
+    pub yes_mint: Box<InterfaceAccount<'info, Mint>>, // Yes Token Mint
 
     #[account(
         mut,
@@ -48,7 +48,7 @@ pub struct AddLiquidity<'info> {
         seeds = [b"no_mint", market.key().as_ref()],
         bump
     )]
-    pub no_mint: Box<InterfaceAccount<'info, Mint>>, // No 币
+    pub no_mint: Box<InterfaceAccount<'info, Mint>>, // No Token Mint
 
     #[account(
         init_if_needed,
@@ -75,7 +75,7 @@ pub struct AddLiquidity<'info> {
         associated_token::authority = signer,
         associated_token::token_program = token_program
     )]
-    pub lp_creator_ata: Box<InterfaceAccount<'info, TokenAccount>>, // 做市商的份额币 ATA
+    pub lp_creator_ata: Box<InterfaceAccount<'info, TokenAccount>>, // Market Maker Lp Token ATA
 
     #[account(
         mut,
@@ -84,7 +84,7 @@ pub struct AddLiquidity<'info> {
         seeds = [b"collateral_vault", market.key().as_ref()],
         bump
     )]
-    pub collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>, // 抵押物池
+    pub collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>, // Collateral Pool
 
     #[account(
         mut,
@@ -92,7 +92,7 @@ pub struct AddLiquidity<'info> {
         associated_token::authority = signer,
         associated_token::token_program = token_program
     )]
-    pub businessman_collateral_ata: Box<InterfaceAccount<'info, TokenAccount>>, // 开盘者抵押物 ATA，因为要注资，所以加上
+    pub businessman_collateral_ata: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -101,7 +101,7 @@ pub struct AddLiquidity<'info> {
         seeds = [b"yes_pool", market.key().as_ref()],
         bump
     )]
-    pub yes_pool: Box<InterfaceAccount<'info, TokenAccount>>, // Yes 币池
+    pub yes_pool: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -110,7 +110,7 @@ pub struct AddLiquidity<'info> {
         seeds = [b"no_pool", market.key().as_ref()],
         bump
     )]
-    pub no_pool: Box<InterfaceAccount<'info, TokenAccount>>, // No 币池
+    pub no_pool: Box<InterfaceAccount<'info, TokenAccount>>,
 
     pub associated_token_program: Program<'info, AssociatedToken>,
 
@@ -127,7 +127,7 @@ pub fn add_liquidity(ctx: Context<AddLiquidity>, collateral_amount: u64) -> Resu
     let decimals = ctx.accounts.collateral_mint.decimals;
     let market = &mut ctx.accounts.market;
 
-    // ===================== 存抵押物 =====================
+    // ===================== Deposit of Collateral =====================
 
     let collateral_cpi_account = TransferChecked {
         mint: ctx.accounts.collateral_mint.to_account_info(),
@@ -138,12 +138,12 @@ pub fn add_liquidity(ctx: Context<AddLiquidity>, collateral_amount: u64) -> Resu
     let collateral_cpi_program = ctx.accounts.token_program.key();
     let collateral_cpi_context = CpiContext::new(collateral_cpi_program, collateral_cpi_account);
     transfer_checked(collateral_cpi_context, collateral_amount, decimals)?;
-    msg!("做市商注资---------");
-    msg!("做市商 {:?} 存入抵押物{:?} 个", ctx.accounts.signer.key(), collateral_amount);
+    msg!("Market Maker Capital Injection---------");
+    msg!("LP {:?} deposited {:?} collateral", ctx.accounts.signer.key(), collateral_amount);
 
-    // ===================== 转代币到做市商自己的 ATA =====================
+    // ===================== Transfer tokens to the market maker's own ATA =====================
 
-    // 1.Yes 币
+    // 1.Yes Token
     let yes_cpi_account = MintTo {
         mint: ctx.accounts.yes_mint.to_account_info(),
         to: ctx.accounts.businessman_yes_ata.to_account_info(),
@@ -157,10 +157,10 @@ pub fn add_liquidity(ctx: Context<AddLiquidity>, collateral_amount: u64) -> Resu
         seeds
     );
     mint_to(yes_cpi_context, collateral_amount)?;
-    msg!("做市商注资---------");
-    msg!("做市商拿到 Yes 币 {:?} 个", collateral_amount);
+    msg!("LP deposit---------");
+    msg!("LP received {:?} Yes", collateral_amount);
 
-    // 2.No 币
+    // 2.No Token
     let no_cpi_account = MintTo {
         mint: ctx.accounts.no_mint.to_account_info(),
         to: ctx.accounts.businessman_no_ata.to_account_info(),
@@ -173,14 +173,14 @@ pub fn add_liquidity(ctx: Context<AddLiquidity>, collateral_amount: u64) -> Resu
         seeds
     );
     mint_to(no_cpi_context, collateral_amount)?;
-    msg!("做市商注资---------");
-    msg!("做市商拿到 No 币 {:?} 个", collateral_amount);
+    msg!("LP deposit---------");
+    msg!("LP received {:?} No", collateral_amount);
 
-    // ===================== 代币入池 =====================
+    // ===================== Adding Tokens to a Pool =====================
     let yes_pool_amount = ctx.accounts.yes_pool.amount;
     let no_pool_amount = ctx.accounts.no_pool.amount;
 
-    // 1. 先算转账数目
+    // 1. Calculate the transfer amount first.
     let yes_input_amount = if ctx.accounts.yes_pool.amount > ctx.accounts.no_pool.amount {
         collateral_amount } else {
         (collateral_amount as u128)
@@ -196,7 +196,7 @@ pub fn add_liquidity(ctx: Context<AddLiquidity>, collateral_amount: u64) -> Resu
         .unwrap() as u64;
     require!(yes_input_amount > 0 && no_input_amount > 0, ErrorCode::InvalidAmount);
 
-    // 2. 正式入池
+    // 2. Officially added to the pool
 
     let yes_pool_cpi_account = TransferChecked {
         from: ctx.accounts.businessman_yes_ata.to_account_info(),
@@ -217,10 +217,10 @@ pub fn add_liquidity(ctx: Context<AddLiquidity>, collateral_amount: u64) -> Resu
     let no_pool_cpi_program = ctx.accounts.token_program.key();
     let no_pool_cpi_context = CpiContext::new(no_pool_cpi_program, no_pool_cpi_account);
     transfer_checked(no_pool_cpi_context, no_input_amount, decimals)?;
-    msg!("做市商注资---------");
-    msg!("做市商注入代币池 Yes {:?} 个， No {:?} 个", yes_input_amount, no_input_amount);
+    msg!("LP deposit---------");
+    msg!("LP added Yes {:?} and No {:?} to the pools", yes_input_amount, no_input_amount);
 
-    // ===================== 铸份额币 =====================
+    // ===================== Mint Lp Token =====================
 
     let lp_cpi_account = MintTo {
         mint: ctx.accounts.lp_mint.to_account_info(),
@@ -233,15 +233,15 @@ pub fn add_liquidity(ctx: Context<AddLiquidity>, collateral_amount: u64) -> Resu
         lp_cpi_account,
         seeds
     );
-    let lp_amount = (yes_input_amount as u128) // 防止溢出
+    let lp_amount = (yes_input_amount as u128) // Prevent overflow
         .checked_mul(ctx.accounts.lp_mint.supply as u128)
         .unwrap()
         .checked_div(yes_pool_amount as u128)
         .unwrap() as u64;
     require!(lp_amount > 0, ErrorCode::ZeroLp);
     mint_to(lp_cpi_context, lp_amount)?;
-    msg!("做市商注资---------");
-    msg!("做市商拿到 Lp {} 个", lp_amount);
+    msg!("LP deposit---------");
+    msg!("LP received {} LP tokens", lp_amount);
 
     Ok(())
 }

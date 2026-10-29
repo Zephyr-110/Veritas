@@ -26,7 +26,7 @@ export function getTestEnv(): TestEnv {
     workspace.PredictionMarket ||
     workspace.prediction_market) as Program<PredictionMarket>;
   if (!program) {
-    throw new Error("找不到 PredictionMarket program，请用 anchor test 跑");
+    throw new Error("PredictionMarket program not found; run via anchor test");
   }
 
   const payer = (provider.wallet as anchor.Wallet).payer;

@@ -2,32 +2,32 @@ use anchor_lang::prelude::*;
 
 #[error_code]
 pub enum ErrorCode {
-    #[msg("Only the market oracle can resolve this market.")] // 只有本盘预言机才能裁决
+    #[msg("Only the market oracle can resolve this market.")] // only this market's oracle can resolve
     Unauthorized,
-    #[msg("Market is not open.")] // 市场不是 Open；作废时时间或签名不对也走这个错
+    #[msg("Market is not open.")] // market is not Open; voiding with the wrong time or signer also hits this
     MarketNotOpen,
-    #[msg("Market is not resolved or voided.")] // 市场还不是 Resolved/Burn，不能兑付抵押物
+    #[msg("Market is not resolved or voided.")] // market is not yet Resolved/Burn, cannot redeem collateral
     MarketNotResolved,
-    #[msg("Market must be open, resolved, or voided.")] // 合并或撤资要求状态为 Open/Resolved/Burn
+    #[msg("Market must be open, resolved, or voided.")] // merge or withdraw requires Open/Resolved/Burn
     MarketNotTradable,
-    #[msg("Market has expired.")] // 已经到期，不能再下注、换币或加流动性
+    #[msg("Market has expired.")] // already expired; no more betting, swaps, or adding liquidity
     MarketExpired,
-    #[msg("Market is outside the resolve window.")] // 还没到期，或已经超过裁决窗口
+    #[msg("Market is outside the resolve window.")] // not yet expired, or already past the resolve window
     MarketNotExpired,
-    #[msg("Amount or expiry is invalid.")] // 数量不合法，或到期时间不合法（不能已过期，也不能是 u64::MAX）
+    #[msg("Amount or expiry is invalid.")] // amount invalid, or expiry invalid (cannot already be past, cannot be u64::MAX)
     InvalidAmount,
-    #[msg("Insufficient token account balance.")] // 对应 ATA 余额不够
+    #[msg("Insufficient token account balance.")] // corresponding ATA balance is insufficient
     InsufficientBalance,
-    #[msg("Pool reserves are empty.")] // Yes/No 池子是空的
+    #[msg("Pool reserves are empty.")] // Yes/No pools are empty
     EmptyPool,
-    #[msg("Output amount is below min_out.")] // 到手数量低于你设的最低滑点
+    #[msg("Output amount is below min_out.")] // output is below the min_out you set
     SlippageExceeded,
-    #[msg("LP amount must be greater than zero.")] // LP 数量不能为 0
+    #[msg("LP amount must be greater than zero.")] // LP amount cannot be 0
     ZeroLp,
-    #[msg("Mint does not belong to this market.")] // 这个 mint 不是本盘的 Yes 或 No
+    #[msg("Mint does not belong to this market.")] // this mint is not this market's Yes or No
     InvalidMint,
-    #[msg("Mint is not the winning outcome.")] // 裁决后只能用赢家代币兑付
+    #[msg("Mint is not the winning outcome.")] // after resolve, only the winning token can be redeemed
     NotWinnerMint,
-    #[msg("The market oracle cannot trade.")] // 预言机不能下注或换币
+    #[msg("The market oracle cannot trade.")] // oracle cannot bet or swap
     AuthorityCannotTrade,
 }

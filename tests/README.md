@@ -1,23 +1,23 @@
-# 测试怎么分层
+# Test layout
 
-跑法：`anchor test`。mocha 只收集 `tests/**/*.spec.ts`。
+Run with `anchor test`. Mocha only picks up `tests/**/*.spec.ts`.
 
 ```
 tests/
-  helpers/           可复用工具，不写 it()
-    env.ts           连上本地链，拿到 program
-    pdas.ts          推盘口相关地址
-    tokens.ts        造抵押物、开 ATA、读余额
-    quote.ts         按合约公式算出预期兑出量
-    users.ts         庄家 / 做市商 / 玩家
-    make_market.ts   建一个已经注资的可交易盘口
-    send_ix.ts       只负责发交易，不做断言
-    wait.ts          等链上时间
-    assert_tx.ts     断言某笔交易按预期失败
-  *.spec.ts          一条指令一份用例
-  void_market.spec.ts 作废：窗内 oracle / 窗后任何人
-  full_round.spec.ts 建盘到兑奖走一遍
+  helpers/            reusable tools, no it()
+    env.ts            connect to local chain, get program
+    pdas.ts           derive market PDAs
+    tokens.ts         mint collateral, ATAs, balances
+    quote.ts          expected output from the on-chain formula
+    users.ts          house / LP / trader
+    make_market.ts    funded, tradable market
+    send_ix.ts        send transactions, no asserts
+    wait.ts           wait for on-chain time
+    assert_tx.ts      assert a tx fails as expected
+  *.spec.ts           one spec per instruction
+  void_market.spec.ts void: oracle in-window / anyone after
+  full_round.spec.ts  create through redeem
 ```
 
-新加指令测试时：先在 `send_ix.ts` 加发送函数，再加一份 `指令名.spec.ts`。
-建盘默认 oracle = 开盘人（同一把钥匙副署）。分角色、缺签名、窗后作废、半价兑写在对应 spec 里。
+When adding an instruction test: add a sender in `send_ix.ts`, then add `instruction_name.spec.ts`.
+Default oracle is the creator (same key co-signs). Role splits, missing signatures, post-window void, and half-price redeem live in the matching spec.
