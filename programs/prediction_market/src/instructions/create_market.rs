@@ -7,6 +7,7 @@ use crate::error::ErrorCode;
 
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::*;
+use crate::RESOLVE_WINDOW;
 
 #[derive(Accounts)]
 #[instruction(param: CreateMarketParams)]
@@ -21,6 +22,8 @@ pub struct CreateMarket<'info> {
         payer = creator,
         space = 8 + Market::INIT_SPACE,
         seeds = [b"market", param.market_id.as_ref()],
+        constraint = collateral_mint.to_account_info().owner == &anchor_spl::token::ID @ ErrorCode::InvalidMint,
+        constraint = oracle.key() != creator.key() @ ErrorCode::OracleEqualsCreator,
         bump
     )]
     pub market: Box<Account<'info, Market>>, // the market
@@ -104,6 +107,16 @@ pub struct CreateMarket<'info> {
     )]
     pub no_pool: Box<InterfaceAccount<'info, TokenAccount>>, // No pool
 
+    #[account(
+        init,
+        payer = creator,
+        token::mint = lp_mint,
+        token::authority = market,
+        seeds = [b"lp_lock", market.key().as_ref()],
+        bump
+    )]
+    pub lp_lock: Box<InterfaceAccount<'info, TokenAccount>>,
+
     pub clock: Sysvar<'info, Clock>,
 
     pub associated_token_program: Program<'info, AssociatedToken>,
@@ -122,8 +135,11 @@ pub struct CreateMarketParams {
 }
 
 pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) -> Result<()> {
-    require!(param.expiry != u64::MAX && param.expiry > (ctx.accounts.clock.unix_timestamp as u64), ErrorCode::InvalidAmount);
-    require!(param.collateral_amount > 0, ErrorCode::InvalidAmount);
+    // The sum of the expiration time and the adjudication window must not exceed Max.
+    require!(param.expiry.checked_add(RESOLVE_WINDOW).is_some()
+        && param.expiry > (ctx.accounts.clock.unix_timestamp as u64),
+        ErrorCode::InvalidAmount); //
+    require!(param.collateral_amount > 1000, ErrorCode::InvalidAmount);
 
     // ===================== assign fields first =====================
 
@@ -201,15 +217,27 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
         to: ctx.accounts.lp_creator_ata.to_account_info(),
         authority: market.to_account_info(),
     };
+    let ash_lp_cpi_account = MintTo {
+        mint: ctx.accounts.lp_mint.to_account_info(),
+        to: ctx.accounts.lp_lock.to_account_info(),
+        authority: market.to_account_info(),
+    };
     let seeds: &[&[&[u8]]] = &[&[b"market", param.market_id.as_ref(), &[ctx.bumps.market]]];
+
     let lp_cpi_context = CpiContext::new_with_signer(
         ctx.accounts.token_program.key(),
         lp_cpi_account,
         seeds
     );
-    mint_to(lp_cpi_context, param.collateral_amount)?;
+    let ash_lp_cpi_context = CpiContext::new_with_signer( // Leaving Ashes Behind
+        ctx.accounts.token_program.key(),
+        ash_lp_cpi_account,
+        seeds
+    );
+    mint_to(ash_lp_cpi_context, 1000)?;
+    mint_to(lp_cpi_context, param.collateral_amount - 1000)?;
     msg!("create market---------");
-    msg!("house received {:?} LP", param.collateral_amount);
+    msg!("house received {:?} LP", param.collateral_amount - 1000);
 
     Ok(())
 }

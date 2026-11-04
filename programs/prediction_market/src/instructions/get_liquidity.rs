@@ -16,6 +16,7 @@ pub struct GetLiquidity<'info> {
 
     #[account(
         constraint = market.status == MarketStatus::Open || market.status == MarketStatus::Resolved || market.status == MarketStatus::Burn @ ErrorCode::MarketNotTradable,
+        constraint = market.oracle.key() != signer.key() @ ErrorCode::AuthorityCannotTrade,
         seeds = [b"market", market.id.as_ref()],
         bump = market.bump,
     )]

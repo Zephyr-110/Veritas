@@ -30,4 +30,6 @@ pub enum ErrorCode {
     NotWinnerMint,
     #[msg("The market oracle cannot trade.")] // oracle cannot bet or swap
     AuthorityCannotTrade,
+    #[msg("")]
+    OracleEqualsCreator,
 }
