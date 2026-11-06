@@ -2,8 +2,9 @@ use anchor_lang::{Accounts, AnchorDeserialize, AnchorSerialize};
 use anchor_lang::prelude::{Account, Interface, InterfaceAccount, Program, Signer, System};
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
-use crate::entity::Market;
+use crate::entity::{LpPosition, Market};
 use crate::error::ErrorCode;
+use crate::math::*;
 
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::*;
@@ -27,6 +28,15 @@ pub struct CreateMarket<'info> {
         bump
     )]
     pub market: Box<Account<'info, Market>>, // the market
+
+    #[account(
+        init,
+        payer = creator,
+        space = 8 + LpPosition::INIT_SPACE,
+        seeds = [b"lp_position", market.key().as_ref(), creator.key().as_ref()],
+        bump
+    )]
+    pub lp_position: Box<Account<'info, LpPosition>>,
 
     pub collateral_mint: Box<InterfaceAccount<'info, Mint>>, // collateral mint; no restriction on which collateral or who creates
 
@@ -155,10 +165,26 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
     market.collateral_mint = ctx.accounts.collateral_mint.key();
     market.market_collateral_bump = ctx.bumps.collateral_vault;
     market.prediction = param.prediction;
+    market.end_ts = param.expiry as i64;
+    market.last_accrual_ts = ctx.accounts.clock.unix_timestamp;
+    market.fee_bps = crate::SERVICE_FEE as u16;
+
+    let duration = market.end_ts - market.last_accrual_ts;
+    let l_zero = suggest_l_zero_for_budget(param.collateral_amount, duration)?;
+    let l_eff = l_effective(l_zero, duration)?;
+    let (yes, no) = reserves_from_price(
+        fixed::types::I80F48::lit("0.5"),
+        l_eff,
+    )?;
+    market.set_l_zero_fixed(l_zero);
+    market.set_reserve_yes_fixed(yes);
+    market.set_reserve_no_fixed(no);
+    market.set_cum_yes_per_share_fixed(fixed::types::I80F48::ZERO);
+    market.set_cum_no_per_share_fixed(fixed::types::I80F48::ZERO);
+    market.set_total_lp_shares_fixed(fixed::types::I80F48::from_num(param.collateral_amount));
     msg!("create market---------");
     msg!("Market ID：{:?}", param.market_id);
     msg!("create market collateral: {:?}", market.collateral_mint.key());
-
     // ===================== transfer into the collateral vault =====================
 
     let decimals = ctx.accounts.collateral_mint.decimals;
@@ -238,6 +264,15 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
     mint_to(lp_cpi_context, param.collateral_amount - 1000)?;
     msg!("create market---------");
     msg!("house received {:?} LP", param.collateral_amount - 1000);
+
+    // ===================== initialize house LP position =====================
+
+    let position = &mut ctx.accounts.lp_position;
+    position.owner = ctx.accounts.creator.key();
+    position.bump = ctx.bumps.lp_position;
+    position.set_shares_fixed(fixed::types::I80F48::from_num(param.collateral_amount - 1000));
+    position.set_checkpoint_yes_fixed(fixed::types::I80F48::ZERO);
+    position.set_checkpoint_no_fixed(fixed::types::I80F48::ZERO);
 
     Ok(())
 }
