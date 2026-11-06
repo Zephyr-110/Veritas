@@ -4,10 +4,11 @@ use anchor_lang::{require, Accounts};
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_2022::{mint_to, transfer_checked, MintTo, TransferChecked};
 use anchor_spl::token_interface::*;
-use crate::{get_amount, Market, MarketOutcome};
+use fixed::types::I80F48;
+use crate::{Market, MarketOutcome, SwapSide};
 use crate::state::*;
 use crate::error::ErrorCode;
-
+use crate::math::{apply_accrual, compute_accrual, compute_swap_output, l_effective};
 
 #[derive(Accounts)]
 pub struct UserBetOn<'info> {
@@ -15,6 +16,7 @@ pub struct UserBetOn<'info> {
     pub signer: Signer<'info>,
 
     #[account(
+        mut,
         constraint = market.status == MarketStatus::Open @ ErrorCode::MarketNotOpen,
         constraint = (clock.unix_timestamp as u64) < market.expiry @ ErrorCode::MarketExpired,
         seeds = [b"market", market.id.as_ref()],
@@ -117,6 +119,12 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
     require!(collateral_deduct > 0, ErrorCode::InvalidAmount);
     let decimals = ctx.accounts.collateral_mint.decimals;
     let market = &mut ctx.accounts.market;
+
+    let now = ctx.accounts.clock.unix_timestamp;
+    let acc = compute_accrual(market, now)?;
+    apply_accrual(market, &acc);
+    let l_eff = l_effective(market.l_zero_fixed(), market.end_ts - now)?;
+
     // ======================== take collateral ========================
 
     let collateral_cpi_account = TransferChecked {
@@ -159,10 +167,6 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
 
     // ======================== swap into the token the user wants ========================
 
-    let yes_pool_amount = ctx.accounts.yes_pool.amount;
-    require!(yes_pool_amount > 0, ErrorCode::EmptyPool);
-    let no_pool_amount = ctx.accounts.no_pool.amount;
-    require!(no_pool_amount > 0, ErrorCode::EmptyPool);
     let token_type = if param.token_type == MarketOutcome::Yes { true } else { false };
     if token_type {// No to Yes
         // 1. No into the pool
@@ -190,9 +194,21 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
             yes_input_account,
             market_seeds,
         );
-        let input_amount = get_amount(yes_pool_amount, no_pool_amount, param.collateral_amount);
+
+        let result = compute_swap_output(
+            market.reserve_yes_fixed(),
+            market.reserve_no_fixed(),
+            l_eff,
+            I80F48::from_num(param.collateral_amount),
+            SwapSide::No,
+            SwapSide::Yes,
+        )?;
+        let input_amount = result.output.to_num::<u64>();
+
         require!(input_amount > 0 && input_amount >= param.min_out, ErrorCode::SlippageExceeded);
         transfer_checked(yes_input_context, input_amount, decimals)?;
+        market.set_reserve_yes_fixed(result.x_new);
+        market.set_reserve_no_fixed(result.y_new);
         msg!("user bet---------");
         msg!("user {:?} received {:?} Yes", ctx.accounts.signer.key(), input_amount);
     } else {
@@ -222,9 +238,20 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
             no_input_account,
             market_seeds,
         );
-        let input_amount = get_amount(no_pool_amount, yes_pool_amount, param.collateral_amount);
+        let result = compute_swap_output(
+            market.reserve_yes_fixed(),
+            market.reserve_no_fixed(),
+            l_eff,
+            I80F48::from_num(param.collateral_amount),
+            SwapSide::Yes,
+            SwapSide::No,
+        )?;
+
+        let input_amount = result.output.to_num::<u64>();
         require!(input_amount > 0 && input_amount >= param.min_out, ErrorCode::SlippageExceeded);
         transfer_checked(no_input_context, input_amount, decimals)?;
+        market.set_reserve_yes_fixed(result.x_new);
+        market.set_reserve_no_fixed(result.y_new);
         msg!("user bet---------");
         msg!("user {:?} received {:?} No", ctx.accounts.signer.key(), input_amount);
     }
