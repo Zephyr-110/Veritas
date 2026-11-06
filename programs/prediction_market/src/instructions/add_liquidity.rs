@@ -2,11 +2,13 @@ use anchor_lang::Accounts;
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
-use crate::Market;
+use crate::{LpPosition, Market};
 use crate::error::ErrorCode;
 use crate::state::MarketStatus;
 
 use anchor_spl::token_interface::*;
+use fixed::types::I80F48;
+use crate::math::{apply_accrual, compute_accrual, l_effective, pool_value, price_from_reserves};
 
 #[derive(Accounts)]
 pub struct AddLiquidity<'info> {
@@ -14,6 +16,7 @@ pub struct AddLiquidity<'info> {
     pub signer: Signer<'info>,
 
     #[account(
+        mut,
         constraint = market.status == MarketStatus::Open @ ErrorCode::MarketNotOpen,
         constraint = market.expiry > (clock.unix_timestamp as u64) @ ErrorCode::MarketExpired,
         constraint = market.oracle.key() != signer.key() @ ErrorCode::AuthorityCannotTrade,
@@ -21,6 +24,15 @@ pub struct AddLiquidity<'info> {
         bump = market.bump,
     )]
     pub market: Box<Account<'info, Market>>,
+
+    #[account(
+        init_if_needed,
+        payer = signer,
+        space = 8 + LpPosition::INIT_SPACE,
+        seeds = [b"lp_position", market.key().as_ref(), signer.key().as_ref()],
+        bump
+    )]
+    pub lp_position: Box<Account<'info, LpPosition>>,
 
     pub collateral_mint: Box<InterfaceAccount<'info, Mint>>,
 
@@ -128,6 +140,11 @@ pub fn add_liquidity(ctx: Context<AddLiquidity>, collateral_amount: u64) -> Resu
     let decimals = ctx.accounts.collateral_mint.decimals;
     let market = &mut ctx.accounts.market;
 
+    let now = ctx.accounts.clock.unix_timestamp;
+    let acc = compute_accrual(market, now)?;
+    apply_accrual(market, &acc);
+    let l_eff = l_effective(market.l_zero_fixed(), market.end_ts - now)?;
+
     // ===================== Deposit of Collateral =====================
 
     let collateral_cpi_account = TransferChecked {
@@ -178,23 +195,19 @@ pub fn add_liquidity(ctx: Context<AddLiquidity>, collateral_amount: u64) -> Resu
     msg!("LP received {:?} No", collateral_amount);
 
     // ===================== Adding Tokens to a Pool =====================
-    let yes_pool_amount = ctx.accounts.yes_pool.amount;
-    let no_pool_amount = ctx.accounts.no_pool.amount;
+    let x = market.reserve_yes_fixed();
+    let y = market.reserve_no_fixed();
+    let price = price_from_reserves(x, y, l_eff)?;
+    let value = pool_value(price, l_eff)?;
+    let add = I80F48::from_num(collateral_amount);
+    let total = market.total_lp_shares_fixed();
+    require!(value > I80F48::ZERO && total > I80F48::ZERO, ErrorCode::InvalidLiquidity);
 
     // 1. Calculate the transfer amount first.
-    let yes_input_amount = if ctx.accounts.yes_pool.amount > ctx.accounts.no_pool.amount {
-        collateral_amount } else {
-        (collateral_amount as u128)
-            .checked_mul(ctx.accounts.yes_pool.amount as u128)
-            .unwrap()
-            .checked_div(ctx.accounts.no_pool.amount as u128)
-            .unwrap() as u64
-    };
-    let no_input_amount = (yes_input_amount as u128)
-        .checked_mul(no_pool_amount as u128)
-        .unwrap()
-        .checked_div(yes_pool_amount as u128)
-        .unwrap() as u64;
+    let yes_input_amount = (x * add / value).to_num::<u64>();
+    let no_input_amount = (y * add / value).to_num::<u64>();
+    let shares = add * total / value;
+    let lp_amount = shares.to_num::<u64>();
     require!(yes_input_amount > 0 && no_input_amount > 0, ErrorCode::InvalidAmount);
 
     // 2. Officially added to the pool
@@ -234,15 +247,31 @@ pub fn add_liquidity(ctx: Context<AddLiquidity>, collateral_amount: u64) -> Resu
         lp_cpi_account,
         seeds
     );
-    let lp_amount = (yes_input_amount as u128) // Prevent overflow
-        .checked_mul(ctx.accounts.lp_mint.supply as u128)
-        .unwrap()
-        .checked_div(yes_pool_amount as u128)
-        .unwrap() as u64;
     require!(lp_amount > 0, ErrorCode::ZeroLp);
     mint_to(lp_cpi_context, lp_amount)?;
     msg!("LP deposit---------");
     msg!("LP received {} LP tokens", lp_amount);
+
+    let scale = (value + add) / value;
+    let new_l_zero = market.l_zero_fixed() * scale;
+    let new_total = total + shares;
+    let cum_yes = market.cum_yes_per_share_fixed();
+    let cum_no = market.cum_no_per_share_fixed();
+
+    market.set_l_zero_fixed(new_l_zero);
+    market.set_reserve_yes_fixed(x * scale);
+    market.set_reserve_no_fixed(y * scale);
+    market.set_total_lp_shares_fixed(new_total);
+
+    let position = &mut ctx.accounts.lp_position;
+    if position.owner == Pubkey::default() {
+        position.owner = ctx.accounts.signer.key();
+        position.bump = ctx.bumps.lp_position;
+    }
+    let new_shares = position.shares_fixed() + shares;
+    position.set_shares_fixed(new_shares);
+    position.set_checkpoint_yes_fixed(cum_yes);
+    position.set_checkpoint_no_fixed(cum_no);
 
     Ok(())
 }
