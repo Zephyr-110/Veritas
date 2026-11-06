@@ -3,10 +3,11 @@ use anchor_lang::prelude::*;
 use anchor_lang::{require, Accounts};
 use anchor_spl::token_2022::{transfer_checked, TransferChecked};
 use anchor_spl::token_interface::*;
-use crate::{get_amount, Market, MarketOutcome};
+use fixed::types::I80F48;
+use crate::{Market, MarketOutcome, SwapSide};
 use crate::state::*;
 use crate::error::ErrorCode;
-
+use crate::math::{apply_accrual, compute_accrual, compute_swap_output, l_effective};
 
 #[derive(Accounts)]
 pub struct Swap<'info> {
@@ -14,6 +15,7 @@ pub struct Swap<'info> {
     pub signer: Signer<'info>,
 
     #[account(
+        mut,
         constraint = market.status == MarketStatus::Open @ ErrorCode::MarketNotOpen,
         constraint = (clock.unix_timestamp as u64) < market.expiry @ ErrorCode::MarketExpired,
         seeds = [b"market", market.id.as_ref()],
@@ -85,11 +87,15 @@ pub fn swap(ctx: Context<Swap>, param: SwapParams) -> Result<()> {
     require!(ctx.accounts.market.oracle != ctx.accounts.signer.key(), ErrorCode::AuthorityCannotTrade);
     require!(param.amount_in > 0, ErrorCode::InvalidAmount);
     let token_type = param.token_type;
-    let yes_pool_amount = ctx.accounts.yes_pool.amount;
-    let no_pool_amount = ctx.accounts.no_pool.amount;
-    require!(yes_pool_amount > 0 && no_pool_amount > 0, ErrorCode::EmptyPool);
+
+    let market = &mut ctx.accounts.market;
+    let now = ctx.accounts.clock.unix_timestamp;
+    let acc = compute_accrual(market, now)?; // 把应该赋值给 market 的字段拿出来
+    apply_accrual(market, &acc); // 把字段赋值进去
+    let l_eff = l_effective(market.l_zero_fixed(), market.end_ts - now)?;
+
     let decimals = ctx.accounts.yes_mint.decimals;
-    let seeds: &[&[&[u8]]] = &[&[b"market", ctx.accounts.market.id.as_ref(), &[ctx.accounts.market.bump]]];
+    let seeds: &[&[&[u8]]] = &[&[b"market", market.id.as_ref(), &[market.bump]]];
     match token_type {
         MarketOutcome::Yes => {
             // 1. No into the pool
@@ -108,13 +114,22 @@ pub fn swap(ctx: Context<Swap>, param: SwapParams) -> Result<()> {
             );
             transfer_checked(no_input_context, no_amount, decimals)?;
             // 2. Yes to the user
-            let yes_amount = get_amount(yes_pool_amount, no_pool_amount, param.amount_in);
+            let result = compute_swap_output(
+                market.reserve_yes_fixed(),
+                market.reserve_no_fixed(),
+                l_eff,
+                I80F48::from_num(param.amount_in),
+                SwapSide::No,
+                SwapSide::Yes,
+            )?;
+            let yes_amount = result.output.to_num::<u64>();
+
             require!(yes_amount > 0 && yes_amount >= param.min_out, ErrorCode::SlippageExceeded);
             let yes_input_account = TransferChecked {
                 from: ctx.accounts.yes_pool.to_account_info(),
                 mint: ctx.accounts.yes_mint.to_account_info(),
                 to: ctx.accounts.yes_token_ata.to_account_info(),
-                authority: ctx.accounts.market.to_account_info(),
+                authority: market.to_account_info(),
             };
             let yes_input_context = CpiContext::new_with_signer(
                 input_program,
@@ -122,6 +137,8 @@ pub fn swap(ctx: Context<Swap>, param: SwapParams) -> Result<()> {
                 seeds,
             );
             transfer_checked(yes_input_context, yes_amount, decimals)?;
+            market.set_reserve_yes_fixed(result.x_new);
+            market.set_reserve_no_fixed(result.y_new);
             msg!("user swap---------");
             msg!("user {:?} received {:?} Yes", ctx.accounts.signer.key(), yes_amount);
         }
@@ -142,13 +159,23 @@ pub fn swap(ctx: Context<Swap>, param: SwapParams) -> Result<()> {
                 yes_input_account,
             );
             transfer_checked(yes_input_context, yes_amount, decimals)?;
-            let no_amount = get_amount(no_pool_amount, yes_pool_amount, param.amount_in);
+
+            let result = compute_swap_output(
+                market.reserve_yes_fixed(),
+                market.reserve_no_fixed(),
+                l_eff,
+                I80F48::from_num(param.amount_in),
+                SwapSide::Yes,
+                SwapSide::No,
+            )?;
+            let no_amount = result.output.to_num::<u64>();
+
             require!(no_amount > 0 && no_amount >= param.min_out, ErrorCode::SlippageExceeded);
             let no_input_account = TransferChecked {
                 from: ctx.accounts.no_pool.to_account_info(),
                 mint: ctx.accounts.no_mint.to_account_info(),
                 to: ctx.accounts.no_token_ata.to_account_info(),
-                authority: ctx.accounts.market.to_account_info(),
+                authority: market.to_account_info(),
             };
             let no_input_context = CpiContext::new_with_signer(
                 input_program,
@@ -156,6 +183,8 @@ pub fn swap(ctx: Context<Swap>, param: SwapParams) -> Result<()> {
                 seeds,
             );
             transfer_checked(no_input_context, no_amount, decimals)?;
+            market.set_reserve_yes_fixed(result.x_new);
+            market.set_reserve_no_fixed(result.y_new);
             msg!("user bet---------");
             msg!("user {:?} received {:?} No", ctx.accounts.signer.key(), no_amount);
         }
