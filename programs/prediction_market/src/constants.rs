@@ -12,3 +12,12 @@ pub const SERVICE_FEE : u64 = 30;
 
 #[constant]
 pub const RESOLVE_WINDOW: u64 = 100000;
+
+#[constant]
+pub const LP_POSITION_SEED: &[u8] = b"lp_position";
+
+pub const PRICE_LOWER_BOUND: f64 = 1e-6;
+
+pub const PRICE_UPPER_BOUND: f64 = 1.0 - 1e-6;
+
+pub const MAX_SWAP_ITERATIONS: u8 = 12;

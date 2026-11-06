@@ -32,4 +32,18 @@ pub enum ErrorCode {
     AuthorityCannotTrade,
     #[msg("")]
     OracleEqualsCreator,
+    #[msg("Swap did not converge")]
+    SwapNoConverge,
+    #[msg("Invalid price")]
+    InvalidPrice,
+    #[msg("Accrual failed")]
+    AccrualFailed,
+    #[msg("")]
+    InvalidLiquidity,
+    #[msg("Fixed-point math overflow")]
+    MathOverflow,
+    #[msg("Invalid duration")]
+    InvalidDuration,
+    #[msg("Invalid budget")]
+    InvalidBudget,
 }

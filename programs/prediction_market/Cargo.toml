@@ -26,6 +26,7 @@ idl-build = [
 [dependencies]
 anchor-lang = { version = "1.2.1", features = ["init-if-needed"]}
 anchor-spl = "1.2.1"
+fixed = "=1.28.0"
 
 [dev-dependencies]
 litesvm = "0.10.0"
