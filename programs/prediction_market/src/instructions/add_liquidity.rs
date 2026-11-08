@@ -8,7 +8,7 @@ use crate::state::MarketStatus;
 
 use anchor_spl::token_interface::*;
 use fixed::types::I80F48;
-use crate::math::{apply_accrual, compute_accrual, l_effective, pool_value, price_from_reserves};
+use crate::math::{apply_accrual, compute_accrual};
 
 #[derive(Accounts)]
 pub struct AddLiquidity<'info> {
@@ -136,14 +136,14 @@ pub struct AddLiquidity<'info> {
 
 pub fn add_liquidity(ctx: Context<AddLiquidity>, collateral_amount: u64) -> Result<()> {
     require!(collateral_amount > 0, ErrorCode::InvalidAmount);
-    require!(ctx.accounts.no_pool.amount > 0 && ctx.accounts.yes_pool.amount > 0, ErrorCode::EmptyPool);
     let decimals = ctx.accounts.collateral_mint.decimals;
     let market = &mut ctx.accounts.market;
 
     let now = ctx.accounts.clock.unix_timestamp;
     let accrual = compute_accrual(market, now)?;
     apply_accrual(market, &accrual);
-    let l_eff = l_effective(market.l_zero_fixed(), market.end_ts - now)?;
+
+    require!(market.reserve_yes_fixed() > I80F48::ZERO && market.reserve_no_fixed() > I80F48::ZERO, ErrorCode::EmptyPool);
 
     // ===================== Deposit of Collateral =====================
 
@@ -197,11 +197,9 @@ pub fn add_liquidity(ctx: Context<AddLiquidity>, collateral_amount: u64) -> Resu
     // ===================== Adding Tokens to a Pool =====================
     let reserve_yes = market.reserve_yes_fixed(); // Yes Token 当前在工作数量
     let reserve_no = market.reserve_no_fixed(); // No Token 当前在工作数量
-    let yes_price = price_from_reserves(reserve_yes, reserve_no, l_eff)?; // Yes Token 价格
-    let pool_value = pool_value(yes_price, l_eff)?; // l eff 的池子价值
     let add_collateral = I80F48::from_num(collateral_amount); // 增加的抵押物数量
     let total_lp_shares = market.total_lp_shares_fixed(); // lp 总量
-    require!(pool_value > I80F48::ZERO && total_lp_shares > I80F48::ZERO, ErrorCode::InvalidLiquidity);
+    require!(total_lp_shares > I80F48::ZERO, ErrorCode::InvalidLiquidity);
 
     // 1. Calculate the transfer amount first.
 
@@ -244,8 +242,11 @@ pub fn add_liquidity(ctx: Context<AddLiquidity>, collateral_amount: u64) -> Resu
     // ===================== Mint Lp Token =====================
     let lp_temp = (yes_input_amount as u128)
         .checked_mul(ctx.accounts.lp_mint.supply as u128).ok_or(ErrorCode::MathOverflow)?;
-    let lp_amount = lp_temp.checked_div(ctx.accounts.yes_pool.amount as u128).ok_or(ErrorCode::MathOverflow)? as u64; // Lp 本轮应铸数量
-    let add_shares = I80F48::from_num(lp_amount); // 增加的 lp
+    let lp_amount = lp_temp.checked_div(reserve_yes.to_num::<u128>()).ok_or(ErrorCode::MathOverflow)? as u64; // Lp 本轮应铸数量
+    let max_reserve = if reserve_yes > reserve_no {reserve_yes} else { reserve_no };
+    let add_shares = total_lp_shares
+        .checked_mul(I80F48::from_num(collateral_amount)).ok_or(ErrorCode::MathOverflow)?
+        .checked_div(max_reserve).ok_or(ErrorCode::MathOverflow)?; // 增加的 lp
 
     let lp_cpi_account = MintTo {
         mint: ctx.accounts.lp_mint.to_account_info(),
@@ -259,30 +260,63 @@ pub fn add_liquidity(ctx: Context<AddLiquidity>, collateral_amount: u64) -> Resu
         seeds
     );
     require!(lp_amount > 0, ErrorCode::ZeroLp);
+    require!(add_shares > I80F48::ZERO, ErrorCode::ZeroLp);
     mint_to(lp_cpi_context, lp_amount)?;
     msg!("LP deposit---------");
     msg!("LP received {} LP tokens", lp_amount);
 
-    let scale = (pool_value + add_collateral) / pool_value; // 池子扩充比例
-    let new_l_zero = market.l_zero_fixed() * scale; // 新的l0
-    let new_total_shares = total_lp_shares + add_shares; // 新的总 Lp数量
+    // ===================== 更新数据 =====================
+
+    let new_l_zero = market.l_zero_fixed()
+        .checked_add(market.l_zero_fixed()
+            .checked_mul(I80F48::from_num(collateral_amount)).ok_or(ErrorCode::MathOverflow)?
+            .checked_div(max_reserve).ok_or(ErrorCode::MathOverflow)?).ok_or(ErrorCode::MathOverflow)?; // 新的l0
+    let new_reserve_yes_fixed = reserve_yes
+        .checked_add(reserve_yes
+            .checked_mul(I80F48::from_num(collateral_amount)).ok_or(ErrorCode::MathOverflow)?
+            .checked_div(max_reserve).ok_or(ErrorCode::MathOverflow)?).ok_or(ErrorCode::MathOverflow)?;
+    let new_reserve_no_fixed = reserve_no
+        .checked_add(reserve_no
+            .checked_mul(I80F48::from_num(collateral_amount)).ok_or(ErrorCode::MathOverflow)?
+            .checked_div(max_reserve).ok_or(ErrorCode::MathOverflow)?).ok_or(ErrorCode::MathOverflow)?;
+    let new_total_shares = total_lp_shares.checked_add(add_shares).ok_or(ErrorCode::MathOverflow)?; // 新的总 Lp数量
     let cum_yes = market.cum_yes_per_share_fixed();
     let cum_no = market.cum_no_per_share_fixed();
 
     market.set_l_zero_fixed(new_l_zero);
-    market.set_reserve_yes_fixed(reserve_yes * scale);
-    market.set_reserve_no_fixed(reserve_no * scale);
+    market.set_reserve_yes_fixed(new_reserve_yes_fixed);
+    market.set_reserve_no_fixed(new_reserve_no_fixed);
     market.set_total_lp_shares_fixed(new_total_shares);
 
     let position = &mut ctx.accounts.lp_position;
+
+    let new_shares = position.shares_fixed().checked_add(add_shares).ok_or(ErrorCode::MathOverflow)?;
     if position.owner == Pubkey::default() {
         position.owner = ctx.accounts.signer.key();
         position.bump = ctx.bumps.lp_position;
+
+        position.set_checkpoint_yes_fixed(cum_yes);
+        position.set_checkpoint_no_fixed(cum_no);
+    } else {
+        let old_checkpoint_yes = position.checkpoint_yes_fixed();
+        let old_checkpoint_no = position.checkpoint_no_fixed();
+        let old_shares = position.shares_fixed();
+
+        let new_checkpoint_yes = I80F48::from_num(old_shares)
+            .checked_mul(old_checkpoint_yes).ok_or(ErrorCode::MathOverflow)?
+            .checked_add(add_shares
+                .checked_mul(cum_yes).ok_or(ErrorCode::MathOverflow)?).ok_or(ErrorCode::MathOverflow)?
+            .checked_div(new_shares).ok_or(ErrorCode::MathOverflow)?;
+        let new_checkpoint_no = I80F48::from_num(old_shares)
+            .checked_mul(old_checkpoint_no).ok_or(ErrorCode::MathOverflow)?
+            .checked_add(add_shares
+                .checked_mul(cum_no).ok_or(ErrorCode::MathOverflow)?).ok_or(ErrorCode::MathOverflow)?
+            .checked_div(new_shares).ok_or(ErrorCode::MathOverflow)?;
+
+        position.set_checkpoint_yes_fixed(new_checkpoint_yes);
+        position.set_checkpoint_no_fixed(new_checkpoint_no);
     }
-    let new_shares = position.shares_fixed() + add_shares;
     position.set_shares_fixed(new_shares);
-    position.set_checkpoint_yes_fixed(cum_yes);
-    position.set_checkpoint_no_fixed(cum_no);
 
     Ok(())
 }
