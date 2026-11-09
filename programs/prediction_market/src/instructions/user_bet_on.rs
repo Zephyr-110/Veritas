@@ -4,11 +4,12 @@ use anchor_lang::{require, Accounts};
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_2022::{mint_to, transfer_checked, MintTo, TransferChecked};
 use anchor_spl::token_interface::*;
+use fixed::traits::Fixed;
 use fixed::types::I80F48;
-use crate::{Market, MarketOutcome, SwapSide};
+use crate::{Market, MarketOutcome, SwapSide, SERVICE_FEE};
 use crate::state::*;
 use crate::error::ErrorCode;
-use crate::math::{apply_accrual, compute_accrual, compute_swap_output, l_effective};
+use crate::math::{apply_accrual, compute_accrual, compute_swap_output, l_effective, price_from_reserves};
 
 #[derive(Accounts)]
 pub struct UserBetOn<'info> {
@@ -121,8 +122,8 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
     let market = &mut ctx.accounts.market;
 
     let now = ctx.accounts.clock.unix_timestamp;
-    let acc = compute_accrual(market, now)?;
-    apply_accrual(market, &acc);
+    let accrual = compute_accrual(market, now)?;
+    apply_accrual(market, &accrual);
     let l_eff = l_effective(market.l_zero_fixed(), market.end_ts - now)?;
 
     // ======================== take collateral ========================
@@ -168,7 +169,25 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
     // ======================== swap into the token the user wants ========================
 
     let token_type = if param.token_type == MarketOutcome::Yes { true } else { false };
-    if token_type {// No to Yes
+    let price_yes = price_from_reserves(
+        market.reserve_yes_fixed(),
+        market.reserve_no_fixed(),
+        l_eff
+    )?;
+    let price_no = price_from_reserves(
+        market.reserve_no_fixed(),
+        market.reserve_yes_fixed(),
+        l_eff
+    )?;
+
+
+    let fee_amount = I80F48::from_num(param.collateral_amount)
+        .checked_mul(I80F48::from_num(market.fee_bps)).ok_or(ErrorCode::MathOverflow)?
+        .checked_div(I80F48::from_num(10_000)).ok_or(ErrorCode::MathOverflow)?;
+    let net_in = I80F48::from_num(param.collateral_amount)
+        .checked_sub(fee_amount).ok_or(ErrorCode::MathOverflow)?;
+    if token_type {
+        // No to Yes
         // 1. No into the pool
         let no_input_account = TransferChecked {
             from: ctx.accounts.no_token_ata.to_account_info(),
@@ -194,12 +213,11 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
             yes_input_account,
             market_seeds,
         );
-
         let result = compute_swap_output(
             market.reserve_yes_fixed(),
             market.reserve_no_fixed(),
             l_eff,
-            I80F48::from_num(param.collateral_amount),
+            net_in,
             SwapSide::No,
             SwapSide::Yes,
         )?;
@@ -207,6 +225,17 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
 
         require!(input_amount > 0 && input_amount >= param.min_out, ErrorCode::SlippageExceeded);
         transfer_checked(yes_input_context, input_amount, decimals)?;
+
+        let fee_per_share = fee_amount
+            .checked_mul(price_no).ok_or(ErrorCode::MathOverflow)?
+            .checked_div(market.total_lp_shares_fixed()).ok_or(ErrorCode::MathOverflow)?;
+        let new_cum_yes_per_share = market.cum_yes_per_share_fixed()
+            .checked_add(fee_per_share).ok_or(ErrorCode::MathOverflow)?;
+        let new_cum_no_per_share = market.cum_no_per_share_fixed()
+            .checked_add(fee_per_share).ok_or(ErrorCode::MathOverflow)?;
+
+        market.set_cum_yes_per_share_fixed(new_cum_yes_per_share);
+        market.set_cum_no_per_share_fixed(new_cum_no_per_share);
         market.set_reserve_yes_fixed(result.x_new);
         market.set_reserve_no_fixed(result.y_new);
         msg!("user bet---------");
@@ -242,7 +271,7 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
             market.reserve_yes_fixed(),
             market.reserve_no_fixed(),
             l_eff,
-            I80F48::from_num(param.collateral_amount),
+            net_in,
             SwapSide::Yes,
             SwapSide::No,
         )?;
@@ -250,8 +279,22 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
         let input_amount = result.output.to_num::<u64>();
         require!(input_amount > 0 && input_amount >= param.min_out, ErrorCode::SlippageExceeded);
         transfer_checked(no_input_context, input_amount, decimals)?;
+
+        // ===================== 更新数据 =====================
+
+        let fee_per_share = fee_amount
+            .checked_mul(price_yes).ok_or(ErrorCode::MathOverflow)?
+            .checked_div(market.total_lp_shares_fixed()).ok_or(ErrorCode::MathOverflow)?;
+        let new_cum_yes_per_share = market.cum_yes_per_share_fixed()
+            .checked_add(fee_per_share).ok_or(ErrorCode::MathOverflow)?;
+        let new_cum_no_per_share = market.cum_no_per_share_fixed()
+            .checked_add(fee_per_share).ok_or(ErrorCode::MathOverflow)?;
+
+        market.set_cum_yes_per_share_fixed(new_cum_yes_per_share);
+        market.set_cum_no_per_share_fixed(new_cum_no_per_share);
         market.set_reserve_yes_fixed(result.x_new);
         market.set_reserve_no_fixed(result.y_new);
+
         msg!("user bet---------");
         msg!("user {:?} received {:?} No", ctx.accounts.signer.key(), input_amount);
     }
