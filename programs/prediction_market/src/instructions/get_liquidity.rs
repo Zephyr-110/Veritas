@@ -105,19 +105,23 @@ pub struct GetLiquidity<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn get_liquidity(ctx: Context<GetLiquidity>, lp_amount: u64) -> Result<()> {
-    require!(lp_amount > 0 , ErrorCode::ZeroLp);
-    require!(lp_amount <= ctx.accounts.businessman_lp_ata.amount, ErrorCode::InsufficientBalance);
+pub fn get_liquidity(ctx: Context<GetLiquidity>, lp_share: u64) -> Result<()> {
+    require!(lp_share > 0 , ErrorCode::ZeroLp);
 
     let market = &mut ctx.accounts.market;
     let now = ctx.accounts.clock.unix_timestamp;
-    let acc = compute_accrual(market, now)?;
-    apply_accrual(market, &acc);
+    let accrual = compute_accrual(market, now)?;
+    apply_accrual(market, &accrual);
 
     let position = &mut ctx.accounts.lp_position;
-    let shares_in = I80F48::from_num(lp_amount);
+    // 保存快照
+    let old_shares = position.shares_fixed();
+    let shares_in = I80F48::from_num(lp_share);
     require!(shares_in <= position.shares_fixed(), ErrorCode::InsufficientBalance);
 
+    // ======================== 计算撤资数量 ========================
+
+    // 1. 计算已释放 Token
     let (pending_yes, pending_no) = compute_lp_pending(
         position.shares_fixed(),
         position.checkpoint_yes_fixed(),
@@ -125,35 +129,68 @@ pub fn get_liquidity(ctx: Context<GetLiquidity>, lp_amount: u64) -> Result<()> {
         market.cum_yes_per_share_fixed(),
         market.cum_no_per_share_fixed(),
     );
+    let current_pending_yes = pending_yes
+        .checked_mul(shares_in).ok_or(ErrorCode::MathOverflow)?
+        .checked_div(old_shares).ok_or(ErrorCode::MathOverflow)?;
+    let current_pending_no = pending_no
+        .checked_mul(shares_in).ok_or(ErrorCode::MathOverflow)?
+        .checked_div(old_shares).ok_or(ErrorCode::MathOverflow)?;
 
-    let x = market.reserve_yes_fixed();
-    let y = market.reserve_no_fixed();
+    // 2. 计算Working Token
+    let reserve_yes = market.reserve_yes_fixed();
+    let reserve_no = market.reserve_no_fixed();
+
     let total = market.total_lp_shares_fixed();
     require!(total > I80F48::ZERO, ErrorCode::InvalidLiquidity);
 
-    let share_yes = x * shares_in / total;
-    let share_no = y * shares_in / total;
-    let yes_amount = (pending_yes + share_yes).to_num::<u64>();
-    let no_amount = (pending_no + share_no).to_num::<u64>();
+    let current_working_yes = reserve_yes
+        .checked_mul(shares_in).ok_or(ErrorCode::MathOverflow)?
+        .checked_div(total).ok_or(ErrorCode::MathOverflow)?;
+    let current_working_no = reserve_no
+        .checked_mul(shares_in).ok_or(ErrorCode::MathOverflow)?
+        .checked_div(total).ok_or(ErrorCode::MathOverflow)?;
+
+    // 3. 计算本次交易要撤掉的 Token 数量
+    let yes_amount = (current_pending_yes + current_working_yes).to_num::<u64>();
+    let no_amount = (current_pending_no + current_working_no).to_num::<u64>();
     require!(yes_amount > 0 || no_amount > 0, ErrorCode::InvalidAmount);
 
-    let scale = (total - shares_in) / total;
-    let new_l_zero = market.l_zero_fixed() * scale;
-    let new_total = total - shares_in;
-    let new_shares = position.shares_fixed() - shares_in;
+    // 4. 计算新数据
+    let new_l_zero = market.l_zero_fixed()
+        .checked_mul(total
+            .checked_sub(shares_in).ok_or(ErrorCode::MathOverflow)?).ok_or(ErrorCode::MathOverflow)?
+        .checked_div(total).ok_or(ErrorCode::MathOverflow)?;
+    let new_total = total.checked_sub(shares_in).ok_or(ErrorCode::MathOverflow)?;
+    let new_shares = position.shares_fixed().checked_sub(shares_in).ok_or(ErrorCode::MathOverflow)?;
+
+    let new_reserve_yes = reserve_yes
+        .checked_mul(total
+            .checked_sub(shares_in).ok_or(ErrorCode::MathOverflow)?).ok_or(ErrorCode::MathOverflow)?
+        .checked_div(total).ok_or(ErrorCode::MathOverflow)?;
+
+    let new_reserve_no = reserve_no
+        .checked_mul(total
+            .checked_sub(shares_in).ok_or(ErrorCode::MathOverflow)?).ok_or(ErrorCode::MathOverflow)?
+        .checked_div(total).ok_or(ErrorCode::MathOverflow)?;
+
     let cum_yes = market.cum_yes_per_share_fixed();
     let cum_no = market.cum_no_per_share_fixed();
 
+    // 5. 落库
+
     market.set_l_zero_fixed(new_l_zero);
-    market.set_reserve_yes_fixed(x * scale);
-    market.set_reserve_no_fixed(y * scale);
+    market.set_reserve_yes_fixed(new_reserve_yes);
+    market.set_reserve_no_fixed(new_reserve_no);
     market.set_total_lp_shares_fixed(new_total);
 
     position.set_shares_fixed(new_shares);
-    position.set_checkpoint_yes_fixed(cum_yes);
-    position.set_checkpoint_no_fixed(cum_no);
+    // 取完了时间标才会后移
+    if shares_in == old_shares {
+        position.set_checkpoint_yes_fixed(cum_yes);
+        position.set_checkpoint_no_fixed(cum_no);
+    }
 
-    // ======================== burn LP ========================
+    // ======================== burn LP ======================== TODO 这里到时候得删，现在先留着
     let lp_cpi_account = Burn {
         mint: ctx.accounts.lp_mint.to_account_info(),
         from: ctx.accounts.businessman_lp_ata.to_account_info(),
@@ -161,7 +198,7 @@ pub fn get_liquidity(ctx: Context<GetLiquidity>, lp_amount: u64) -> Result<()> {
     };
     let lp_cpi_program = ctx.accounts.token_program.key();
     let lo_cpi_context = CpiContext::new(lp_cpi_program, lp_cpi_account);
-    burn(lo_cpi_context, lp_amount)?;
+    burn(lo_cpi_context, lp_share)?;
 
     // ======================== withdraw tokens pro rata ========================
 
