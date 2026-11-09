@@ -13,7 +13,7 @@ pub struct MergeToken<'info> {
     pub signer: Signer<'info>,
 
     #[account(
-        constraint = market.status == MarketStatus::Open || market.status == MarketStatus::Resolved || market.status == MarketStatus::Burn @ ErrorCode::MarketNotTradable,
+        constraint = market.status == MarketStatus::Open @ ErrorCode::MarketNotTradable,
         seeds = [b"market", market.id.as_ref()],
         bump = market.bump,
     )]
@@ -75,12 +75,11 @@ pub struct MergeToken<'info> {
 }
 
 pub fn merge_token(ctx: Context<MergeToken>, merge_amount: u64) -> Result<()> {
-    let input_or = ctx.accounts.no_token_ata.amount > 0
-        && ctx.accounts.yes_token_ata.amount > 0
-        && ctx.accounts.yes_token_ata.amount >= merge_amount
-        && ctx.accounts.no_token_ata.amount >= merge_amount;
     require!(merge_amount > 0, ErrorCode::InvalidAmount);
-    require!(input_or, ErrorCode::InsufficientBalance);
+    require!(ctx.accounts.yes_token_ata.amount >= merge_amount
+        && ctx.accounts.no_token_ata.amount >= merge_amount,
+        ErrorCode::InsufficientBalance
+    );
 
     // ======================== merge tokens ========================
 
