@@ -5,6 +5,7 @@ use anchor_lang::prelude::*;
 use crate::{Market, MarketOutcome};
 use crate::state::MarketStatus;
 use crate::error::ErrorCode;
+use crate::math::{apply_accrual, compute_accrual};
 
 #[derive(Accounts)]
 pub struct ResolveMarket<'info> {
@@ -27,6 +28,11 @@ pub struct ResolveMarket<'info> {
 
 pub fn resolve_market(ctx: Context<ResolveMarket>, market_winner: MarketOutcome) -> Result<()> {
     let market = &mut ctx.accounts.market;
+
+    let now = ctx.accounts.clock.unix_timestamp;
+    let accrual = compute_accrual(market, now)?;
+    apply_accrual(market, &accrual);
+
     market.winner = market_winner;
     market.status = MarketStatus::Resolved;
     msg!("market {:?} resolved, winner {:?} ", market.id, market.winner);

@@ -5,6 +5,7 @@ use anchor_lang::prelude::*;
 use crate::{Market};
 use crate::state::MarketStatus;
 use crate::error::ErrorCode;
+use crate::math::{apply_accrual, compute_accrual};
 
 #[derive(Accounts)]
 pub struct VoidMarket<'info> {
@@ -26,6 +27,11 @@ pub struct VoidMarket<'info> {
 
 pub fn void_market(ctx: Context<VoidMarket>) -> Result<()> {
     let market = &mut ctx.accounts.market;
+
+    let now = ctx.accounts.clock.unix_timestamp;
+    let accrual = compute_accrual(market, now)?;
+    apply_accrual(market, &accrual);
+
     market.status = MarketStatus::Burn;
     msg!("market {:?} voided ", market.id);
     Ok(())
