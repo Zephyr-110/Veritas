@@ -7,7 +7,6 @@ pub mod state;
 pub mod instructions;
 pub mod math;
 
-pub use math::amm::*;
 pub use math::{AccrualResult, SwapResult, SwapSide};
 pub use constants::*;
 pub use state::MarketOutcome;
