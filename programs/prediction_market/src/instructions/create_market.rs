@@ -172,13 +172,13 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
     let duration = market.end_ts - market.last_accrual_ts;
     let l_zero = suggest_l_zero_for_budget(param.collateral_amount, duration)?;
     let l_eff = l_effective(l_zero, duration)?;
-    let (yes, no) = reserves_from_price(
+    let (yes_price, no_price) = reserves_from_price( // 两种币的当前价格
         fixed::types::I80F48::lit("0.5"),
         l_eff,
     )?;
     market.set_l_zero_fixed(l_zero);
-    market.set_reserve_yes_fixed(yes);
-    market.set_reserve_no_fixed(no);
+    market.set_reserve_yes_fixed(yes_price);
+    market.set_reserve_no_fixed(no_price);
     market.set_cum_yes_per_share_fixed(fixed::types::I80F48::ZERO);
     market.set_cum_no_per_share_fixed(fixed::types::I80F48::ZERO);
     market.set_total_lp_shares_fixed(fixed::types::I80F48::from_num(param.collateral_amount));
