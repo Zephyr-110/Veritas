@@ -4,12 +4,11 @@ use anchor_lang::{require, Accounts};
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_2022::{mint_to, transfer_checked, MintTo, TransferChecked};
 use anchor_spl::token_interface::*;
-use fixed::traits::Fixed;
 use fixed::types::I80F48;
-use crate::{Market, MarketOutcome, SwapSide, SERVICE_FEE};
+use crate::{Market, MarketOutcome, SwapSide};
 use crate::state::*;
 use crate::error::ErrorCode;
-use crate::math::{apply_accrual, compute_accrual, compute_swap_output, l_effective, price_from_reserves};
+use crate::math::{apply_accrual, compute_accrual, compute_swap_output, l_effective};
 
 #[derive(Accounts)]
 pub struct UserBetOn<'info> {
@@ -124,6 +123,13 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
     let now = ctx.accounts.clock.unix_timestamp;
     let accrual = compute_accrual(market, now)?;
     apply_accrual(market, &accrual);
+
+    require!(
+    market.reserve_yes_fixed() > I80F48::ZERO
+        && market.reserve_no_fixed() > I80F48::ZERO,
+    ErrorCode::EmptyPool
+    );
+
     let l_eff = l_effective(market.l_zero_fixed(), market.end_ts - now)?;
 
     // ======================== take collateral ========================
@@ -168,24 +174,18 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
 
     // ======================== swap into the token the user wants ========================
 
-    let token_type = if param.token_type == MarketOutcome::Yes { true } else { false };
-    let price_yes = price_from_reserves(
-        market.reserve_yes_fixed(),
-        market.reserve_no_fixed(),
-        l_eff
-    )?;
-    let price_no = price_from_reserves(
-        market.reserve_no_fixed(),
-        market.reserve_yes_fixed(),
-        l_eff
-    )?;
-
-
-    let fee_amount = I80F48::from_num(param.collateral_amount)
+    let swap_in_amount = param.collateral_amount;
+    // 入腿手续费
+    let in_service_fee = I80F48::from_num(swap_in_amount)
         .checked_mul(I80F48::from_num(market.fee_bps)).ok_or(ErrorCode::MathOverflow)?
         .checked_div(I80F48::from_num(10_000)).ok_or(ErrorCode::MathOverflow)?;
-    let net_in = I80F48::from_num(param.collateral_amount)
-        .checked_sub(fee_amount).ok_or(ErrorCode::MathOverflow)?;
+    // 用户的真实属于自己的入池
+    let net_in = I80F48::from_num(swap_in_amount)
+        .checked_sub(in_service_fee).ok_or(ErrorCode::MathOverflow)?;
+
+    require!(market.total_lp_shares_fixed() > I80F48::ZERO, ErrorCode::InvalidLiquidity);
+
+    let token_type = if param.token_type == MarketOutcome::Yes { true } else { false };
     if token_type {
         // No to Yes
         // 1. No into the pool
@@ -202,6 +202,7 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
         );
         transfer_checked(no_input_context, param.collateral_amount, decimals)?;
         // 2. Yes to the user
+        // ① 组装上下文
         let yes_input_account = TransferChecked {
             from: ctx.accounts.yes_pool.to_account_info(),
             mint: ctx.accounts.yes_mint.to_account_info(),
@@ -213,6 +214,7 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
             yes_input_account,
             market_seeds,
         );
+        // ② 计算 result
         let result = compute_swap_output(
             market.reserve_yes_fixed(),
             market.reserve_no_fixed(),
@@ -221,25 +223,38 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
             SwapSide::No,
             SwapSide::Yes,
         )?;
-        let input_amount = result.output.to_num::<u64>();
+        // ③ 计算手续费
+        let out_service_fee = result.output
+            .checked_mul(I80F48::from_num(market.fee_bps)).ok_or(ErrorCode::MathOverflow)?
+            .checked_div(I80F48::from_num(10_000)).ok_or(ErrorCode::MathOverflow)?;
+        // ④ 计算要换的 Token 的数量
+        let return_amount = result.output
+            .checked_sub(out_service_fee).ok_or(ErrorCode::MathOverflow)?
+            .to_num::<u64>();
 
-        require!(input_amount > 0 && input_amount >= param.min_out, ErrorCode::SlippageExceeded);
-        transfer_checked(yes_input_context, input_amount, decimals)?;
+        // ⑤ 鉴权加转账
+        require!(return_amount > 0 && return_amount >= param.min_out, ErrorCode::SlippageExceeded);
+        transfer_checked(yes_input_context, return_amount, decimals)?;
 
-        let fee_per_share = fee_amount
-            .checked_mul(price_no).ok_or(ErrorCode::MathOverflow)?
-            .checked_div(market.total_lp_shares_fixed()).ok_or(ErrorCode::MathOverflow)?;
-        let new_cum_yes_per_share = market.cum_yes_per_share_fixed()
-            .checked_add(fee_per_share).ok_or(ErrorCode::MathOverflow)?;
-        let new_cum_no_per_share = market.cum_no_per_share_fixed()
-            .checked_add(fee_per_share).ok_or(ErrorCode::MathOverflow)?;
+        // ⑥ 计算每份份额因服务费增加了多少
+        let total_shares = market.total_lp_shares_fixed();
+        let fee_in_per_share = in_service_fee
+            .checked_div(total_shares).ok_or(ErrorCode::MathOverflow)?;
+        let fee_out_per_share = out_service_fee
+            .checked_div(total_shares).ok_or(ErrorCode::MathOverflow)?;
 
+        // ⑦ 计算出要增加的累计
+        let new_cum_yes_per_share = market.cum_yes_per_share_fixed().checked_add(fee_out_per_share).ok_or(ErrorCode::MathOverflow)?;
+        let new_cum_no_per_share = market.cum_no_per_share_fixed().checked_add(fee_in_per_share).ok_or(ErrorCode::MathOverflow)?;
+
+        // ⑧ 落库
         market.set_cum_yes_per_share_fixed(new_cum_yes_per_share);
         market.set_cum_no_per_share_fixed(new_cum_no_per_share);
         market.set_reserve_yes_fixed(result.x_new);
         market.set_reserve_no_fixed(result.y_new);
+
         msg!("user bet---------");
-        msg!("user {:?} received {:?} Yes", ctx.accounts.signer.key(), input_amount);
+        msg!("user {:?} received {:?} Yes", ctx.accounts.signer.key(), return_amount);
     } else {
         // Yes to No
         // 1. Yes into the pool
@@ -256,6 +271,7 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
         );
         transfer_checked(yes_input_context, param.collateral_amount, decimals)?;
         // 2. No to the user
+        // ① 先拼装上下文
         let no_input_account = TransferChecked {
             from: ctx.accounts.no_pool.to_account_info(),
             mint: ctx.accounts.no_mint.to_account_info(),
@@ -267,6 +283,7 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
             no_input_account,
             market_seeds,
         );
+        // ② 计算 result
         let result = compute_swap_output(
             market.reserve_yes_fixed(),
             market.reserve_no_fixed(),
@@ -275,28 +292,38 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
             SwapSide::Yes,
             SwapSide::No,
         )?;
+        // ③ 计算手续费
+        let out_service_fee = result.output
+            .checked_mul(I80F48::from_num(market.fee_bps)).ok_or(ErrorCode::MathOverflow)?
+            .checked_div(I80F48::from_num(10_000)).ok_or(ErrorCode::MathOverflow)?;
+        // ④ 计算要换的 Token 的数量
+        let return_amount = result.output
+            .checked_sub(out_service_fee).ok_or(ErrorCode::MathOverflow)?
+            .to_num::<u64>();
 
-        let input_amount = result.output.to_num::<u64>();
-        require!(input_amount > 0 && input_amount >= param.min_out, ErrorCode::SlippageExceeded);
-        transfer_checked(no_input_context, input_amount, decimals)?;
+        // ⑤ 鉴权加转账
+        require!(return_amount > 0 && return_amount >= param.min_out, ErrorCode::SlippageExceeded);
+        transfer_checked(no_input_context, return_amount, decimals)?;
 
-        // ===================== 更新数据 =====================
+        // ⑥ 计算每份份额因服务费增加了多少
+        let total_shares = market.total_lp_shares_fixed();
+        let fee_in_per_share = in_service_fee
+            .checked_div(total_shares).ok_or(ErrorCode::MathOverflow)?;
+        let fee_out_per_share = out_service_fee
+            .checked_div(total_shares).ok_or(ErrorCode::MathOverflow)?;
 
-        let fee_per_share = fee_amount
-            .checked_mul(price_yes).ok_or(ErrorCode::MathOverflow)?
-            .checked_div(market.total_lp_shares_fixed()).ok_or(ErrorCode::MathOverflow)?;
-        let new_cum_yes_per_share = market.cum_yes_per_share_fixed()
-            .checked_add(fee_per_share).ok_or(ErrorCode::MathOverflow)?;
-        let new_cum_no_per_share = market.cum_no_per_share_fixed()
-            .checked_add(fee_per_share).ok_or(ErrorCode::MathOverflow)?;
+        // ⑦ 计算出要增加的累计
+        let new_cum_yes_per_share = market.cum_yes_per_share_fixed().checked_add(fee_in_per_share).ok_or(ErrorCode::MathOverflow)?;
+        let new_cum_no_per_share = market.cum_no_per_share_fixed().checked_add(fee_out_per_share).ok_or(ErrorCode::MathOverflow)?;
 
+        // ⑧ 落库
         market.set_cum_yes_per_share_fixed(new_cum_yes_per_share);
         market.set_cum_no_per_share_fixed(new_cum_no_per_share);
         market.set_reserve_yes_fixed(result.x_new);
         market.set_reserve_no_fixed(result.y_new);
 
         msg!("user bet---------");
-        msg!("user {:?} received {:?} No", ctx.accounts.signer.key(), input_amount);
+        msg!("user {:?} received {:?} No", ctx.accounts.signer.key(), return_amount);
     }
 
     Ok(())
