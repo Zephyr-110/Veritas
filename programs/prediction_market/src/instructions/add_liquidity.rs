@@ -40,15 +40,6 @@ pub struct AddLiquidity<'info> {
         mut,
         mint::decimals = collateral_mint.decimals,
         mint::authority = market,
-        seeds = [b"lp_mint", market.key().as_ref()],
-        bump
-    )]
-    pub lp_mint: Box<InterfaceAccount<'info, Mint>>,
-
-    #[account(
-        mut,
-        mint::decimals = collateral_mint.decimals,
-        mint::authority = market,
         seeds = [b"yes_mint", market.key().as_ref()],
         bump
     )]
@@ -80,15 +71,6 @@ pub struct AddLiquidity<'info> {
         associated_token::token_program = token_program
     )]
     pub businessman_no_ata: Box<InterfaceAccount<'info, TokenAccount>>,
-
-    #[account(
-        init_if_needed,
-        payer = signer,
-        associated_token::mint = lp_mint,
-        associated_token::authority = signer,
-        associated_token::token_program = token_program
-    )]
-    pub lp_creator_ata: Box<InterfaceAccount<'info, TokenAccount>>, // Market Maker Lp Token ATA
 
     #[account(
         mut,
@@ -239,31 +221,12 @@ pub fn add_liquidity(ctx: Context<AddLiquidity>, collateral_amount: u64) -> Resu
     msg!("LP deposit---------");
     msg!("LP added Yes {:?} and No {:?} to the pools", yes_input_amount, no_input_amount);
 
-    // ===================== Mint Lp Token =====================
-    let lp_temp = (yes_input_amount as u128)
-        .checked_mul(ctx.accounts.lp_mint.supply as u128).ok_or(ErrorCode::MathOverflow)?;
-    let lp_amount = lp_temp.checked_div(reserve_yes.to_num::<u128>()).ok_or(ErrorCode::MathOverflow)? as u64; // Lp 本轮应铸数量
+    // ===================== 计算 share =====================
     let max_reserve = if reserve_yes > reserve_no {reserve_yes} else { reserve_no };
     let add_shares = total_lp_shares
         .checked_mul(I80F48::from_num(collateral_amount)).ok_or(ErrorCode::MathOverflow)?
-        .checked_div(max_reserve).ok_or(ErrorCode::MathOverflow)?; // 增加的 lp
-
-    let lp_cpi_account = MintTo {
-        mint: ctx.accounts.lp_mint.to_account_info(),
-        to: ctx.accounts.lp_creator_ata.to_account_info(),
-        authority: market.to_account_info(),
-    };
-    let seeds: &[&[&[u8]]] = &[&[b"market", market.id.as_ref(), &[market.bump]]];
-    let lp_cpi_context = CpiContext::new_with_signer(
-        ctx.accounts.token_program.key(),
-        lp_cpi_account,
-        seeds
-    );
-    require!(lp_amount > 0, ErrorCode::ZeroLp);
+        .checked_div(max_reserve).ok_or(ErrorCode::MathOverflow)?; // 增加的份额
     require!(add_shares > I80F48::ZERO, ErrorCode::ZeroLp);
-    mint_to(lp_cpi_context, lp_amount)?;
-    msg!("LP deposit---------");
-    msg!("LP received {} LP tokens", lp_amount);
 
     // ===================== 更新数据 =====================
 

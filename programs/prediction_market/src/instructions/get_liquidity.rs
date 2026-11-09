@@ -2,7 +2,7 @@ use anchor_lang::context::{Context, CpiContext};
 use anchor_lang::prelude::*;
 use anchor_lang::{require, Accounts};
 use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token_2022::{burn, transfer_checked, Burn, TransferChecked};
+use anchor_spl::token_2022::{transfer_checked, TransferChecked};
 use anchor_spl::token_interface::*;
 use fixed::types::I80F48;
 use crate::{LpPosition, Market};
@@ -33,14 +33,6 @@ pub struct GetLiquidity<'info> {
     pub lp_position: Box<Account<'info, LpPosition>>,
 
     #[account(
-        mut,
-        mint::authority = market,
-        seeds = [b"lp_mint", market.key().as_ref()],
-        bump
-    )]
-    pub lp_mint: Box<InterfaceAccount<'info, Mint>>,
-
-    #[account(
         mint::authority = market,
         seeds = [b"yes_mint", market.key().as_ref()],
         bump
@@ -69,14 +61,6 @@ pub struct GetLiquidity<'info> {
         associated_token::token_program = token_program
     )]
     pub businessman_no_ata: Box<InterfaceAccount<'info, TokenAccount>>,
-
-    #[account(
-        mut,
-        associated_token::mint = lp_mint,
-        associated_token::authority = signer,
-        associated_token::token_program = token_program
-    )]
-    pub businessman_lp_ata: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -189,16 +173,6 @@ pub fn get_liquidity(ctx: Context<GetLiquidity>, lp_share: u64) -> Result<()> {
         position.set_checkpoint_yes_fixed(cum_yes);
         position.set_checkpoint_no_fixed(cum_no);
     }
-
-    // ======================== burn LP ======================== TODO 这里到时候得删，现在先留着
-    let lp_cpi_account = Burn {
-        mint: ctx.accounts.lp_mint.to_account_info(),
-        from: ctx.accounts.businessman_lp_ata.to_account_info(),
-        authority: ctx.accounts.signer.to_account_info(),
-    };
-    let lp_cpi_program = ctx.accounts.token_program.key();
-    let lo_cpi_context = CpiContext::new(lp_cpi_program, lp_cpi_account);
-    burn(lo_cpi_context, lp_share)?;
 
     // ======================== withdraw tokens pro rata ========================
 

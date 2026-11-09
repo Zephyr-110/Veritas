@@ -37,8 +37,8 @@ pub mod prediction_market {
         instructions::merge_token(ctx, merge_amount)
     }
 
-    pub fn get_liquidity(ctx: Context<GetLiquidity>, lp_amount: u64) -> Result<()> {
-        instructions::get_liquidity(ctx, lp_amount)
+    pub fn get_liquidity(ctx: Context<GetLiquidity>, lp_share: u64) -> Result<()> {
+        instructions::get_liquidity(ctx, lp_share)
     }
 
     pub fn swap(ctx: Context<Swap>, param: SwapParams) -> Result<()> {

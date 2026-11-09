@@ -45,16 +45,6 @@ pub struct CreateMarket<'info> {
         payer = creator,
         mint::decimals = collateral_mint.decimals,
         mint::authority = market,
-        seeds = [b"lp_mint", market.key().as_ref()],
-        bump
-    )]
-    pub lp_mint: Box<InterfaceAccount<'info, Mint>>, // LP mint
-
-    #[account(
-        init,
-        payer = creator,
-        mint::decimals = collateral_mint.decimals,
-        mint::authority = market,
         seeds = [b"yes_mint", market.key().as_ref()],
         bump
     )]
@@ -69,15 +59,6 @@ pub struct CreateMarket<'info> {
         bump
     )]
     pub no_mint: Box<InterfaceAccount<'info, Mint>>, // No token
-
-    #[account(
-        init,
-        payer = creator,
-        associated_token::mint = lp_mint,
-        associated_token::authority = creator,
-        associated_token::token_program = token_program
-    )]
-    pub lp_creator_ata: Box<InterfaceAccount<'info, TokenAccount>>, // creator LP ATA
 
     #[account(
         init,
@@ -117,16 +98,6 @@ pub struct CreateMarket<'info> {
     )]
     pub no_pool: Box<InterfaceAccount<'info, TokenAccount>>, // No pool
 
-    #[account(
-        init,
-        payer = creator,
-        token::mint = lp_mint,
-        token::authority = market,
-        seeds = [b"lp_lock", market.key().as_ref()],
-        bump
-    )]
-    pub lp_lock: Box<InterfaceAccount<'info, TokenAccount>>,
-
     pub clock: Sysvar<'info, Clock>,
 
     pub associated_token_program: Program<'info, AssociatedToken>,
@@ -149,7 +120,7 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
     require!(param.expiry.checked_add(RESOLVE_WINDOW).is_some()
         && param.expiry > (ctx.accounts.clock.unix_timestamp as u64),
         ErrorCode::InvalidAmount); //
-    require!(param.collateral_amount > 1000, ErrorCode::InvalidAmount);
+    require!(param.collateral_amount > 0, ErrorCode::InvalidAmount);
 
     // ===================== assign fields first =====================
 
@@ -236,41 +207,12 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
     msg!("create market---------");
     msg!("house added {:?} No to the pool", param.collateral_amount);
 
-    // ===================== mint LP =====================
-
-    let lp_cpi_account = MintTo {
-        mint: ctx.accounts.lp_mint.to_account_info(),
-        to: ctx.accounts.lp_creator_ata.to_account_info(),
-        authority: market.to_account_info(),
-    };
-    let ash_lp_cpi_account = MintTo {
-        mint: ctx.accounts.lp_mint.to_account_info(),
-        to: ctx.accounts.lp_lock.to_account_info(),
-        authority: market.to_account_info(),
-    };
-    let seeds: &[&[&[u8]]] = &[&[b"market", param.market_id.as_ref(), &[ctx.bumps.market]]];
-
-    let lp_cpi_context = CpiContext::new_with_signer(
-        ctx.accounts.token_program.key(),
-        lp_cpi_account,
-        seeds
-    );
-    let ash_lp_cpi_context = CpiContext::new_with_signer( // Leaving Ashes Behind
-        ctx.accounts.token_program.key(),
-        ash_lp_cpi_account,
-        seeds
-    );
-    mint_to(ash_lp_cpi_context, 1000)?;
-    mint_to(lp_cpi_context, param.collateral_amount - 1000)?;
-    msg!("create market---------");
-    msg!("house received {:?} LP", param.collateral_amount - 1000);
-
     // ===================== initialize house LP position =====================
 
     let position = &mut ctx.accounts.lp_position;
     position.owner = ctx.accounts.creator.key();
     position.bump = ctx.bumps.lp_position;
-    position.set_shares_fixed(fixed::types::I80F48::from_num(param.collateral_amount - 1000));
+    position.set_shares_fixed(fixed::types::I80F48::from_num(param.collateral_amount));
     position.set_checkpoint_yes_fixed(fixed::types::I80F48::ZERO);
     position.set_checkpoint_no_fixed(fixed::types::I80F48::ZERO);
 
