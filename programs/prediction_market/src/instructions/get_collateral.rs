@@ -88,7 +88,7 @@ pub fn get_collateral(ctx: Context<GetCollateral>, amount: u64, ) -> Result<()> 
     );
 
     if ctx.accounts.market.status == MarketStatus::Burn {
-        let get_amount = amount.checked_div(2).unwrap();
+        let get_amount = amount.checked_div(2).ok_or(ErrorCode::MathOverflow)?;
         transfer_checked(collateral_cpi_context, get_amount, ctx.accounts.collateral_mint.decimals)?;
         msg!("winner {:?} redeemed {:?} collateral", ctx.accounts.signer.key(), get_amount);
     } else {
