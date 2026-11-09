@@ -86,21 +86,38 @@ pub struct SwapParams {
 pub fn swap(ctx: Context<Swap>, param: SwapParams) -> Result<()> {
     require!(ctx.accounts.market.oracle != ctx.accounts.signer.key(), ErrorCode::AuthorityCannotTrade);
     require!(param.amount_in > 0, ErrorCode::InvalidAmount);
-    let token_type = param.token_type;
 
     let market = &mut ctx.accounts.market;
     let now = ctx.accounts.clock.unix_timestamp;
-    let acc = compute_accrual(market, now)?; // 把应该赋值给 market 的字段拿出来
-    apply_accrual(market, &acc); // 把字段赋值进去
+    let accrual = compute_accrual(market, now)?; // 把应该赋值给 market 的字段拿出来
+    apply_accrual(market, &accrual); // 把字段赋值进去
+    require!(
+    market.reserve_yes_fixed() > I80F48::ZERO
+        && market.reserve_no_fixed() > I80F48::ZERO,
+    ErrorCode::EmptyPool
+    );
     let l_eff = l_effective(market.l_zero_fixed(), market.end_ts - now)?;
 
     let decimals = ctx.accounts.yes_mint.decimals;
     let seeds: &[&[&[u8]]] = &[&[b"market", market.id.as_ref(), &[market.bump]]];
+    // ======================== swap into the token the user wants ========================
+
+    let swap_in_amount = param.amount_in;
+    // 入腿手续费
+    let in_service_fee = I80F48::from_num(swap_in_amount)
+        .checked_mul(I80F48::from_num(market.fee_bps)).ok_or(ErrorCode::MathOverflow)?
+        .checked_div(I80F48::from_num(10_000)).ok_or(ErrorCode::MathOverflow)?;
+    // 用户的真实属于自己的入池
+    let net_in = I80F48::from_num(swap_in_amount)
+        .checked_sub(in_service_fee).ok_or(ErrorCode::MathOverflow)?;
+
+    require!(market.total_lp_shares_fixed() > I80F48::ZERO, ErrorCode::InvalidLiquidity);
+
+    let token_type = if param.token_type == MarketOutcome::Yes { MarketOutcome::Yes } else { MarketOutcome::No };
     match token_type {
         MarketOutcome::Yes => {
+            // No to Yes
             // 1. No into the pool
-            require!(ctx.accounts.no_token_ata.amount >= param.amount_in, ErrorCode::InsufficientBalance); // not enough to deposit, revert
-            let no_amount = param.amount_in;
             let no_input_account = TransferChecked {
                 from: ctx.accounts.no_token_ata.to_account_info(),
                 mint: ctx.accounts.no_mint.to_account_info(),
@@ -112,19 +129,9 @@ pub fn swap(ctx: Context<Swap>, param: SwapParams) -> Result<()> {
                 input_program,
                 no_input_account,
             );
-            transfer_checked(no_input_context, no_amount, decimals)?;
+            transfer_checked(no_input_context, param.amount_in, decimals)?;
             // 2. Yes to the user
-            let result = compute_swap_output(
-                market.reserve_yes_fixed(),
-                market.reserve_no_fixed(),
-                l_eff,
-                I80F48::from_num(param.amount_in),
-                SwapSide::No,
-                SwapSide::Yes,
-            )?;
-            let yes_amount = result.output.to_num::<u64>();
-
-            require!(yes_amount > 0 && yes_amount >= param.min_out, ErrorCode::SlippageExceeded);
+            // ① 组装上下文
             let yes_input_account = TransferChecked {
                 from: ctx.accounts.yes_pool.to_account_info(),
                 mint: ctx.accounts.yes_mint.to_account_info(),
@@ -136,17 +143,52 @@ pub fn swap(ctx: Context<Swap>, param: SwapParams) -> Result<()> {
                 yes_input_account,
                 seeds,
             );
-            transfer_checked(yes_input_context, yes_amount, decimals)?;
+            // ② 计算 result
+            let result = compute_swap_output(
+                market.reserve_yes_fixed(),
+                market.reserve_no_fixed(),
+                l_eff,
+                net_in,
+                SwapSide::No,
+                SwapSide::Yes,
+            )?;
+            // ③ 计算手续费
+            let out_service_fee = result.output
+                .checked_mul(I80F48::from_num(market.fee_bps)).ok_or(ErrorCode::MathOverflow)?
+                .checked_div(I80F48::from_num(10_000)).ok_or(ErrorCode::MathOverflow)?;
+            // ④ 计算要换的 Token 的数量
+            let return_amount = result.output
+                .checked_sub(out_service_fee).ok_or(ErrorCode::MathOverflow)?
+                .to_num::<u64>();
+
+            // ⑤ 鉴权加转账
+            require!(return_amount > 0 && return_amount >= param.min_out, ErrorCode::SlippageExceeded);
+            transfer_checked(yes_input_context, return_amount, decimals)?;
+
+            // ⑥ 计算每份份额因服务费增加了多少
+            let total_shares = market.total_lp_shares_fixed();
+            let fee_in_per_share = in_service_fee
+                .checked_div(total_shares).ok_or(ErrorCode::MathOverflow)?;
+            let fee_out_per_share = out_service_fee
+                .checked_div(total_shares).ok_or(ErrorCode::MathOverflow)?;
+
+            // ⑦ 计算出要增加的累计
+            let new_cum_yes_per_share = market.cum_yes_per_share_fixed().checked_add(fee_out_per_share).ok_or(ErrorCode::MathOverflow)?;
+            let new_cum_no_per_share = market.cum_no_per_share_fixed().checked_add(fee_in_per_share).ok_or(ErrorCode::MathOverflow)?;
+
+            // ⑧ 落库
+            market.set_cum_yes_per_share_fixed(new_cum_yes_per_share);
+            market.set_cum_no_per_share_fixed(new_cum_no_per_share);
             market.set_reserve_yes_fixed(result.x_new);
             market.set_reserve_no_fixed(result.y_new);
-            msg!("user swap---------");
-            msg!("user {:?} received {:?} Yes", ctx.accounts.signer.key(), yes_amount);
+
+            msg!("user bet---------");
+            msg!("user {:?} received {:?} Yes", ctx.accounts.signer.key(), return_amount);
         }
 
         MarketOutcome::No => {
+            // Yes to No
             // 1. Yes into the pool
-            require!(ctx.accounts.yes_token_ata.amount >= param.amount_in, ErrorCode::InsufficientBalance); // not enough to deposit, revert
-            let yes_amount = param.amount_in;
             let yes_input_account = TransferChecked {
                 from: ctx.accounts.yes_token_ata.to_account_info(),
                 mint: ctx.accounts.yes_mint.to_account_info(),
@@ -158,19 +200,9 @@ pub fn swap(ctx: Context<Swap>, param: SwapParams) -> Result<()> {
                 input_program,
                 yes_input_account,
             );
-            transfer_checked(yes_input_context, yes_amount, decimals)?;
-
-            let result = compute_swap_output(
-                market.reserve_yes_fixed(),
-                market.reserve_no_fixed(),
-                l_eff,
-                I80F48::from_num(param.amount_in),
-                SwapSide::Yes,
-                SwapSide::No,
-            )?;
-            let no_amount = result.output.to_num::<u64>();
-
-            require!(no_amount > 0 && no_amount >= param.min_out, ErrorCode::SlippageExceeded);
+            transfer_checked(yes_input_context, param.amount_in, decimals)?;
+            // 2. No to the user
+            // ① 先拼装上下文
             let no_input_account = TransferChecked {
                 from: ctx.accounts.no_pool.to_account_info(),
                 mint: ctx.accounts.no_mint.to_account_info(),
@@ -182,11 +214,47 @@ pub fn swap(ctx: Context<Swap>, param: SwapParams) -> Result<()> {
                 no_input_account,
                 seeds,
             );
-            transfer_checked(no_input_context, no_amount, decimals)?;
+            // ② 计算 result
+            let result = compute_swap_output(
+                market.reserve_yes_fixed(),
+                market.reserve_no_fixed(),
+                l_eff,
+                net_in,
+                SwapSide::Yes,
+                SwapSide::No,
+            )?;
+            // ③ 计算手续费
+            let out_service_fee = result.output
+                .checked_mul(I80F48::from_num(market.fee_bps)).ok_or(ErrorCode::MathOverflow)?
+                .checked_div(I80F48::from_num(10_000)).ok_or(ErrorCode::MathOverflow)?;
+            // ④ 计算要换的 Token 的数量
+            let return_amount = result.output
+                .checked_sub(out_service_fee).ok_or(ErrorCode::MathOverflow)?
+                .to_num::<u64>();
+
+            // ⑤ 鉴权加转账
+            require!(return_amount > 0 && return_amount >= param.min_out, ErrorCode::SlippageExceeded);
+            transfer_checked(no_input_context, return_amount, decimals)?;
+
+            // ⑥ 计算每份份额因服务费增加了多少
+            let total_shares = market.total_lp_shares_fixed();
+            let fee_in_per_share = in_service_fee
+                .checked_div(total_shares).ok_or(ErrorCode::MathOverflow)?;
+            let fee_out_per_share = out_service_fee
+                .checked_div(total_shares).ok_or(ErrorCode::MathOverflow)?;
+
+            // ⑦ 计算出要增加的累计
+            let new_cum_yes_per_share = market.cum_yes_per_share_fixed().checked_add(fee_in_per_share).ok_or(ErrorCode::MathOverflow)?;
+            let new_cum_no_per_share = market.cum_no_per_share_fixed().checked_add(fee_out_per_share).ok_or(ErrorCode::MathOverflow)?;
+
+            // ⑧ 落库
+            market.set_cum_yes_per_share_fixed(new_cum_yes_per_share);
+            market.set_cum_no_per_share_fixed(new_cum_no_per_share);
             market.set_reserve_yes_fixed(result.x_new);
             market.set_reserve_no_fixed(result.y_new);
+
             msg!("user bet---------");
-            msg!("user {:?} received {:?} No", ctx.accounts.signer.key(), no_amount);
+            msg!("user {:?} received {:?} No", ctx.accounts.signer.key(), return_amount);
         }
     }
     Ok(())
