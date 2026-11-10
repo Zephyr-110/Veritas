@@ -100,7 +100,13 @@ pub fn get_liquidity(ctx: Context<GetLiquidity>, lp_share: u64) -> Result<()> {
     let position = &mut ctx.accounts.lp_position;
     // 保存快照
     let old_shares = position.shares_fixed();
-    let shares_in = I80F48::from_num(lp_share);
+    require!(old_shares > 0, ErrorCode::ZeroLp);
+    let lp_shares_fixed = I80F48::from_num(lp_share);
+    let shares_in = if lp_shares_fixed >= old_shares {
+        old_shares
+    } else {
+        lp_shares_fixed
+    };
     require!(shares_in <= position.shares_fixed(), ErrorCode::InsufficientBalance);
 
     // ======================== 计算撤资数量 ========================
