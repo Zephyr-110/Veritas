@@ -120,7 +120,7 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
     require!(param.expiry.checked_add(RESOLVE_WINDOW).is_some()
         && param.expiry > (ctx.accounts.clock.unix_timestamp as u64),
         ErrorCode::InvalidAmount); //
-    require!(param.collateral_amount > 0, ErrorCode::InvalidAmount);
+    require!(param.collateral_amount > 1_000_000, ErrorCode::InvalidAmount);
 
     // ===================== assign fields first =====================
 
