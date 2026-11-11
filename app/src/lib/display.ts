@@ -1,7 +1,7 @@
 import { COLLATERAL_SYMBOL, RESOLVE_WINDOW } from "./constants";
-import { countdown, toUi } from "./format";
+import { countdown, formatStamp, toUi } from "./format";
 import { marketPhase, type MarketView, type UserPosition } from "./markets";
-import { dateLocale, t } from "@/i18n/store";
+import { t } from "@/i18n/store";
 
 export type MarketKind = "live" | "awaiting" | "voidable" | "resolved" | "voided" | "upcoming";
 
@@ -15,14 +15,7 @@ export function chancePct(price: number): number {
 }
 
 export function formatWhen(ts: number): string {
-  if (!ts) return "—";
-  return new Date(ts * 1000).toLocaleString(dateLocale(), {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return formatStamp(ts);
 }
 
 export function clusterLabel(cluster: string): string {

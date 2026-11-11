@@ -11,7 +11,8 @@ import { localizeError } from "@/lib/errors";
 import { explorerTx, formatUnix, toUi } from "@/lib/format";
 import { money } from "@/lib/display";
 import { useSettings } from "@/components/providers";
-import { Button, Card, StateBlock } from "@/components/ui";
+import { Button, StateBlock, WalletButton } from "@/components/ui";
+import { MeSkeleton } from "@/components/skeletons";
 import { useT } from "@/i18n/provider";
 
 type Row = { market: MarketView; position: UserPosition };
@@ -64,83 +65,135 @@ export default function MePage() {
   );
 
   if (!publicKey) {
-    return <StateBlock kind="wallet" title={t("state.connectWallet")} body={t("me.connect")} />;
+    return (
+      <StateBlock
+        kind="wallet"
+        title={t("state.connectWallet")}
+        body={t("me.connect")}
+        action={<WalletButton />}
+      />
+    );
   }
   if (error) {
     return (
       <StateBlock
         kind="error"
         title={t("markets.loadError", { error: localizeError(error) })}
-        action={<Button type="button" tone="secondary" onClick={() => void reload()}>{t("common.tryAgain")}</Button>}
+        action={
+          <Button type="button" tone="secondary" onClick={() => void reload()}>
+            {t("common.tryAgain")}
+          </Button>
+        }
       />
     );
   }
   if ((loading || busy) && !rows.length) {
-    return <StateBlock kind="loading" title={t("me.loading")} />;
+    return <MeSkeleton />;
   }
 
   return (
-    <div className="stack-6">
-      <h1 className="text-xl font-medium text-white">{t("me.title")}</h1>
+    <div className="stack-6 fade-in">
+      <h1 className="page-title">{t("me.title")}</h1>
 
       <section className="stack-3">
-        <h2 className="text-sm font-medium text-zinc-300">{t("me.positions")}</h2>
+        <h2 className="section-title">{t("me.positions")}</h2>
         {rows.length ? (
-          <Card className="stack-3">
+          <div className="cards-2">
             {rows.map(({ market, position }) => (
-              <Link key={market.address.toBase58()} href={"/markets/" + market.address.toBase58()} className="grid grid-cols-2 gap-2 border-b border-zinc-800/80 py-3 last:border-0 md:grid-cols-5">
-                <div className="col-span-2 truncate text-sm text-white md:col-span-1">{market.title}</div>
-                <div className="num text-right text-sm">{t("me.yes")} {toUi(position.yes, market.decimals, 2)}</div>
-                <div className="num text-right text-sm">{t("me.no")} {toUi(position.no, market.decimals, 2)}</div>
-                <div className="num text-right text-sm">{t("me.shares")} {toUi(position.lpShares, market.decimals, 2)}</div>
-                <div className="num text-right text-sm text-cyan-200">{t("me.lpPending")} {money(position.pendingYes + position.pendingNo, market.decimals, 4)}</div>
+              <Link key={market.address.toBase58()} href={"/markets/" + market.address.toBase58()} className="surface p-4 stack-3">
+                <div className="truncate text-sm font-medium text-white">{market.title}</div>
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-xs text-zinc-500">{t("me.yes")}</span>
+                  <span className="num text-right text-sm">{toUi(position.yes, market.decimals, 2)}</span>
+                </div>
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-xs text-zinc-500">{t("me.no")}</span>
+                  <span className="num text-right text-sm">{toUi(position.no, market.decimals, 2)}</span>
+                </div>
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-xs text-zinc-500">{t("me.shares")}</span>
+                  <span className="num text-right text-sm">{toUi(position.lpShares, market.decimals, 2)}</span>
+                </div>
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-xs text-zinc-500">{t("me.lpPending")}</span>
+                  <span className="num num-accent text-right text-sm">{money(position.pendingYes + position.pendingNo, market.decimals, 4)}</span>
+                </div>
               </Link>
             ))}
-          </Card>
+          </div>
         ) : (
-          <StateBlock kind="empty" title={t("me.emptyPositions")} />
+          <StateBlock
+            kind="empty"
+            title={t("me.emptyPositions")}
+            action={
+              <Link href="/markets">
+                <Button type="button">{t("me.emptyCta")}</Button>
+              </Link>
+            }
+          />
         )}
       </section>
 
       <section className="stack-3">
-        <h2 className="text-sm font-medium text-zinc-300">{t("me.pending")}</h2>
+        <h2 className="section-title">{t("me.pending")}</h2>
         {pending.length ? (
-          <Card className="stack-3">
+          <div className="cards-2">
             {pending.map(({ market, position }) => (
-              <Link key={market.address.toBase58() + "-p"} href={"/markets/" + market.address.toBase58()} className="flex items-center justify-between gap-3 py-2">
-                <span className="truncate text-sm text-white">{market.title}</span>
-                <span className="num text-sm text-cyan-200">
-                  {t("lp.pendingYes")} {toUi(position.pendingYes, market.decimals, 4)} · {t("lp.pendingNo")} {toUi(position.pendingNo, market.decimals, 4)}
-                </span>
+              <Link key={market.address.toBase58() + "-p"} href={"/markets/" + market.address.toBase58()} className="surface p-4 stack-3">
+                <div className="truncate text-sm font-medium text-white">{market.title}</div>
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-xs text-zinc-500">{t("lp.pendingYes")}</span>
+                  <span className="num num-accent text-right text-sm">{toUi(position.pendingYes, market.decimals, 4)}</span>
+                </div>
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-xs text-zinc-500">{t("lp.pendingNo")}</span>
+                  <span className="num num-accent text-right text-sm">{toUi(position.pendingNo, market.decimals, 4)}</span>
+                </div>
               </Link>
             ))}
-          </Card>
+          </div>
         ) : (
-          <StateBlock kind="empty" title={t("me.emptyPending")} />
+          <StateBlock
+            kind="empty"
+            title={t("me.emptyPending")}
+            action={
+              <Link href="/markets">
+                <Button type="button">{t("me.emptyCta")}</Button>
+              </Link>
+            }
+          />
         )}
       </section>
 
       <section className="stack-3">
-        <h2 className="text-sm font-medium text-zinc-300">{t("me.redemptions")}</h2>
+        <h2 className="section-title">{t("me.redemptions")}</h2>
         {redemptions.length ? (
-          <Card className="stack-2">
+          <div className="cards-2">
             {redemptions.map((row) => {
               const href = explorerTx(row.signature, settings.cluster);
               return (
-                <div key={row.signature} className="flex items-center justify-between gap-3 py-2 text-sm">
-                  <span className="text-zinc-300">{row.label}</span>
-                  <span className="num text-zinc-500">{row.when ? formatUnix(row.when) : "—"}</span>
+                <div key={row.signature} className="surface p-4 stack-2">
+                  <div className="text-sm text-zinc-200">{row.label}</div>
+                  <div className="num text-right text-xs text-zinc-500">{row.when ? formatUnix(row.when) : "\u2014"}</div>
                   {href ? (
-                    <a href={href} target="_blank" rel="noreferrer" className="text-xs text-white underline">
+                    <a href={href} target="_blank" rel="noreferrer" className="link-accent text-xs">
                       {t("tx.view")}
                     </a>
                   ) : null}
                 </div>
               );
             })}
-          </Card>
+          </div>
         ) : (
-          <StateBlock kind="empty" title={t("me.emptyRedeem")} />
+          <StateBlock
+            kind="empty"
+            title={t("me.emptyRedeem")}
+            action={
+              <Link href="/markets">
+                <Button type="button">{t("me.emptyCta")}</Button>
+              </Link>
+            }
+          />
         )}
       </section>
     </div>

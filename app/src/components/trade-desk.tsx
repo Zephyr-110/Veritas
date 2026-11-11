@@ -12,7 +12,7 @@ import { useProgram } from "@/hooks/use-program";
 import { useNow } from "@/hooks/use-now";
 import type { Side } from "@/lib/types";
 import { useT } from "@/i18n/provider";
-import { Button, Card, Field, Kv, TextInput, useTx } from "./ui";
+import { Button, Card, Field, Kv, TextInput, choiceClass, useTx } from "./ui";
 
 const PRESETS = ["1", "2", "5", "10"];
 
@@ -96,14 +96,14 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
         <button
           type="button"
           onClick={() => setTab("bet")}
-          className={`rounded-xl border px-3 py-2 text-sm ${tab === "bet" ? "border-white bg-white text-zinc-950" : "border-zinc-800 text-zinc-400"}`}
+          className={choiceClass(tab === "bet")}
         >
           {t("trade.confirm")}
         </button>
         <button
           type="button"
           onClick={() => setTab("swap")}
-          className={`rounded-xl border px-3 py-2 text-sm ${tab === "swap" ? "border-white bg-white text-zinc-950" : "border-zinc-800 text-zinc-400"}`}
+          className={choiceClass(tab === "swap")}
         >
           {t("trade.switch")}
         </button>

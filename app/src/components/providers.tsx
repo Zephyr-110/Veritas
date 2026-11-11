@@ -104,14 +104,12 @@ export function useRefresh(): RefreshCtx {
 
 function SettingsInner({ children }: { children: ReactNode }) {
   const [settings, setSettingsState] = useState<AppSettings>(fallbackSettings);
-  const [ready, setReady] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [nonce, setNonce] = useState(0);
   const t = useT();
 
   useEffect(() => {
     setSettingsState(loadSettings());
-    setReady(true);
   }, []);
 
   const setSettings = useCallback((next: AppSettings) => {
@@ -144,10 +142,6 @@ function SettingsInner({ children }: { children: ReactNode }) {
     [push, t]
   );
 
-  if (!ready) {
-    return <BootScreen />;
-  }
-
   return (
     <SettingsContext.Provider value={{ settings, setSettings }}>
       <ToastContext.Provider value={{ toasts, push, dismiss }}>
@@ -169,15 +163,6 @@ function SettingsInner({ children }: { children: ReactNode }) {
 function ToastLinkFallback() {
   const t = useT();
   return <>{t("tx.view")}</>;
-}
-
-function BootScreen() {
-  const t = useT();
-  return (
-    <div className="grid min-h-screen place-items-center bg-bg text-sm text-zinc-500">
-      {t("state.loading")}
-    </div>
-  );
 }
 
 function ToastViewport({
@@ -209,7 +194,7 @@ function ToastViewport({
               href={item.href}
               target="_blank"
               rel="noreferrer"
-              className="mt-2 inline-block text-xs text-white underline"
+              className="link-accent mt-2 inline-block text-xs"
             >
               {item.detail ?? <ToastLinkFallback />}
             </a>

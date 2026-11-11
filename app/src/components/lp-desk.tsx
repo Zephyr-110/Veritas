@@ -68,7 +68,7 @@ export function LpDesk({ market, position }: { market: MarketView; position: Use
   };
 
   return (
-    <Card className="stack-4">
+    <Card className="desk stack-4">
       <div>
         <div className="text-base font-medium text-white">{t("lp.title")}</div>
         <p className="mt-1 text-xs text-zinc-500">{t("lp.subtitle", { symbol: COLLATERAL_SYMBOL })}</p>

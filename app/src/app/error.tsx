@@ -13,13 +13,13 @@ export default function ErrorPage({
   const t = useT();
   return (
     <div className="surface min-h-56 p-6">
-      <div className="text-2xl font-semibold tracking-tight text-white">{t("errorPage.title")}</div>
-      <p className="mt-2 text-sm leading-relaxed text-zinc-400">{t("errorPage.fallback")}</p>
+      <div className="page-title">{t("errorPage.title")}</div>
+      <p className="mt-2 text-[15px] leading-relaxed text-zinc-400">{t("errorPage.fallback")}</p>
       <div className="mt-6 cluster-3">
         <Button type="button" onClick={reset}>
           {t("common.tryAgain")}
         </Button>
-        <Link href="/markets" className="text-sm text-white underline hover:text-zinc-200">
+        <Link href="/markets" className="link-accent text-[15px]">
           {t("errorPage.back")}
         </Link>
       </div>

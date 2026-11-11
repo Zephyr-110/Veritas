@@ -11,7 +11,7 @@ export default function NotFound() {
       title={t("notFound.title")}
       body={t("notFound.body")}
       action={
-        <a href="/markets" className="text-sm text-white underline">
+        <a href="/markets" className="link-accent text-[15px]">
           {t("nav.markets")}
         </a>
       }

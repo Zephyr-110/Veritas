@@ -18,9 +18,9 @@ module.exports = {
         },
         ink: "#f4f4f5",
         mute: "#a1a1aa",
-        line: "rgba(39, 39, 42, 0.8)",
-        panel: "rgba(24, 24, 27, 0.4)",
-        panel2: "rgba(24, 24, 27, 0.72)",
+        line: "rgba(118, 140, 170, 0.28)",
+        panel: "rgba(28, 33, 46, 0.92)",
+        panel2: "rgba(32, 38, 52, 0.96)",
         bg: "#0B0E14",
       },
       fontFamily: {

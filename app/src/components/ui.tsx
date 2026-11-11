@@ -19,9 +19,10 @@ import {
   DEFAULT_COLLATERAL_MINT,
   DEFAULT_PROGRAM_ID,
   DEFAULT_RPC,
+  GITHUB_REPO,
 } from "@/lib/constants";
 import { clusterLabel, kindLabel, kindTone, marketKind } from "@/lib/display";
-import { explorerTx, formatYesNo, shorten } from "@/lib/format";
+import { explorerAccount, explorerTx, formatYesNo, shorten } from "@/lib/format";
 import type { MarketView } from "@/lib/markets";
 import { parseTxError } from "@/lib/errors";
 import { sendIxs, mustWallet } from "@/lib/send";
@@ -46,7 +47,7 @@ export function Button({
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { tone?: "primary" | "secondary" | "yes" | "no" }) {
   const tones: Record<string, string> = {
-    primary: "shine bg-white text-zinc-950 hover:bg-zinc-100 shadow-[0_0_24px_rgba(255,255,255,0.08)]",
+    primary: "shine bg-accent text-zinc-950 hover:bg-cyan-300 shadow-[0_0_24px_rgba(34,211,238,0.22)]",
     secondary: "bg-transparent text-zinc-200 border border-zinc-800 hover:border-zinc-700 hover:bg-white/5",
     yes: "shine bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25",
     no: "shine bg-rose-500/15 text-rose-400 border border-rose-500/30 hover:bg-rose-500/25",
@@ -80,21 +81,29 @@ export function Card({
 export function Field({
   label,
   hint,
+  error,
   children,
 }: {
   label: string;
   hint?: string;
+  error?: string;
   children: ReactNode;
 }) {
   return (
-    <label className="block space-y-2">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="kicker min-w-0 text-[11px] font-medium leading-tight text-zinc-500">{label}</span>
-        {hint ? <span className="num max-w-[45%] shrink-0 text-right text-xs leading-tight text-zinc-500">{hint}</span> : null}
-      </div>
+    <div className="block space-y-2">
+      <span className="block text-[13px] font-medium leading-tight text-zinc-400">{label}</span>
       {children}
-    </label>
+      {error ? (
+        <span className="block text-[13px] leading-5 text-rose-400">{error}</span>
+      ) : hint ? (
+        <span className="field-hint">{hint}</span>
+      ) : null}
+    </div>
   );
+}
+
+export function choiceClass(on: boolean): string {
+  return cx("choice", on && "choice-on");
 }
 
 export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
@@ -102,7 +111,7 @@ export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
     <input
       {...props}
       className={cx(
-        "w-full rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 transition-[border-color,box-shadow] duration-200 focus:border-cyan-500/40 focus:ring-2 focus:ring-cyan-500/10",
+        "h-11 w-full rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 text-sm text-white outline-none placeholder:text-zinc-600 transition-[border-color,box-shadow] duration-200 focus:border-cyan-500/40 focus:ring-2 focus:ring-cyan-500/10",
         props.className
       )}
     />
@@ -152,7 +161,7 @@ export function StatusChip({ market, now }: { market: MarketView; now?: number }
   const kind = marketKind(market, ts);
   return (
     <Chip tone={kindTone(kind, market)}>
-      {kind === "live" ? <span className="live-dot h-1.5 w-1.5 rounded-full bg-emerald-400" /> : null}
+      {kind === "live" ? <span className="live-dot h-1.5 w-1.5 rounded-full bg-accent" /> : null}
       {kindLabel(kind, market)}
     </Chip>
   );
@@ -194,12 +203,9 @@ export function StateBlock({
 }) {
   return (
     <div className="surface flex min-h-40 flex-col items-start justify-center gap-3 px-5 py-6">
-      <div className="kicker text-[11px] text-zinc-500">
-        {kind === "loading" ? "…" : kind === "pending" ? "…" : ""}
-      </div>
       <div className="text-base font-medium text-white">{title}</div>
       {body ? <p className="max-w-xl text-sm leading-relaxed text-zinc-500">{body}</p> : null}
-      {kind === "loading" ? <div className="shimmer h-2 w-40 rounded-full bg-zinc-900" /> : null}
+      {kind === "loading" || kind === "pending" ? <div className="sk h-2 w-40" /> : null}
       {action}
     </div>
   );
@@ -272,7 +278,7 @@ function LangSwitch() {
         onClick={() => setLocale("en")}
         className={cx(
           "rounded-full px-2 py-1 text-[11px] font-medium leading-none transition-colors",
-          locale === "en" ? "bg-white text-zinc-950" : "text-zinc-400 hover:text-white"
+          locale === "en" ? "bg-accent text-zinc-950" : "text-zinc-400 hover:text-white"
         )}
       >
         {t("nav.en")}
@@ -282,7 +288,7 @@ function LangSwitch() {
         onClick={() => setLocale("zh")}
         className={cx(
           "rounded-full px-2 py-1 text-[11px] font-medium leading-none transition-colors",
-          locale === "zh" ? "bg-white text-zinc-950" : "text-zinc-400 hover:text-white"
+          locale === "zh" ? "bg-accent text-zinc-950" : "text-zinc-400 hover:text-white"
         )}
       >
         {t("nav.zh")}
@@ -337,7 +343,7 @@ export function Header() {
                   href={item.href}
                   className={cx(
                     "whitespace-nowrap rounded-lg px-3 py-1.5 text-sm transition-colors",
-                    active ? "bg-white/10 text-white" : "text-zinc-400 hover:text-white"
+                    active ? "bg-accent/15 text-accent" : "text-zinc-400 hover:text-white"
                   )}
                 >
                   {item.label}
@@ -363,7 +369,7 @@ export function Header() {
             <span
               className={cx(
                 "h-1.5 w-1.5 rounded-full",
-                ok ? "live-dot bg-emerald-400" : ok === false ? "bg-rose-400" : "bg-zinc-500"
+                ok ? "live-dot bg-accent" : ok === false ? "bg-rose-400" : "bg-zinc-500"
               )}
             />
             {clusterLabel(settings.cluster)}
@@ -384,7 +390,7 @@ export function Header() {
               href={item.href}
               className={cx(
                 "whitespace-nowrap rounded-full px-3 py-1 text-[11px]",
-                active ? "bg-white text-zinc-950" : "text-zinc-400"
+                active ? "bg-accent text-zinc-950" : "text-zinc-400"
               )}
             >
               {item.label}
@@ -429,7 +435,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={onClose}>
       <div className="surface w-full max-w-lg p-6 shadow-glow" onClick={(e) => e.stopPropagation()}>
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-xl font-bold tracking-tight text-white">{t("settings.title")}</h2>
+          <h2 className="page-title">{t("settings.title")}</h2>
           <button type="button" className="text-zinc-400 hover:text-white" onClick={onClose}>
             {t("common.close")}
           </button>
@@ -441,7 +447,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
           </Field>
           <Field label={t("settings.network")}>
             <select
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3 text-sm text-white"
+              className="h-11 w-full rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 text-sm text-white"
               value={draft.cluster}
               onChange={(e) => setDraft({ ...draft, cluster: e.target.value as ClusterName })}
             >
@@ -483,3 +489,30 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 }
 
 
+
+export function Footer() {
+  const t = useT();
+  const pathname = usePathname();
+  const { settings } = useSettings();
+  const programHref = explorerAccount(settings.programId, settings.cluster);
+  if (pathname === "/") return null;
+  return (
+    <footer className="page-width relative z-10 mx-auto px-4 pb-8 pt-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-zinc-500">
+        {programHref ? (
+          <a href={programHref} target="_blank" rel="noreferrer" className="link-accent font-mono">
+            {t("footer.program")} {shorten(settings.programId, 4, 4)}
+          </a>
+        ) : (
+          <span className="font-mono">
+            {t("footer.program")} {shorten(settings.programId, 4, 4)}
+          </span>
+        )}
+        <a href={GITHUB_REPO} target="_blank" rel="noreferrer" className="link-accent">
+          {t("footer.github")}
+        </a>
+        <span>{t("footer.disclaimer")}</span>
+      </div>
+    </footer>
+  );
+}

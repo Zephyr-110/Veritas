@@ -1,6 +1,6 @@
 import { Buffer } from "buffer";
 import { PREDICTION_BYTES } from "./constants";
-import { dateLocale, t } from "@/i18n/store";
+import { t } from "@/i18n/store";
 import type { MarketStatusName, Side } from "./types";
 
 export function encodePrediction(title: string): number[] {
@@ -94,9 +94,19 @@ export function formatYesNo(yesPrice: number): string {
   return t("odds.line", { yes, no: 100 - yes });
 }
 
+export function formatStamp(input: number | Date): string {
+  const date = typeof input === "number" ? new Date(input * 1000) : input;
+  if (Number.isNaN(date.getTime()) || (typeof input === "number" && !input)) return "—";
+  const y = date.getFullYear();
+  const m = pad(date.getMonth() + 1);
+  const d = pad(date.getDate());
+  const hh = pad(date.getHours());
+  const mm = pad(date.getMinutes());
+  return y + "-" + m + "-" + d + " " + hh + ":" + mm;
+}
+
 export function formatUnix(ts: number): string {
-  if (!ts) return "—";
-  return new Date(ts * 1000).toLocaleString(dateLocale(), { hour12: false });
+  return formatStamp(ts);
 }
 
 function pad(n: number): string {

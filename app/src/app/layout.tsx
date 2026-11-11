@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { IBM_Plex_Mono, Inter } from "next/font/google";
-import { Header } from "@/components/ui";
+import { Footer, Header } from "@/components/ui";
 import { Providers } from "@/components/providers";
 import { Ambience } from "@/components/ambience";
 import en from "@/locales/en.json";
@@ -37,7 +37,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         </div>
         <Providers>
           <Header />
-          <main className="page-width relative z-10 mx-auto min-h-[calc(100vh-3.5rem)] px-4 py-6">{children}</main>
+          <main className="page-width relative z-10 mx-auto min-h-[calc(100vh-8rem)] px-4 py-6">{children}</main>
+          <Footer />
         </Providers>
       </body>
     </html>

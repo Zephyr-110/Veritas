@@ -23,6 +23,7 @@ export const PYTH_RECEIVER = "rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ";
 export const PYTH_PUSH_ORACLE = "pythWSnswVUd12oZpeFP8e9CVaEqJg25g1Vtc2biRsT";
 export const PYTH_SHARD = 0;
 export const HERMES_URL = "https://hermes.pyth.network";
+export const GITHUB_REPO = "https://github.com/Zephyr-110/Veritas";
 
 export const MARKET_DISCRIMINATOR = [219, 190, 213, 55, 0, 227, 198, 154] as const;
 export const LP_POSITION_DISCRIMINATOR = [105, 241, 37, 200, 224, 2, 252, 90] as const;
