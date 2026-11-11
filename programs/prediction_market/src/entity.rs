@@ -6,7 +6,6 @@ use fixed::types::I80F48;
 #[account]
 #[derive(InitSpace)]
 pub struct Market {
-    pub oracle: Pubkey, // who is allowed to publish the result
     pub expiry: u64, // expiry; the program must check it, caller has to pass it in
     pub creator: Pubkey, // the house
     pub id: [u8; 16],
@@ -29,6 +28,14 @@ pub struct Market {
     pub reserve_no: i128,
     pub total_lp_shares: i128,
     pub end_ts: i64,
+
+    pub feed_id: [u8; 32], // Pyth 数据源编号
+    pub threshold: i64, // 阈值
+    pub exponent: i32, // 这个数据源的小数位指数
+    pub settle_above: bool, // true 就是大于阈值，判 Yes 赢， 反之 No赢
+
+    pub settled_price: i64, // 结算用掉的读数
+    pub settled_publish_time: i64, // 读数的发布时间
 }
 
 impl Market {

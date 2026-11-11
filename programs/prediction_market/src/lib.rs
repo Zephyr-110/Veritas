@@ -45,8 +45,8 @@ pub mod prediction_market {
         instructions::swap(ctx, param)
     }
 
-    pub fn resolve_market(ctx: Context<ResolveMarket>, market_winner: MarketOutcome) -> Result<()> {
-        instructions::resolve_market(ctx, market_winner)
+    pub fn resolve_market(ctx: Context<ResolveMarket>) -> Result<()> {
+        instructions::resolve_market(ctx)
     }
 
     pub fn get_collateral(ctx: Context<GetCollateral>, amount: u64, ) -> Result<()> {

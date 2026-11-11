@@ -15,8 +15,7 @@ pub struct VoidMarket<'info> {
     #[account(
         mut,
         seeds = [b"market", market.id.as_ref()],
-        constraint = (((clock.unix_timestamp as u64) >= market.expiry) && (clock.unix_timestamp as u64) <= market.expiry + RESOLVE_WINDOW && signer.key() == market.oracle)
-        || ((clock.unix_timestamp as u64) > market.expiry + RESOLVE_WINDOW) @ ErrorCode::MarketNotOpen,
+        constraint = ((clock.unix_timestamp as u64) > market.expiry + RESOLVE_WINDOW) @ ErrorCode::MarketNotOpen,
         constraint = market.status == MarketStatus::Open @ ErrorCode::MarketNotOpen,
         bump = market.bump,
     )]

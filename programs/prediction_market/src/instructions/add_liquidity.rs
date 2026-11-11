@@ -19,7 +19,6 @@ pub struct AddLiquidity<'info> {
         mut,
         constraint = market.status == MarketStatus::Open @ ErrorCode::MarketNotOpen,
         constraint = market.expiry > (clock.unix_timestamp as u64) @ ErrorCode::MarketExpired,
-        constraint = market.oracle.key() != signer.key() @ ErrorCode::AuthorityCannotTrade,
         seeds = [b"market", market.id.as_ref()],
         bump = market.bump,
     )]

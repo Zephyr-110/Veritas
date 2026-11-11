@@ -114,7 +114,6 @@ pub struct UserBetOnParams {
 
 
 pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<()> {
-    require!(ctx.accounts.market.oracle != ctx.accounts.signer.key(), ErrorCode::AuthorityCannotTrade);
     let collateral_deduct = param.collateral_amount;
     require!(collateral_deduct > 0, ErrorCode::InvalidAmount);
     let decimals = ctx.accounts.collateral_mint.decimals;

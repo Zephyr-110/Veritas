@@ -16,15 +16,12 @@ pub struct CreateMarket<'info> {
     #[account(mut)]
     pub creator: Signer<'info>, // the house
 
-    pub oracle: Signer<'info>, // resolver
-
     #[account(
         init,
         payer = creator,
         space = 8 + Market::INIT_SPACE,
         seeds = [b"market", param.market_id.as_ref()],
         constraint = collateral_mint.to_account_info().owner == &anchor_spl::token::ID @ ErrorCode::InvalidMint,
-        constraint = oracle.key() != creator.key() @ ErrorCode::OracleEqualsCreator,
         bump
     )]
     pub market: Box<Account<'info, Market>>, // the market
@@ -113,6 +110,11 @@ pub struct CreateMarketParams {
     pub market_id: [u8; 16],
     pub prediction: [u8; 64],
     pub collateral_amount: u64,
+
+    pub feed_id: [u8; 32],
+    pub threshold: i64,
+    pub exponent: i32,
+    pub settle_above: bool,
 }
 
 pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) -> Result<()> {
@@ -126,7 +128,6 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
 
     let market = &mut ctx.accounts.market;
     market.creator = ctx.accounts.creator.key();
-    market.oracle = ctx.accounts.oracle.key();
     market.expiry = param.expiry;
     market.id = param.market_id;
     market.bump = ctx.bumps.market;
@@ -136,20 +137,28 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
     market.collateral_mint = ctx.accounts.collateral_mint.key();
     market.market_collateral_bump = ctx.bumps.collateral_vault;
     market.prediction = param.prediction;
+
     market.end_ts = param.expiry as i64;
     market.last_accrual_ts = ctx.accounts.clock.unix_timestamp;
     market.fee_bps = crate::SERVICE_FEE as u16;
 
+    market.feed_id = param.feed_id;
+    market.threshold = param.threshold;
+    market.exponent = param.exponent;
+    market.settle_above = param.settle_above;
+    market.settled_price = 0;
+    market.settled_publish_time = 0;
+
     let duration = market.end_ts - market.last_accrual_ts;
     let l_zero = suggest_l_zero_for_budget(param.collateral_amount, duration)?;
     let l_eff = l_effective(l_zero, duration)?;
-    let (yes_price, no_price) = reserves_from_price( // 两种币的当前价格
+    let (reserve_yes, reserve_no) = reserves_from_price( // 两种币的当前储备
         fixed::types::I80F48::lit("0.5"),
         l_eff,
     )?;
     market.set_l_zero_fixed(l_zero);
-    market.set_reserve_yes_fixed(yes_price);
-    market.set_reserve_no_fixed(no_price);
+    market.set_reserve_yes_fixed(reserve_yes);
+    market.set_reserve_no_fixed(reserve_no);
     market.set_cum_yes_per_share_fixed(fixed::types::I80F48::ZERO);
     market.set_cum_no_per_share_fixed(fixed::types::I80F48::ZERO);
     market.set_total_lp_shares_fixed(fixed::types::I80F48::from_num(param.collateral_amount));

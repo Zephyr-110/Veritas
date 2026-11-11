@@ -21,3 +21,5 @@ pub const PRICE_LOWER_BOUND: f64 = 1e-6;
 pub const PRICE_UPPER_BOUND: f64 = 1.0 - 1e-6;
 
 pub const MAX_SWAP_ITERATIONS: u8 = 12;
+
+pub const MAX_SETTLE_DELAY: i64 = 100000;

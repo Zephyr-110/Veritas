@@ -84,7 +84,6 @@ pub struct SwapParams {
 }
 
 pub fn swap(ctx: Context<Swap>, param: SwapParams) -> Result<()> {
-    require!(ctx.accounts.market.oracle != ctx.accounts.signer.key(), ErrorCode::AuthorityCannotTrade);
     require!(param.amount_in > 0, ErrorCode::InvalidAmount);
 
     let market = &mut ctx.accounts.market;

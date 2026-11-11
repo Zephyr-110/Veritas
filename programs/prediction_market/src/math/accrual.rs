@@ -214,7 +214,6 @@ mod tests {
         let (x, y) = pm_math::reserves_from_price(I80F48::from_num(price), l_eff).unwrap();
 
         let mut market = Market {
-            oracle: Pubkey::default(),
             expiry: end_ts as u64,
             creator: Pubkey::default(),
             id: [0u8; 16],
@@ -235,6 +234,12 @@ mod tests {
             reserve_no: 0,
             total_lp_shares: 0,
             end_ts,
+            feed_id: [0u8; 32],
+            threshold: 0,
+            exponent: 0,
+            settle_above: true,
+            settled_price: 0,
+            settled_publish_time: 0,
         };
 
         market.set_l_zero_fixed(l_zero_fixed);

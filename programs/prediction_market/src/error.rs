@@ -46,4 +46,10 @@ pub enum ErrorCode {
     InvalidDuration,
     #[msg("Invalid budget")]
     InvalidBudget,
+    #[msg("")]
+    NotFirstAfterExpiry,
+    #[msg("")]
+    ExponentMismatch,
+    #[msg("")]
+    SettleTooLate,
 }
