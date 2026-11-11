@@ -48,6 +48,10 @@ pub fn resolve_market(ctx: Context<ResolveMarket>) -> Result<()> {
     // 超 10 秒直接销毁盘子
     if price.publish_time > market.end_ts + MAX_SETTLE_DELAY {
         market.status = MarketStatus::Burn;
+
+        market.settled_price = price.price;
+        market.settled_publish_time = price.publish_time;
+
         msg!("market {:?} voided ", market.id);
         return Ok(())
     }
