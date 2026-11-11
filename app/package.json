@@ -7,10 +7,14 @@
     "build": "next build",
     "start": "next start",
     "copy-idl": "node ./scripts/copy-idl.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit --pretty false",
     "seed": "node ./scripts/seed-local.js"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
+    "@pythnetwork/hermes-client": "^3.1.0",
+    "@pythnetwork/pyth-solana-receiver": "^0.17.0",
     "@solana/spl-token": "^0.4.15",
     "@solana/wallet-adapter-base": "^0.9.27",
     "@solana/wallet-adapter-react": "^0.15.39",

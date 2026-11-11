@@ -1,7 +1,6 @@
 import { Program } from "@coral-xyz/anchor";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
-  TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import {
   ComputeBudgetProgram,
@@ -13,7 +12,7 @@ import {
 import type { PredictionMarket } from "@/idl/prediction_market";
 import { sideToChain } from "./format";
 import type { MarketView } from "./markets";
-import { findMarketPdas } from "./pdas";
+import { findLpPosition, findMarketPdas } from "./pdas";
 import { ataOf, ensureAtaIx, toBn } from "./tokens";
 import type { Side } from "./types";
 
@@ -27,16 +26,20 @@ export async function ixCreateMarket(
   program: Program<PredictionMarket>,
   args: {
     creator: PublicKey;
-    oracle: PublicKey;
     collateralMint: PublicKey;
     marketId: number[];
     prediction: number[];
     expiry: number;
     collateralAmount: bigint;
+    feedId: number[];
+    threshold: bigint;
+    exponent: number;
+    settleAbove: boolean;
     tokenProgram: PublicKey;
   }
 ): Promise<TransactionInstruction[]> {
   const pdas = findMarketPdas(program.programId, args.marketId);
+  const [lpPosition] = findLpPosition(program.programId, pdas.market, args.creator);
   const tokenProgram = args.tokenProgram;
   const ix = await program.methods
     .createMarket({
@@ -44,16 +47,18 @@ export async function ixCreateMarket(
       marketId: args.marketId,
       prediction: args.prediction,
       collateralAmount: toBn(args.collateralAmount),
+      feedId: args.feedId,
+      threshold: toBn(args.threshold),
+      exponent: args.exponent,
+      settleAbove: args.settleAbove,
     })
     .accountsPartial({
       creator: args.creator,
-      oracle: args.oracle,
       market: pdas.market,
+      lpPosition,
       collateralMint: args.collateralMint,
-      lpMint: pdas.lpMint,
       yesMint: pdas.yesMint,
       noMint: pdas.noMint,
-      lpCreatorAta: ataOf(pdas.lpMint, args.creator, tokenProgram),
       collateralVault: pdas.collateralVault,
       creatorCollateralAta: ataOf(args.collateralMint, args.creator, tokenProgram),
       yesPool: pdas.yesPool,
@@ -98,7 +103,12 @@ export async function ixUserBetOn(
       systemProgram: SystemProgram.programId,
     })
     .instruction();
-  return [cuIx(), ix];
+  return [
+    cuIx(),
+    ensureAtaIx(user, market.pdas.yesMint, tp, user),
+    ensureAtaIx(user, market.pdas.noMint, tp, user),
+    ix,
+  ];
 }
 
 export async function ixSwap(
@@ -142,18 +152,18 @@ export async function ixAddLiquidity(
   collateralAmount: bigint
 ): Promise<TransactionInstruction[]> {
   const tp = market.tokenProgram;
+  const [lpPosition] = findLpPosition(program.programId, market.address, user);
   const ix = await program.methods
     .addLiquidity(toBn(collateralAmount))
     .accountsPartial({
       signer: user,
       market: market.address,
+      lpPosition,
       collateralMint: market.collateralMint,
-      lpMint: market.pdas.lpMint,
       yesMint: market.pdas.yesMint,
       noMint: market.pdas.noMint,
       businessmanYesAta: ataOf(market.pdas.yesMint, user, tp),
       businessmanNoAta: ataOf(market.pdas.noMint, user, tp),
-      lpCreatorAta: ataOf(market.pdas.lpMint, user, tp),
       collateralVault: market.pdas.collateralVault,
       businessmanCollateralAta: ataOf(market.collateralMint, user, tp),
       yesPool: market.pdas.yesPool,
@@ -164,7 +174,12 @@ export async function ixAddLiquidity(
       systemProgram: SystemProgram.programId,
     })
     .instruction();
-  return [cuIx(), ix];
+  return [
+    cuIx(),
+    ensureAtaIx(user, market.pdas.yesMint, tp, user),
+    ensureAtaIx(user, market.pdas.noMint, tp, user),
+    ix,
+  ];
 }
 
 export async function ixGetLiquidity(
@@ -174,19 +189,20 @@ export async function ixGetLiquidity(
   lpAmount: bigint
 ): Promise<TransactionInstruction[]> {
   const tp = market.tokenProgram;
+  const [lpPosition] = findLpPosition(program.programId, market.address, user);
   const ix = await program.methods
     .getLiquidity(toBn(lpAmount))
     .accountsPartial({
       signer: user,
       market: market.address,
-      lpMint: market.pdas.lpMint,
+      lpPosition,
       yesMint: market.pdas.yesMint,
       noMint: market.pdas.noMint,
       businessmanYesAta: ataOf(market.pdas.yesMint, user, tp),
       businessmanNoAta: ataOf(market.pdas.noMint, user, tp),
-      businessmanLpAta: ataOf(market.pdas.lpMint, user, tp),
       yesPool: market.pdas.yesPool,
       noPool: market.pdas.noPool,
+      clock: SYSVAR_CLOCK_PUBKEY,
       associatedTokenProgram: ASSOCIATED_PROGRAM,
       tokenProgram: tp,
       systemProgram: SystemProgram.programId,
@@ -196,7 +212,6 @@ export async function ixGetLiquidity(
     cuIx(),
     ensureAtaIx(user, market.pdas.yesMint, tp, user),
     ensureAtaIx(user, market.pdas.noMint, tp, user),
-    ensureAtaIx(user, market.pdas.lpMint, tp, user),
     ix,
   ];
 }
@@ -235,18 +250,19 @@ export async function ixMergeToken(
 export async function ixResolveMarket(
   program: Program<PredictionMarket>,
   market: MarketView,
-  oracle: PublicKey,
-  winner: Side
+  signer: PublicKey,
+  priceUpdate: PublicKey
 ): Promise<TransactionInstruction[]> {
   const ix = await program.methods
-    .resolveMarket(sideToChain(winner))
+    .resolveMarket()
     .accountsPartial({
-      signer: oracle,
+      signer,
       market: market.address,
+      priceUpdate,
       clock: SYSVAR_CLOCK_PUBKEY,
     })
     .instruction();
-  return [ix];
+  return [cuIx(400_000), ix];
 }
 
 export async function ixVoidMarket(
@@ -293,5 +309,3 @@ export async function ixGetCollateral(
     ix,
   ];
 }
-
-export { TOKEN_PROGRAM_ID };

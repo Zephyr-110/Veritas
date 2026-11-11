@@ -1,114 +1,86 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
-import { RESOLVE_WINDOW } from "@/lib/constants";
-import { fromUi, toUi } from "@/lib/format";
-import { ixGetCollateral, ixMergeToken, ixResolveMarket, ixVoidMarket } from "@/lib/instructions";
+import { useAnchorWallet, useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { COLLATERAL_SYMBOL, MAX_SETTLE_DELAY } from "@/lib/constants";
+import { money, resolveHours } from "@/lib/display";
+import { explorerTx, fromUi, toUi } from "@/lib/format";
+import { ixGetCollateral, ixMergeToken, ixVoidMarket } from "@/lib/instructions";
 import { marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
+import { parseTxError } from "@/lib/errors";
+import { postPythAndResolve } from "@/lib/resolve-post";
 import { useProgram } from "@/hooks/use-program";
 import { useNow } from "@/hooks/use-now";
+import { useRefresh, useSettings, useToasts } from "./providers";
 import type { Side } from "@/lib/types";
-import { Button, Card, Chip, Field, TextInput, useTx } from "./ui";
+import { useT } from "@/i18n/provider";
+import { Button, Card, Field, TextInput, useTx } from "./ui";
 
 export function SettleDesk({ market, position }: { market: MarketView; position: UserPosition }) {
   const program = useProgram();
   const { publicKey } = useWallet();
   const { busy, run } = useTx();
   const now = useNow();
+  const t = useT();
   const phase = marketPhase(market, now);
-  const isOracle = !!publicKey && publicKey.equals(market.oracle);
   const mergeable = position.yes < position.no ? position.yes : position.no;
-
-  const canResolve = market.status === "open" && phase.inWindow && isOracle;
-  const canVoid =
-    market.status === "open" &&
-    ((phase.inWindow && isOracle) || phase.afterWindow);
-  const canClaim =
-    (market.status === "resolved" && (market.winner === "yes" ? position.yes : position.no) > 0n) ||
-    (market.status === "burn" && (position.yes >= 2n || position.no >= 2n));
+  const winningAmount = market.status === "resolved" ? (market.winner === "yes" ? position.yes : position.no) : 0n;
+  const canMerge = market.status === "open" && mergeable > 0n;
+  const canClaimWinner = market.status === "resolved" && winningAmount > 0n;
+  const canClaimVoid = market.status === "burn" && (position.yes > 1n || position.no > 1n);
+  const showResolve = market.status === "open" && phase.expired;
 
   return (
-    <div className="grid gap-4">
-      <Card>
-        <div className="mb-1 font-bold tracking-tight text-2xl">Merge / redeem</div>
-        <p className="mb-4 text-xs leading-relaxed text-mute">
-          Matching Yes and No can be merged 1:1 back to collateral. After resolution, redeem the winning
-          token. After a void, either side redeems at half price, minimum 2.
-        </p>
-        <div className="mb-4 grid grid-cols-3 gap-2 text-center text-xs">
-          <Stat label="Yes" value={toUi(position.yes, market.decimals)} />
-          <Stat label="No" value={toUi(position.no, market.decimals)} />
-          <Stat label="Mergeable" value={toUi(mergeable, market.decimals)} />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            tone="ghost"
-            disabled={busy || !publicKey || mergeable <= 0n}
-            onClick={() =>
-              publicKey && run("Merge", () => ixMergeToken(program, market, publicKey, mergeable))
-            }
-          >
-            Merge full sets
-          </Button>
-          {market.status === "resolved" ? (
+    <div className="stack-4">
+      {canMerge || canClaimWinner || canClaimVoid ? (
+        <Card className="stack-4">
+          {canMerge ? (
+            <>
+              <p className="text-sm text-zinc-400">{t("settle.mergeBody", { symbol: COLLATERAL_SYMBOL })}</p>
+              <Button
+                type="button"
+                disabled={busy || !publicKey || !program}
+                onClick={() => publicKey && program && run(t("tx.cashOut"), () => ixMergeToken(program, market, publicKey, mergeable))}
+              >
+                {t("settle.cashOut", { amount: money(mergeable, market.decimals) })}
+              </Button>
+            </>
+          ) : null}
+          {canClaimWinner && program ? (
             <Button
               type="button"
               tone={market.winner === "yes" ? "yes" : "no"}
-              disabled={busy || !canClaim || !publicKey}
+              disabled={busy || !publicKey}
               onClick={() => {
                 if (!publicKey) return;
                 const mint = market.winner === "yes" ? market.pdas.yesMint : market.pdas.noMint;
-                const amount = market.winner === "yes" ? position.yes : position.no;
-                return run("Redeem", () => ixGetCollateral(program, market, publicKey, mint, amount));
+                return run(t("tx.collectWinnings"), () => ixGetCollateral(program, market, publicKey, mint, winningAmount));
               }}
             >
-              Redeem winner
+              {t("settle.collectAmount", { amount: money(winningAmount, market.decimals) })}
             </Button>
           ) : null}
-          {market.status === "burn" ? <VoidClaim market={market} position={position} /> : null}
-        </div>
-      </Card>
+          {canClaimVoid ? <VoidClaim market={market} position={position} /> : null}
+        </Card>
+      ) : null}
 
-      {market.status === "open" && (phase.expired || isOracle) ? (
-        <Card>
-          <div className="mb-1 flex items-center gap-2">
-            <span className="font-bold tracking-tight text-2xl">Resolve</span>
-            {isOracle ? <Chip tone="accent">You are the oracle</Chip> : <Chip>Anyone can void after the window</Chip>}
+      {showResolve ? (
+        <Card className="stack-4">
+          <div>
+            <div className="text-base font-medium text-white">{t("settle.resolveTitle")}</div>
+            <p className="mt-1 text-sm text-zinc-500">
+              {t("settle.resolveBody", { hours: resolveHours(), delay: MAX_SETTLE_DELAY })}
+            </p>
           </div>
-          <p className="mb-4 text-xs leading-relaxed text-mute">
-            The oracle has {Math.floor(RESOLVE_WINDOW / 3600)} hours after expiry to publish the result.
-            After that window, anyone can void the market.
-          </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="cluster-2">
+            <ResolveButton market={market} />
             <Button
               type="button"
-              tone="yes"
-              disabled={busy || !canResolve}
-              onClick={() =>
-                publicKey && run("Resolve Yes", () => ixResolveMarket(program, market, publicKey, "yes"))
-              }
+              tone="secondary"
+              disabled={busy || !phase.afterWindow || !publicKey || !program}
+              onClick={() => publicKey && program && run(t("tx.cancelMarket"), () => ixVoidMarket(program, market, publicKey))}
             >
-              Yes wins
-            </Button>
-            <Button
-              type="button"
-              tone="no"
-              disabled={busy || !canResolve}
-              onClick={() =>
-                publicKey && run("Resolve No", () => ixResolveMarket(program, market, publicKey, "no"))
-              }
-            >
-              No wins
-            </Button>
-            <Button
-              type="button"
-              tone="ghost"
-              disabled={busy || !canVoid || !publicKey}
-              onClick={() => publicKey && run("Void market", () => ixVoidMarket(program, market, publicKey))}
-            >
-              Void
+              {t("settle.cancelRefund")}
             </Button>
           </div>
         </Card>
@@ -117,12 +89,36 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function ResolveButton({ market }: { market: MarketView }) {
+  const program = useProgram();
+  const { connection } = useConnection();
+  const wallet = useAnchorWallet();
+  const { push } = useToasts();
+  const { bump } = useRefresh();
+  const { settings } = useSettings();
+  const t = useT();
+  const [busy, setBusy] = useState(false);
+
+  const onClick = async () => {
+    if (!program || !wallet) return;
+    setBusy(true);
+    try {
+      const sigs = await postPythAndResolve(connection, wallet, program, market);
+      const sig = sigs[0];
+      const link = sig ? explorerTx(sig, settings.cluster) : null;
+      push("ok", t("tx.submitResolve"), link ? t("tx.view") : t("tx.confirmed"), link ?? undefined);
+      bump();
+    } catch (err) {
+      push("err", t("tx.failed", { label: t("tx.submitResolve") }), parseTxError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className="rounded-md bg-bg px-3 py-3">
-      <div className="text-mute">{label}</div>
-      <div className="font-mono text-ink">{value}</div>
-    </div>
+    <Button type="button" disabled={busy || !wallet || !program} onClick={() => void onClick()}>
+      {busy ? t("state.confirming") : t("settle.submitResolve")}
+    </Button>
   );
 }
 
@@ -130,41 +126,42 @@ function VoidClaim({ market, position }: { market: MarketView; position: UserPos
   const program = useProgram();
   const { publicKey } = useWallet();
   const { busy, run } = useTx();
+  const t = useT();
   const [side, setSide] = useState<Side>(position.yes >= position.no ? "yes" : "no");
   const max = side === "yes" ? position.yes : position.no;
   const even = max - (max % 2n);
   const [amount, setAmount] = useState(toUi(even, market.decimals, 6));
   const parsed = useMemo(() => {
     try {
-      return fromUi(amount || "0", market.decimals);
+      return { value: fromUi(amount || "0", market.decimals), invalid: false };
     } catch {
-      return 0n;
+      return { value: 0n, invalid: true };
     }
   }, [amount, market.decimals]);
 
   return (
-    <div className="w-full space-y-3 rounded-md border border-line p-3">
-      <div className="flex gap-2">
-        <Button type="button" tone={side === "yes" ? "yes" : "ghost"} onClick={() => setSide("yes")}>
-          Redeem Yes
+    <div className="w-full stack-3 rounded-2xl border border-zinc-800 p-4">
+      <div className="cluster-2">
+        <Button type="button" tone={side === "yes" ? "yes" : "secondary"} onClick={() => setSide("yes")}>
+          {t("settle.refundYes")}
         </Button>
-        <Button type="button" tone={side === "no" ? "no" : "ghost"} onClick={() => setSide("no")}>
-          Redeem No
+        <Button type="button" tone={side === "no" ? "no" : "secondary"} onClick={() => setSide("no")}>
+          {t("settle.refundNo")}
         </Button>
       </div>
-      <Field label="Void redeem amount" hint="Half price, even amounts preferred">
-        <TextInput value={amount} onChange={(e) => setAmount(e.target.value)} />
+      <Field label={t("settle.sharesToRefund")} hint={t("settle.evenHint")}>
+        <TextInput value={amount} onChange={(e) => setAmount(e.target.value)} className="font-mono tabular-nums" />
       </Field>
       <Button
         type="button"
-        disabled={busy || !publicKey || parsed < 2n || parsed > max}
+        disabled={busy || !publicKey || !program || parsed.invalid || parsed.value < 2n || parsed.value > max}
         onClick={() => {
-          if (!publicKey) return;
+          if (!publicKey || !program) return;
           const mint = side === "yes" ? market.pdas.yesMint : market.pdas.noMint;
-          return run("Redeem half", () => ixGetCollateral(program, market, publicKey, mint, parsed));
+          return run(t("tx.collectRefund"), () => ixGetCollateral(program, market, publicKey, mint, parsed.value));
         }}
       >
-        Redeem {toUi(parsed / 2n, market.decimals)} collateral at half
+        {t("settle.collectAmount", { amount: money(parsed.value / 2n, market.decimals) })}
       </Button>
     </div>
   );

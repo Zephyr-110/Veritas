@@ -16,6 +16,12 @@ export function useMarkets() {
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
+    if (!program) {
+      setError("errors.badAddress");
+      setMarkets([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const rows = await fetchMarkets(connection, program);

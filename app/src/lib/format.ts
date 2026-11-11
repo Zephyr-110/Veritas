@@ -1,5 +1,6 @@
 import { Buffer } from "buffer";
 import { PREDICTION_BYTES } from "./constants";
+import { dateLocale, t } from "@/i18n/store";
 import type { MarketStatusName, Side } from "./types";
 
 export function encodePrediction(title: string): number[] {
@@ -34,7 +35,7 @@ export function parseEnumKey<T extends string>(value: unknown): T {
     const key = Object.keys(value as object)[0];
     if (key) return key as T;
   }
-  throw new Error("Unable to parse on-chain enum");
+  throw new Error("errors.decode");
 }
 
 export function parseStatus(value: unknown): MarketStatusName {
@@ -72,7 +73,7 @@ export function toUi(amount: bigint, decimals: number, digits = 4): string {
 export function fromUi(text: string, decimals: number): bigint {
   const trimmed = text.trim();
   if (!trimmed) return 0n;
-  if (!/^\d+(\.\d+)?$/.test(trimmed)) throw new Error("Invalid amount");
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) throw new Error("errors.invalidAmount");
   const [whole, frac = ""] = trimmed.split(".");
   const fracPadded = (frac + "0".repeat(decimals)).slice(0, decimals);
   return BigInt(whole + fracPadded);
@@ -80,29 +81,37 @@ export function fromUi(text: string, decimals: number): bigint {
 
 export function formatCents(price: number): string {
   if (!Number.isFinite(price)) return "—";
-  return `${Math.round(price * 100)}¢`;
+  return `${(price * 100).toFixed(1)}¢`;
 }
 
 export function formatPct(price: number): string {
   if (!Number.isFinite(price)) return "—";
-  return `${(price * 100).toFixed(1)}%`;
+  return `${Math.round(price * 100)}%`;
+}
+
+export function formatYesNo(yesPrice: number): string {
+  const yes = Number.isFinite(yesPrice) ? Math.max(0, Math.min(100, Math.round(yesPrice * 100))) : 50;
+  return t("odds.line", { yes, no: 100 - yes });
 }
 
 export function formatUnix(ts: number): string {
   if (!ts) return "—";
-  return new Date(ts * 1000).toLocaleString("en-US", { hour12: false });
+  return new Date(ts * 1000).toLocaleString(dateLocale(), { hour12: false });
+}
+
+function pad(n: number): string {
+  return String(n).padStart(2, "0");
 }
 
 export function countdown(expiry: number, now = Math.floor(Date.now() / 1000)): string {
-  const delta = expiry - now;
-  if (delta <= 0) return "Ended";
+  const delta = Math.max(0, expiry - now);
+  if (expiry - now <= 0) return t("time.ended");
   const d = Math.floor(delta / 86400);
   const h = Math.floor((delta % 86400) / 3600);
   const m = Math.floor((delta % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
   const s = delta % 60;
-  return `${m}m ${s}s`;
+  const clock = `${pad(h)}:${pad(m)}:${pad(s)}`;
+  return d > 0 ? t("time.daysClock", { days: d, clock }) : clock;
 }
 
 export function explorerTx(sig: string, cluster: string): string | null {
@@ -115,4 +124,18 @@ export function explorerAccount(address: string, cluster: string): string | null
   if (cluster === "localnet") return null;
   const q = cluster === "mainnet-beta" ? "" : `?cluster=${cluster}`;
   return `https://solscan.io/account/${address}${q}`;
+}
+
+export function hexOf(bytes: number[] | Uint8Array): string {
+  return Buffer.from(bytes).toString("hex");
+}
+
+export function bytesFromHex(hex: string): number[] {
+  const clean = hex.trim().replace(/^0x/i, "");
+  if (!/^[0-9a-fA-F]+$/.test(clean) || clean.length % 2 !== 0) throw new Error("errors.decode");
+  return Array.from(Buffer.from(clean, "hex"));
+}
+
+export function formatRawI64(value: bigint | number): string {
+  return value.toString();
 }

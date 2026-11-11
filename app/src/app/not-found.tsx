@@ -1,11 +1,20 @@
+"use client";
+
+import { useT } from "@/i18n/provider";
+import { StateBlock } from "@/components/ui";
+
 export default function NotFound() {
+  const t = useT();
   return (
-    <div className="rounded-xl border border-line bg-panel p-10 text-center">
-      <div className="text-3xl font-bold tracking-tight text-white">Page not found</div>
-      <p className="mt-2 text-sm text-mute">Head back to the market list.</p>
-      <a href="/" className="mt-6 inline-block text-accent underline">
-        Home
-      </a>
-    </div>
+    <StateBlock
+      kind="empty"
+      title={t("notFound.title")}
+      body={t("notFound.body")}
+      action={
+        <a href="/markets" className="text-sm text-white underline">
+          {t("nav.markets")}
+        </a>
+      }
+    />
   );
 }

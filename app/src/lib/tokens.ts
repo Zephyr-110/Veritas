@@ -11,6 +11,7 @@ import {
   Connection,
   PublicKey,
   TransactionInstruction,
+  type AccountInfo,
 } from "@solana/web3.js";
 import { BN } from "@coral-xyz/anchor";
 
@@ -33,7 +34,7 @@ export function ataOf(
 
 export function unpackAmount(
   address: PublicKey,
-  info: { data: Buffer; owner: PublicKey } | null,
+  info: AccountInfo<Buffer> | null,
   tokenProgram: PublicKey
 ): bigint {
   if (!info) return 0n;
@@ -46,7 +47,7 @@ export function unpackAmount(
 
 export function unpackSupply(
   address: PublicKey,
-  info: { data: Buffer; owner: PublicKey } | null,
+  info: AccountInfo<Buffer> | null,
   tokenProgram: PublicKey
 ): bigint {
   if (!info) return 0n;
@@ -59,7 +60,7 @@ export function unpackSupply(
 
 export function unpackDecimals(
   address: PublicKey,
-  info: { data: Buffer; owner: PublicKey } | null,
+  info: AccountInfo<Buffer> | null,
   tokenProgram: PublicKey
 ): number {
   if (!info) return 6;
@@ -73,8 +74,8 @@ export function unpackDecimals(
 export async function getMultiple(
   connection: Connection,
   keys: PublicKey[]
-): Promise<(Awaited<ReturnType<Connection["getAccountInfo"]>> | null)[]> {
-  const out: (Awaited<ReturnType<Connection["getAccountInfo"]>> | null)[] = [];
+): Promise<(AccountInfo<Buffer> | null)[]> {
+  const out: (AccountInfo<Buffer> | null)[] = [];
   for (let i = 0; i < keys.length; i += 100) {
     const chunk = await connection.getMultipleAccountsInfo(keys.slice(i, i + 100), "confirmed");
     out.push(...chunk);
@@ -103,7 +104,7 @@ export async function fetchMintMeta(
   mint: PublicKey
 ): Promise<{ tokenProgram: PublicKey; decimals: number }> {
   const info = await connection.getAccountInfo(mint, "confirmed");
-  if (!info) throw new Error("Collateral mint not found. Check the address in Settings.");
+  if (!info) throw new Error("errors.mintNotFound");
   const tokenProgram = tokenProgramOf(info.owner);
   return { tokenProgram, decimals: unpackDecimals(mint, info, tokenProgram) };
 }

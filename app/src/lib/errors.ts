@@ -1,18 +1,25 @@
+import { hasKey, t } from "@/i18n/store";
+
 const ERRORS: Record<number, string> = {
-  6000: "Only this market's oracle can resolve it.",
-  6001: "Market is not open, or void conditions are not met.",
-  6002: "Market is not resolved or voided, so it cannot be redeemed.",
-  6003: "Cannot merge or withdraw in this state.",
-  6004: "Market has expired; trading is closed.",
-  6005: "Outside the resolve window.",
-  6006: "Invalid amount or expiry.",
-  6007: "Not enough tokens in the matching account.",
-  6008: "Yes / No pool is empty.",
-  6009: "Output is below slippage protection.",
-  6010: "LP amount must be greater than 0.",
-  6011: "This mint is not this market's Yes or No token.",
-  6012: "After resolution, only the winning token can be redeemed.",
-  6013: "The oracle cannot buy or swap.",
+  6000: "errors.notOpen",
+  6001: "errors.cannotRedeem",
+  6002: "errors.cannotMerge",
+  6003: "errors.expired",
+  6004: "errors.outsideWindow",
+  6005: "errors.invalidAmount",
+  6006: "errors.notEnoughTokens",
+  6007: "errors.emptyPool",
+  6008: "errors.slippage",
+  6009: "errors.lpZero",
+  6010: "errors.wrongMint",
+  6011: "errors.onlyWinner",
+  6012: "errors.invalidPrice",
+  6013: "errors.invalidLiquidity",
+  6014: "errors.math",
+  6015: "errors.invalidDuration",
+  6016: "errors.invalidBudget",
+  6017: "errors.notFirstPrint",
+  6018: "errors.exponentMismatch",
 };
 
 function pickLogs(err: unknown): string {
@@ -20,10 +27,10 @@ function pickLogs(err: unknown): string {
   const anyErr = err as {
     message?: string;
     logs?: string[];
-    getLogs?: () => string[] | Promise<string[]>;
+    name?: string;
   };
   const logs = Array.isArray(anyErr.logs) ? anyErr.logs.join("\n") : "";
-  return `${anyErr.message ?? ""}\n${logs}\n${String(err)}`;
+  return `${anyErr.name ?? ""}\n${anyErr.message ?? ""}\n${logs}\n${String(err)}`;
 }
 
 export function parseTxError(err: unknown): string {
@@ -32,7 +39,7 @@ export function parseTxError(err: unknown): string {
   const named = text.match(/Error Code: ([A-Za-z]+)\. Error Number: (\d+)/);
   if (named) {
     const code = Number(named[2]);
-    return ERRORS[code] ?? named[1];
+    return ERRORS[code] ?? "errors.txFailed";
   }
 
   const hex = text.match(/custom program error: 0x([0-9a-fA-F]+)/);
@@ -47,22 +54,28 @@ export function parseTxError(err: unknown): string {
     if (ERRORS[code]) return ERRORS[code];
   }
 
-  if (/Attempt to debit an account but found no record of a prior credit/i.test(text)) {
-    return "Not enough SOL to pay fees.";
-  }
-  if (/insufficient funds|insufficient lamports/i.test(text)) {
-    return "Insufficient balance.";
-  }
-  if (/Blockhash not found/i.test(text)) {
-    return "Blockhash expired. Try again.";
-  }
-  if (/User rejected|rejected the request/i.test(text)) {
-    return "Signature rejected in the wallet.";
-  }
-  if (/failed to fetch|Failed to fetch|ECONNREFUSED|network/i.test(text)) {
-    return "Cannot reach the RPC. Check Settings.";
+  if (/Account does not exist|could not find account/i.test(text)) return "errors.accountMissing";
+  if (/Invalid public key|Non-base58|Invalid address/i.test(text)) return "errors.badAddress";
+  if (/Attempt to debit an account but found no record of a prior credit/i.test(text)) return "errors.noSol";
+  if (/insufficient funds|insufficient lamports/i.test(text)) return "errors.insufficient";
+  if (/Blockhash not found/i.test(text)) return "errors.blockhash";
+  if (/User rejected|rejected the request/i.test(text)) return "errors.rejected";
+  if (/401|403|api[- ]?key|forbidden|unauthorized/i.test(text)) return "errors.rpcAuth";
+  if (/429|rate limit|too many requests/i.test(text)) return "errors.rpcRate";
+  if (/failed to fetch|Failed to fetch|ECONNREFUSED|network|ERR_NAME_NOT_RESOLVED/i.test(text)) return "errors.rpc";
+  if (/Connect a wallet first|WalletNotConnected|WalletNotReady|WalletNotSelected/i.test(text)) return "errors.connectWallet";
+  if (/No instructions to send/i.test(text)) return "errors.noIxs";
+  if (/Collateral mint not found/i.test(text)) return "errors.mintNotFound";
+  if (/errors\.[a-zA-Z]+/.test(text)) {
+    const key = text.match(/errors\.[a-zA-Z]+/)?.[0];
+    if (key && hasKey(key)) return key;
   }
 
-  const msg = err instanceof Error ? err.message : String(err);
-  return msg || "Transaction failed";
+  return "errors.txFailed";
+}
+
+export function localizeError(raw: string | null | undefined): string {
+  if (!raw) return t("errors.txFailed");
+  if (hasKey(raw)) return t(raw);
+  return t("errors.txFailed");
 }

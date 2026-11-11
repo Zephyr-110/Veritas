@@ -14,7 +14,6 @@ export function findMarketPdas(
     Buffer.from("market"),
     Buffer.from(marketId),
   ]);
-  const [lpMint] = pda(programId, [Buffer.from("lp_mint"), market.toBuffer()]);
   const [yesMint] = pda(programId, [Buffer.from("yes_mint"), market.toBuffer()]);
   const [noMint] = pda(programId, [Buffer.from("no_mint"), market.toBuffer()]);
   const [collateralVault] = pda(programId, [
@@ -26,11 +25,28 @@ export function findMarketPdas(
   return {
     market,
     marketBump,
-    lpMint,
     yesMint,
     noMint,
     collateralVault,
     yesPool,
     noPool,
   };
+}
+
+export function findLpPosition(
+  programId: PublicKey,
+  market: PublicKey,
+  owner: PublicKey
+): [PublicKey, number] {
+  return pda(programId, [
+    Buffer.from("lp_position"),
+    market.toBuffer(),
+    owner.toBuffer(),
+  ]);
+}
+
+export function findPushPriceFeed(programId: PublicKey, shard: number, feedId: Uint8Array): PublicKey {
+  const shardBuf = Buffer.alloc(2);
+  shardBuf.writeUInt16LE(shard, 0);
+  return pda(programId, [shardBuf, Buffer.from(feedId)])[0];
 }

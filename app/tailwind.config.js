@@ -24,12 +24,18 @@ module.exports = {
         bg: "#0B0E14",
       },
       fontFamily: {
-        sans: ["Inter", "ui-sans-serif", "system-ui", "Segoe UI", "sans-serif"],
-        display: ["Inter", "ui-sans-serif", "system-ui", "Segoe UI", "sans-serif"],
-        mono: ["IBM Plex Mono", "Cascadia Mono", "ui-monospace", "monospace"],
+        sans: ["var(--font-sans)", "Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["var(--font-sans)", "Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "IBM Plex Mono", "ui-monospace", "monospace"],
       },
       boxShadow: {
         glow: "0 24px 80px rgba(0, 0, 0, 0.35)",
+      },
+      maxWidth: {
+        page: "var(--page)",
+      },
+      borderRadius: {
+        box: "var(--radius)",
       },
     },
   },

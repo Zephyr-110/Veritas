@@ -15,22 +15,33 @@ export type AnchorWalletLike = {
 const readOnlyWallet: AnchorWalletLike = {
   publicKey: PublicKey.default,
   signTransaction: async () => {
-    throw new Error("Connect a wallet first");
+    throw new Error("errors.connectWallet");
   },
   signAllTransactions: async () => {
-    throw new Error("Connect a wallet first");
+    throw new Error("errors.connectWallet");
   },
 };
+
+export function parsePubkey(value: string | null | undefined): PublicKey | null {
+  if (!value) return null;
+  try {
+    return new PublicKey(value.trim());
+  } catch {
+    return null;
+  }
+}
 
 export function makeProgram(
   connection: Connection,
   wallet: AnchorWalletLike | null | undefined,
   programId = DEFAULT_PROGRAM_ID
 ): Program<PredictionMarket> {
+  const pk = parsePubkey(programId);
+  if (!pk) throw new Error("errors.badAddress");
   const provider = new AnchorProvider(connection, (wallet ?? readOnlyWallet) as never, {
     commitment: "confirmed",
     preflightCommitment: "confirmed",
   });
-  const idl = { ...IDL, address: programId } as PredictionMarket;
+  const idl = { ...IDL, address: pk.toBase58() } as PredictionMarket;
   return new Program(idl, provider);
 }

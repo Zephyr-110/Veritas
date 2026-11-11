@@ -27,6 +27,7 @@
         },
         {
           "name": "market",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -49,10 +50,7 @@
           }
         },
         {
-          "name": "collateral_mint"
-        },
-        {
-          "name": "lp_mint",
+          "name": "lp_position",
           "writable": true,
           "pda": {
             "seeds": [
@@ -62,18 +60,29 @@
                   108,
                   112,
                   95,
-                  109,
+                  112,
+                  111,
+                  115,
                   105,
-                  110,
-                  116
+                  116,
+                  105,
+                  111,
+                  110
                 ]
               },
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "signer"
               }
             ]
           }
+        },
+        {
+          "name": "collateral_mint"
         },
         {
           "name": "yes_mint",
@@ -197,63 +206,6 @@
               {
                 "kind": "account",
                 "path": "no_mint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
-          }
-        },
-        {
-          "name": "lp_creator_ata",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "signer"
-              },
-              {
-                "kind": "account",
-                "path": "token_program"
-              },
-              {
-                "kind": "account",
-                "path": "lp_mint"
               }
             ],
             "program": {
@@ -435,8 +387,7 @@
           }
         },
         {
-          "name": "associated_token_program",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+          "name": "associated_token_program"
         },
         {
           "name": "clock",
@@ -446,8 +397,7 @@
           "name": "token_program"
         },
         {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
+          "name": "system_program"
         }
       ],
       "args": [
@@ -476,10 +426,6 @@
           "signer": true
         },
         {
-          "name": "oracle",
-          "signer": true
-        },
-        {
           "name": "market",
           "writable": true,
           "pda": {
@@ -503,10 +449,7 @@
           }
         },
         {
-          "name": "collateral_mint"
-        },
-        {
-          "name": "lp_mint",
+          "name": "lp_position",
           "writable": true,
           "pda": {
             "seeds": [
@@ -516,18 +459,29 @@
                   108,
                   112,
                   95,
-                  109,
+                  112,
+                  111,
+                  115,
                   105,
-                  110,
-                  116
+                  116,
+                  105,
+                  111,
+                  110
                 ]
               },
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "creator"
               }
             ]
           }
+        },
+        {
+          "name": "collateral_mint"
         },
         {
           "name": "yes_mint",
@@ -576,63 +530,6 @@
                 "path": "market"
               }
             ]
-          }
-        },
-        {
-          "name": "lp_creator_ata",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "creator"
-              },
-              {
-                "kind": "account",
-                "path": "token_program"
-              },
-              {
-                "kind": "account",
-                "path": "lp_mint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
           }
         },
         {
@@ -779,15 +676,13 @@
           "address": "SysvarC1ock11111111111111111111111111111111"
         },
         {
-          "name": "associated_token_program",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+          "name": "associated_token_program"
         },
         {
           "name": "token_program"
         },
         {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
+          "name": "system_program"
         }
       ],
       "args": [
@@ -856,41 +751,8 @@
                 "path": "signer"
               },
               {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
+                "kind": "account",
+                "path": "token_program"
               },
               {
                 "kind": "account",
@@ -982,41 +844,8 @@
                 "path": "signer"
               },
               {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
+                "kind": "account",
+                "path": "token_program"
               },
               {
                 "kind": "account",
@@ -1093,6 +922,7 @@
         },
         {
           "name": "market",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -1115,7 +945,7 @@
           }
         },
         {
-          "name": "lp_mint",
+          "name": "lp_position",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1125,15 +955,23 @@
                   108,
                   112,
                   95,
-                  109,
+                  112,
+                  111,
+                  115,
                   105,
-                  110,
-                  116
+                  116,
+                  105,
+                  111,
+                  110
                 ]
               },
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "signer"
               }
             ]
           }
@@ -1300,63 +1138,6 @@
           }
         },
         {
-          "name": "businessman_lp_ata",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "signer"
-              },
-              {
-                "kind": "account",
-                "path": "token_program"
-              },
-              {
-                "kind": "account",
-                "path": "lp_mint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
-          }
-        },
-        {
           "name": "yes_pool",
           "writable": true,
           "pda": {
@@ -1406,20 +1187,22 @@
           }
         },
         {
-          "name": "associated_token_program",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+          "name": "clock",
+          "address": "SysvarC1ock11111111111111111111111111111111"
+        },
+        {
+          "name": "associated_token_program"
         },
         {
           "name": "token_program"
         },
         {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
+          "name": "system_program"
         }
       ],
       "args": [
         {
-          "name": "lp_amount",
+          "name": "lp_share",
           "type": "u64"
         }
       ]
@@ -1722,20 +1505,14 @@
           }
         },
         {
+          "name": "price_update"
+        },
+        {
           "name": "clock",
           "address": "SysvarC1ock11111111111111111111111111111111"
         }
       ],
-      "args": [
-        {
-          "name": "market_winner",
-          "type": {
-            "defined": {
-              "name": "MarketOutcome"
-            }
-          }
-        }
-      ]
+      "args": []
     },
     {
       "name": "swap",
@@ -1757,6 +1534,7 @@
         },
         {
           "name": "market",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -2009,9 +1787,6 @@
     },
     {
       "name": "user_bet_on",
-      "docs": [
-        "下注"
-      ],
       "discriminator": [
         46,
         99,
@@ -2030,6 +1805,7 @@
         },
         {
           "name": "market",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -2308,15 +2084,13 @@
           "address": "SysvarC1ock11111111111111111111111111111111"
         },
         {
-          "name": "associated_token_program",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+          "name": "associated_token_program"
         },
         {
           "name": "token_program"
         },
         {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
+          "name": "system_program"
         }
       ],
       "args": [
@@ -2382,6 +2156,19 @@
   ],
   "accounts": [
     {
+      "name": "LpPosition",
+      "discriminator": [
+        105,
+        241,
+        37,
+        200,
+        224,
+        2,
+        252,
+        90
+      ]
+    },
+    {
       "name": "Market",
       "discriminator": [
         219,
@@ -2398,73 +2185,98 @@
   "errors": [
     {
       "code": 6000,
-      "name": "Unauthorized",
-      "msg": "Only the market oracle can resolve this market."
-    },
-    {
-      "code": 6001,
       "name": "MarketNotOpen",
       "msg": "Market is not open."
     },
     {
-      "code": 6002,
+      "code": 6001,
       "name": "MarketNotResolved",
       "msg": "Market is not resolved or voided."
     },
     {
-      "code": 6003,
+      "code": 6002,
       "name": "MarketNotTradable",
       "msg": "Market must be open, resolved, or voided."
     },
     {
-      "code": 6004,
+      "code": 6003,
       "name": "MarketExpired",
       "msg": "Market has expired."
     },
     {
-      "code": 6005,
+      "code": 6004,
       "name": "MarketNotExpired",
-      "msg": "Market is outside the resolve window."
+      "msg": "Market is outside the settlement window."
     },
     {
-      "code": 6006,
+      "code": 6005,
       "name": "InvalidAmount",
       "msg": "Amount or expiry is invalid."
     },
     {
-      "code": 6007,
+      "code": 6006,
       "name": "InsufficientBalance",
-      "msg": "Insufficient token account balance."
+      "msg": "Insufficient token balance."
     },
     {
-      "code": 6008,
+      "code": 6007,
       "name": "EmptyPool",
       "msg": "Pool reserves are empty."
     },
     {
-      "code": 6009,
+      "code": 6008,
       "name": "SlippageExceeded",
-      "msg": "Output amount is below min_out."
+      "msg": "Output is below the slippage limit."
     },
     {
-      "code": 6010,
+      "code": 6009,
       "name": "ZeroLp",
       "msg": "LP amount must be greater than zero."
     },
     {
-      "code": 6011,
+      "code": 6010,
       "name": "InvalidMint",
       "msg": "Mint does not belong to this market."
     },
     {
-      "code": 6012,
+      "code": 6011,
       "name": "NotWinnerMint",
-      "msg": "Mint is not the winning outcome."
+      "msg": "Only the winning token can be redeemed."
+    },
+    {
+      "code": 6012,
+      "name": "InvalidPrice",
+      "msg": "Price is out of range."
     },
     {
       "code": 6013,
-      "name": "AuthorityCannotTrade",
-      "msg": "The market oracle cannot trade."
+      "name": "InvalidLiquidity",
+      "msg": "Liquidity is invalid."
+    },
+    {
+      "code": 6014,
+      "name": "MathOverflow",
+      "msg": "Fixed-point math overflow."
+    },
+    {
+      "code": 6015,
+      "name": "InvalidDuration",
+      "msg": "Duration is invalid."
+    },
+    {
+      "code": 6016,
+      "name": "InvalidBudget",
+      "msg": "Budget is invalid."
+    },
+    {
+      "code": 6017,
+      "name": "NotFirstAfterExpiry",
+      "msg": "Price is not the first Pyth update after expiry."
+    },
+    {
+      "code": 6018,
+      "name": "ExponentMismatch",
+      "msg": "Pyth exponent does not match this market."
     }
   ],
   "types": [
@@ -2498,6 +2310,55 @@
           {
             "name": "collateral_amount",
             "type": "u64"
+          },
+          {
+            "name": "feed_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "threshold",
+            "type": "i64"
+          },
+          {
+            "name": "exponent",
+            "type": "i32"
+          },
+          {
+            "name": "settle_above",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LpPosition",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares",
+            "type": "i128"
+          },
+          {
+            "name": "checkpoint_yes",
+            "type": "i128"
+          },
+          {
+            "name": "checkpoint_no",
+            "type": "i128"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
@@ -2507,10 +2368,6 @@
       "type": {
         "kind": "struct",
         "fields": [
-          {
-            "name": "oracle",
-            "type": "pubkey"
-          },
           {
             "name": "expiry",
             "type": "u64"
@@ -2572,6 +2429,71 @@
                 64
               ]
             }
+          },
+          {
+            "name": "l_zero",
+            "type": "i128"
+          },
+          {
+            "name": "last_accrual_ts",
+            "type": "i64"
+          },
+          {
+            "name": "cum_yes_per_share",
+            "type": "i128"
+          },
+          {
+            "name": "cum_no_per_share",
+            "type": "i128"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "reserve_yes",
+            "type": "i128"
+          },
+          {
+            "name": "reserve_no",
+            "type": "i128"
+          },
+          {
+            "name": "total_lp_shares",
+            "type": "i128"
+          },
+          {
+            "name": "end_ts",
+            "type": "i64"
+          },
+          {
+            "name": "feed_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "threshold",
+            "type": "i64"
+          },
+          {
+            "name": "exponent",
+            "type": "i32"
+          },
+          {
+            "name": "settle_above",
+            "type": "bool"
+          },
+          {
+            "name": "settled_price",
+            "type": "i64"
+          },
+          {
+            "name": "settled_publish_time",
+            "type": "i64"
           }
         ]
       }
@@ -2661,24 +2583,19 @@
   ],
   "constants": [
     {
-      "name": "ADMIN_PUBKEY",
-      "type": "pubkey",
-      "value": "DEPaDBPZeXhi8TfLpk4D5Niab6tnb8eF1e2hNUSSKKr8"
+      "name": "MAX_SETTLE_DELAY",
+      "type": "i64",
+      "value": "10"
+    },
+    {
+      "name": "RESOLVE_WINDOW",
+      "type": "u64",
+      "value": "172800"
     },
     {
       "name": "SERVICE_FEE",
       "type": "u64",
       "value": "30"
-    },
-    {
-      "name": "USDT_PUBKEY",
-      "type": "pubkey",
-      "value": "CtiAxpKmXtK2bupa59GN6GPYXQiPPYUfSqnY1pgMD7QG"
-    },
-    {
-      "name": "RESOLVE_WINDOW",
-      "type": "u64",
-      "value": "100000"
     }
   ]
 }

@@ -21,7 +21,11 @@ import {
   DEFAULT_RPC,
   STORAGE_KEY,
 } from "@/lib/constants";
+import { parsePubkey } from "@/lib/program";
 import type { AppSettings, ClusterName, ToastItem, ToastKind } from "@/lib/types";
+import { LocaleProvider, useT } from "@/i18n/provider";
+import { localizeError, parseTxError } from "@/lib/errors";
+import { hasKey } from "@/i18n/store";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
 
@@ -36,12 +40,25 @@ const fallbackSettings: AppSettings = {
   collateralMint: DEFAULT_COLLATERAL_MINT,
 };
 
+function sanitizeSettings(raw: Partial<AppSettings> | null | undefined): AppSettings {
+  const merged = { ...fallbackSettings, ...(raw ?? {}) };
+  if (!parsePubkey(merged.programId)) merged.programId = fallbackSettings.programId;
+  if (!parsePubkey(merged.collateralMint)) merged.collateralMint = fallbackSettings.collateralMint;
+  if (!merged.rpcUrl || !/^https?:\/\//i.test(merged.rpcUrl) && merged.rpcUrl !== "http://127.0.0.1:8899") {
+    if (!merged.rpcUrl) merged.rpcUrl = fallbackSettings.rpcUrl;
+  }
+  if (!["localnet", "devnet", "testnet", "mainnet-beta"].includes(merged.cluster)) {
+    merged.cluster = fallbackSettings.cluster;
+  }
+  return merged;
+}
+
 function loadSettings(): AppSettings {
   if (typeof window === "undefined") return fallbackSettings;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return fallbackSettings;
-    return { ...fallbackSettings, ...JSON.parse(raw) };
+    return sanitizeSettings(JSON.parse(raw) as Partial<AppSettings>);
   } catch {
     return fallbackSettings;
   }
@@ -54,7 +71,7 @@ type SettingsCtx = {
 
 type ToastCtx = {
   toasts: ToastItem[];
-  push: (kind: ToastKind, title: string, detail?: string) => void;
+  push: (kind: ToastKind, title: string, detail?: string, href?: string) => void;
   dismiss: (id: number) => void;
 };
 
@@ -90,6 +107,7 @@ function SettingsInner({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [nonce, setNonce] = useState(0);
+  const t = useT();
 
   useEffect(() => {
     setSettingsState(loadSettings());
@@ -97,28 +115,37 @@ function SettingsInner({ children }: { children: ReactNode }) {
   }, []);
 
   const setSettings = useCallback((next: AppSettings) => {
-    setSettingsState(next);
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    const clean = sanitizeSettings(next);
+    setSettingsState(clean);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
   }, []);
 
-  const push = useCallback((kind: ToastKind, title: string, detail?: string) => {
+  const push = useCallback((kind: ToastKind, title: string, detail?: string, href?: string) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
-    setToasts((prev) => [...prev.slice(-4), { id, kind, title, detail }]);
+    const safeDetail = !detail ? undefined : hasKey(detail) ? localizeError(detail) : detail;
+    setToasts((prev) => [...prev.slice(-4), { id, kind, title, detail: safeDetail, href }]);
     window.setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
+      setToasts((prev) => prev.filter((item) => item.id !== id));
     }, 5200);
-  }, []);
+  }, [t]);
 
   const dismiss = useCallback((id: number) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
+    setToasts((prev) => prev.filter((item) => item.id !== id));
   }, []);
 
   const bump = useCallback(() => setNonce((n) => n + 1), []);
-
   const wallets = useMemo(() => [], []);
 
+  const onWalletError = useCallback(
+    (err: { name?: string; message?: string }) => {
+      if (/WalletNotSelected|WalletNotReady|WalletLoad/i.test(`${err.name ?? ""} ${err.message ?? ""}`)) return;
+      push("err", t("errors.wallet"), parseTxError(err));
+    },
+    [push, t]
+  );
+
   if (!ready) {
-    return <div className="min-h-screen bg-bg" />;
+    return <BootScreen />;
   }
 
   return (
@@ -126,7 +153,7 @@ function SettingsInner({ children }: { children: ReactNode }) {
       <ToastContext.Provider value={{ toasts, push, dismiss }}>
         <RefreshContext.Provider value={{ nonce, bump }}>
           <ConnectionProvider endpoint={settings.rpcUrl} config={{ commitment: "confirmed" }}>
-            <WalletProvider wallets={wallets} autoConnect>
+            <WalletProvider wallets={wallets} autoConnect onError={onWalletError}>
               <WalletModalProvider>
                 {children}
                 <ToastViewport toasts={toasts} dismiss={dismiss} />
@@ -139,6 +166,20 @@ function SettingsInner({ children }: { children: ReactNode }) {
   );
 }
 
+function ToastLinkFallback() {
+  const t = useT();
+  return <>{t("tx.view")}</>;
+}
+
+function BootScreen() {
+  const t = useT();
+  return (
+    <div className="grid min-h-screen place-items-center bg-bg text-sm text-zinc-500">
+      {t("state.loading")}
+    </div>
+  );
+}
+
 function ToastViewport({
   toasts,
   dismiss,
@@ -148,27 +189,43 @@ function ToastViewport({
 }) {
   return (
     <div className="pointer-events-none fixed bottom-5 right-5 z-[80] flex w-[min(92vw,360px)] flex-col gap-2">
-      {toasts.map((t) => (
-        <button
-          key={t.id}
-          type="button"
-          onClick={() => dismiss(t.id)}
-          className={`pointer-events-auto rounded-2xl border px-4 py-3 text-left shadow-glow backdrop-blur ${
-            t.kind === "ok"
+      {toasts.map((item) => (
+        <div
+          key={item.id}
+          className={`toast-in pointer-events-auto rounded-2xl border px-4 py-3 text-left shadow-glow backdrop-blur ${
+            item.kind === "ok"
               ? "border-yes/40 bg-panel text-yes"
-              : t.kind === "err"
+              : item.kind === "err"
                 ? "border-no/40 bg-panel text-no"
                 : "border-line bg-panel text-ink"
           }`}
         >
-          <div className="font-medium">{t.title}</div>
-          {t.detail ? <div className="mt-1 text-xs text-mute break-all">{t.detail}</div> : null}
-        </button>
+          <button type="button" className="w-full text-left" onClick={() => dismiss(item.id)}>
+            <div className="font-medium">{item.title}</div>
+            {item.detail && !item.href ? <div className="mt-1 text-xs text-mute">{item.detail}</div> : null}
+          </button>
+          {item.href ? (
+            <a
+              href={item.href}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-block text-xs text-white underline"
+            >
+              {item.detail ?? <ToastLinkFallback />}
+            </a>
+          ) : null}
+        </div>
       ))}
     </div>
   );
 }
 
 export function Providers({ children }: { children: ReactNode }) {
-  return <SettingsInner>{children}</SettingsInner>;
+  return (
+    <LocaleProvider>
+      <SettingsInner>{children}</SettingsInner>
+    </LocaleProvider>
+  );
 }
+
+

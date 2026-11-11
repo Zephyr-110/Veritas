@@ -4,7 +4,6 @@ import {
   Transaction,
   TransactionInstruction,
 } from "@solana/web3.js";
-import { parseTxError } from "./errors";
 import type { AnchorWalletLike } from "./program";
 
 export async function sendIxs(
@@ -14,7 +13,7 @@ export async function sendIxs(
   extraSigners: never[] = []
 ): Promise<string> {
   void extraSigners;
-  if (!ixs.length) throw new Error("No instructions to send");
+  if (!ixs.length) throw new Error("errors.noIxs");
   const latest = await connection.getLatestBlockhash("confirmed");
   const tx = new Transaction();
   tx.feePayer = wallet.publicKey;
@@ -33,17 +32,13 @@ export async function sendIxs(
     },
     "confirmed"
   );
-  if (res.value.err) {
-    throw new Error(`Transaction failed: ${JSON.stringify(res.value.err)}`);
-  }
+  if (res.value.err) throw new Error("errors.txFailed");
   return sig;
 }
 
 export function mustWallet(wallet: AnchorWalletLike | null | undefined): AnchorWalletLike {
   if (!wallet?.publicKey || wallet.publicKey.equals(PublicKey.default)) {
-    throw new Error("Connect a wallet first");
+    throw new Error("errors.connectWallet");
   }
   return wallet;
 }
-
-export { parseTxError };

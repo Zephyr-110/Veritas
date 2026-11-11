@@ -33,6 +33,7 @@ export type PredictionMarket = {
         },
         {
           "name": "market",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -49,16 +50,13 @@ export type PredictionMarket = {
               {
                 "kind": "account",
                 "path": "market.id",
-                "account": "market"
+                "account": "Market"
               }
             ]
           }
         },
         {
-          "name": "collateralMint"
-        },
-        {
-          "name": "lpMint",
+          "name": "lpPosition",
           "writable": true,
           "pda": {
             "seeds": [
@@ -68,18 +66,29 @@ export type PredictionMarket = {
                   108,
                   112,
                   95,
-                  109,
+                  112,
+                  111,
+                  115,
                   105,
-                  110,
-                  116
+                  116,
+                  105,
+                  111,
+                  110
                 ]
               },
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "signer"
               }
             ]
           }
+        },
+        {
+          "name": "collateralMint"
         },
         {
           "name": "yesMint",
@@ -203,63 +212,6 @@ export type PredictionMarket = {
               {
                 "kind": "account",
                 "path": "noMint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
-          }
-        },
-        {
-          "name": "lpCreatorAta",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "signer"
-              },
-              {
-                "kind": "account",
-                "path": "tokenProgram"
-              },
-              {
-                "kind": "account",
-                "path": "lpMint"
               }
             ],
             "program": {
@@ -441,8 +393,7 @@ export type PredictionMarket = {
           }
         },
         {
-          "name": "associatedTokenProgram",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+          "name": "associatedTokenProgram"
         },
         {
           "name": "clock",
@@ -452,8 +403,7 @@ export type PredictionMarket = {
           "name": "tokenProgram"
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
+          "name": "systemProgram"
         }
       ],
       "args": [
@@ -482,10 +432,6 @@ export type PredictionMarket = {
           "signer": true
         },
         {
-          "name": "oracle",
-          "signer": true
-        },
-        {
           "name": "market",
           "writable": true,
           "pda": {
@@ -509,10 +455,7 @@ export type PredictionMarket = {
           }
         },
         {
-          "name": "collateralMint"
-        },
-        {
-          "name": "lpMint",
+          "name": "lpPosition",
           "writable": true,
           "pda": {
             "seeds": [
@@ -522,18 +465,29 @@ export type PredictionMarket = {
                   108,
                   112,
                   95,
-                  109,
+                  112,
+                  111,
+                  115,
                   105,
-                  110,
-                  116
+                  116,
+                  105,
+                  111,
+                  110
                 ]
               },
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "creator"
               }
             ]
           }
+        },
+        {
+          "name": "collateralMint"
         },
         {
           "name": "yesMint",
@@ -582,63 +536,6 @@ export type PredictionMarket = {
                 "path": "market"
               }
             ]
-          }
-        },
-        {
-          "name": "lpCreatorAta",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "creator"
-              },
-              {
-                "kind": "account",
-                "path": "tokenProgram"
-              },
-              {
-                "kind": "account",
-                "path": "lpMint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
           }
         },
         {
@@ -785,15 +682,13 @@ export type PredictionMarket = {
           "address": "SysvarC1ock11111111111111111111111111111111"
         },
         {
-          "name": "associatedTokenProgram",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+          "name": "associatedTokenProgram"
         },
         {
           "name": "tokenProgram"
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
+          "name": "systemProgram"
         }
       ],
       "args": [
@@ -801,7 +696,7 @@ export type PredictionMarket = {
           "name": "param",
           "type": {
             "defined": {
-              "name": "createMarketParams"
+              "name": "CreateMarketParams"
             }
           }
         }
@@ -843,7 +738,7 @@ export type PredictionMarket = {
               {
                 "kind": "account",
                 "path": "market.id",
-                "account": "market"
+                "account": "Market"
               }
             ]
           }
@@ -862,41 +757,8 @@ export type PredictionMarket = {
                 "path": "signer"
               },
               {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
+                "kind": "account",
+                "path": "tokenProgram"
               },
               {
                 "kind": "account",
@@ -988,41 +850,8 @@ export type PredictionMarket = {
                 "path": "signer"
               },
               {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
+                "kind": "account",
+                "path": "tokenProgram"
               },
               {
                 "kind": "account",
@@ -1099,6 +928,7 @@ export type PredictionMarket = {
         },
         {
           "name": "market",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -1115,13 +945,13 @@ export type PredictionMarket = {
               {
                 "kind": "account",
                 "path": "market.id",
-                "account": "market"
+                "account": "Market"
               }
             ]
           }
         },
         {
-          "name": "lpMint",
+          "name": "lpPosition",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1131,15 +961,23 @@ export type PredictionMarket = {
                   108,
                   112,
                   95,
-                  109,
+                  112,
+                  111,
+                  115,
                   105,
-                  110,
-                  116
+                  116,
+                  105,
+                  111,
+                  110
                 ]
               },
               {
                 "kind": "account",
                 "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "signer"
               }
             ]
           }
@@ -1306,63 +1144,6 @@ export type PredictionMarket = {
           }
         },
         {
-          "name": "businessmanLpAta",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "signer"
-              },
-              {
-                "kind": "account",
-                "path": "tokenProgram"
-              },
-              {
-                "kind": "account",
-                "path": "lpMint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
-          }
-        },
-        {
           "name": "yesPool",
           "writable": true,
           "pda": {
@@ -1412,20 +1193,22 @@ export type PredictionMarket = {
           }
         },
         {
-          "name": "associatedTokenProgram",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+          "name": "clock",
+          "address": "SysvarC1ock11111111111111111111111111111111"
+        },
+        {
+          "name": "associatedTokenProgram"
         },
         {
           "name": "tokenProgram"
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
+          "name": "systemProgram"
         }
       ],
       "args": [
         {
-          "name": "lpAmount",
+          "name": "lpShare",
           "type": "u64"
         }
       ]
@@ -1466,7 +1249,7 @@ export type PredictionMarket = {
               {
                 "kind": "account",
                 "path": "market.id",
-                "account": "market"
+                "account": "Market"
               }
             ]
           }
@@ -1722,26 +1505,20 @@ export type PredictionMarket = {
               {
                 "kind": "account",
                 "path": "market.id",
-                "account": "market"
+                "account": "Market"
               }
             ]
           }
+        },
+        {
+          "name": "priceUpdate"
         },
         {
           "name": "clock",
           "address": "SysvarC1ock11111111111111111111111111111111"
         }
       ],
-      "args": [
-        {
-          "name": "marketWinner",
-          "type": {
-            "defined": {
-              "name": "marketOutcome"
-            }
-          }
-        }
-      ]
+      "args": []
     },
     {
       "name": "swap",
@@ -1763,6 +1540,7 @@ export type PredictionMarket = {
         },
         {
           "name": "market",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -1779,7 +1557,7 @@ export type PredictionMarket = {
               {
                 "kind": "account",
                 "path": "market.id",
-                "account": "market"
+                "account": "Market"
               }
             ]
           }
@@ -2007,7 +1785,7 @@ export type PredictionMarket = {
           "name": "param",
           "type": {
             "defined": {
-              "name": "swapParams"
+              "name": "SwapParams"
             }
           }
         }
@@ -2015,9 +1793,6 @@ export type PredictionMarket = {
     },
     {
       "name": "userBetOn",
-      "docs": [
-        "下注"
-      ],
       "discriminator": [
         46,
         99,
@@ -2036,6 +1811,7 @@ export type PredictionMarket = {
         },
         {
           "name": "market",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -2052,7 +1828,7 @@ export type PredictionMarket = {
               {
                 "kind": "account",
                 "path": "market.id",
-                "account": "market"
+                "account": "Market"
               }
             ]
           }
@@ -2314,15 +2090,13 @@ export type PredictionMarket = {
           "address": "SysvarC1ock11111111111111111111111111111111"
         },
         {
-          "name": "associatedTokenProgram",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+          "name": "associatedTokenProgram"
         },
         {
           "name": "tokenProgram"
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
+          "name": "systemProgram"
         }
       ],
       "args": [
@@ -2330,7 +2104,7 @@ export type PredictionMarket = {
           "name": "param",
           "type": {
             "defined": {
-              "name": "userBetOnParams"
+              "name": "UserBetOnParams"
             }
           }
         }
@@ -2373,7 +2147,7 @@ export type PredictionMarket = {
               {
                 "kind": "account",
                 "path": "market.id",
-                "account": "market"
+                "account": "Market"
               }
             ]
           }
@@ -2388,7 +2162,20 @@ export type PredictionMarket = {
   ],
   "accounts": [
     {
-      "name": "market",
+      "name": "LpPosition",
+      "discriminator": [
+        105,
+        241,
+        37,
+        200,
+        224,
+        2,
+        252,
+        90
+      ]
+    },
+    {
+      "name": "Market",
       "discriminator": [
         219,
         190,
@@ -2404,78 +2191,103 @@ export type PredictionMarket = {
   "errors": [
     {
       "code": 6000,
-      "name": "unauthorized",
-      "msg": "Only the market oracle can resolve this market."
-    },
-    {
-      "code": 6001,
-      "name": "marketNotOpen",
+      "name": "MarketNotOpen",
       "msg": "Market is not open."
     },
     {
-      "code": 6002,
-      "name": "marketNotResolved",
+      "code": 6001,
+      "name": "MarketNotResolved",
       "msg": "Market is not resolved or voided."
     },
     {
-      "code": 6003,
-      "name": "marketNotTradable",
+      "code": 6002,
+      "name": "MarketNotTradable",
       "msg": "Market must be open, resolved, or voided."
     },
     {
-      "code": 6004,
-      "name": "marketExpired",
+      "code": 6003,
+      "name": "MarketExpired",
       "msg": "Market has expired."
     },
     {
-      "code": 6005,
-      "name": "marketNotExpired",
-      "msg": "Market is outside the resolve window."
+      "code": 6004,
+      "name": "MarketNotExpired",
+      "msg": "Market is outside the settlement window."
     },
     {
-      "code": 6006,
-      "name": "invalidAmount",
+      "code": 6005,
+      "name": "InvalidAmount",
       "msg": "Amount or expiry is invalid."
     },
     {
-      "code": 6007,
-      "name": "insufficientBalance",
-      "msg": "Insufficient token account balance."
+      "code": 6006,
+      "name": "InsufficientBalance",
+      "msg": "Insufficient token balance."
     },
     {
-      "code": 6008,
-      "name": "emptyPool",
+      "code": 6007,
+      "name": "EmptyPool",
       "msg": "Pool reserves are empty."
     },
     {
-      "code": 6009,
-      "name": "slippageExceeded",
-      "msg": "Output amount is below min_out."
+      "code": 6008,
+      "name": "SlippageExceeded",
+      "msg": "Output is below the slippage limit."
     },
     {
-      "code": 6010,
-      "name": "zeroLp",
+      "code": 6009,
+      "name": "ZeroLp",
       "msg": "LP amount must be greater than zero."
     },
     {
-      "code": 6011,
-      "name": "invalidMint",
+      "code": 6010,
+      "name": "InvalidMint",
       "msg": "Mint does not belong to this market."
     },
     {
+      "code": 6011,
+      "name": "NotWinnerMint",
+      "msg": "Only the winning token can be redeemed."
+    },
+    {
       "code": 6012,
-      "name": "notWinnerMint",
-      "msg": "Mint is not the winning outcome."
+      "name": "InvalidPrice",
+      "msg": "Price is out of range."
     },
     {
       "code": 6013,
-      "name": "authorityCannotTrade",
-      "msg": "The market oracle cannot trade."
+      "name": "InvalidLiquidity",
+      "msg": "Liquidity is invalid."
+    },
+    {
+      "code": 6014,
+      "name": "MathOverflow",
+      "msg": "Fixed-point math overflow."
+    },
+    {
+      "code": 6015,
+      "name": "InvalidDuration",
+      "msg": "Duration is invalid."
+    },
+    {
+      "code": 6016,
+      "name": "InvalidBudget",
+      "msg": "Budget is invalid."
+    },
+    {
+      "code": 6017,
+      "name": "NotFirstAfterExpiry",
+      "msg": "Price is not the first Pyth update after expiry."
+    },
+    {
+      "code": 6018,
+      "name": "ExponentMismatch",
+      "msg": "Pyth exponent does not match this market."
     }
   ],
   "types": [
     {
-      "name": "createMarketParams",
+      "name": "CreateMarketParams",
       "type": {
         "kind": "struct",
         "fields": [
@@ -2504,19 +2316,64 @@ export type PredictionMarket = {
           {
             "name": "collateralAmount",
             "type": "u64"
+          },
+          {
+            "name": "feedId",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "threshold",
+            "type": "i64"
+          },
+          {
+            "name": "exponent",
+            "type": "i32"
+          },
+          {
+            "name": "settleAbove",
+            "type": "bool"
           }
         ]
       }
     },
     {
-      "name": "market",
+      "name": "LpPosition",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "oracle",
+            "name": "owner",
             "type": "pubkey"
           },
+          {
+            "name": "shares",
+            "type": "i128"
+          },
+          {
+            "name": "checkpointYes",
+            "type": "i128"
+          },
+          {
+            "name": "checkpointNo",
+            "type": "i128"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Market",
+      "type": {
+        "kind": "struct",
+        "fields": [
           {
             "name": "expiry",
             "type": "u64"
@@ -2550,7 +2407,7 @@ export type PredictionMarket = {
             "name": "status",
             "type": {
               "defined": {
-                "name": "marketStatus"
+                "name": "MarketStatus"
               }
             }
           },
@@ -2562,7 +2419,7 @@ export type PredictionMarket = {
             "name": "winner",
             "type": {
               "defined": {
-                "name": "marketOutcome"
+                "name": "MarketOutcome"
               }
             }
           },
@@ -2578,46 +2435,111 @@ export type PredictionMarket = {
                 64
               ]
             }
+          },
+          {
+            "name": "lZero",
+            "type": "i128"
+          },
+          {
+            "name": "lastAccrualTs",
+            "type": "i64"
+          },
+          {
+            "name": "cumYesPerShare",
+            "type": "i128"
+          },
+          {
+            "name": "cumNoPerShare",
+            "type": "i128"
+          },
+          {
+            "name": "feeBps",
+            "type": "u16"
+          },
+          {
+            "name": "reserveYes",
+            "type": "i128"
+          },
+          {
+            "name": "reserveNo",
+            "type": "i128"
+          },
+          {
+            "name": "totalLpShares",
+            "type": "i128"
+          },
+          {
+            "name": "endTs",
+            "type": "i64"
+          },
+          {
+            "name": "feedId",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "threshold",
+            "type": "i64"
+          },
+          {
+            "name": "exponent",
+            "type": "i32"
+          },
+          {
+            "name": "settleAbove",
+            "type": "bool"
+          },
+          {
+            "name": "settledPrice",
+            "type": "i64"
+          },
+          {
+            "name": "settledPublishTime",
+            "type": "i64"
           }
         ]
       }
     },
     {
-      "name": "marketOutcome",
+      "name": "MarketOutcome",
       "type": {
         "kind": "enum",
         "variants": [
           {
-            "name": "yes"
+            "name": "Yes"
           },
           {
-            "name": "no"
+            "name": "No"
           }
         ]
       }
     },
     {
-      "name": "marketStatus",
+      "name": "MarketStatus",
       "type": {
         "kind": "enum",
         "variants": [
           {
-            "name": "upcoming"
+            "name": "Upcoming"
           },
           {
-            "name": "open"
+            "name": "Open"
           },
           {
-            "name": "resolved"
+            "name": "Resolved"
           },
           {
-            "name": "burn"
+            "name": "Burn"
           }
         ]
       }
     },
     {
-      "name": "swapParams",
+      "name": "SwapParams",
       "type": {
         "kind": "struct",
         "fields": [
@@ -2633,7 +2555,7 @@ export type PredictionMarket = {
             "name": "tokenType",
             "type": {
               "defined": {
-                "name": "marketOutcome"
+                "name": "MarketOutcome"
               }
             }
           }
@@ -2641,7 +2563,7 @@ export type PredictionMarket = {
       }
     },
     {
-      "name": "userBetOnParams",
+      "name": "UserBetOnParams",
       "type": {
         "kind": "struct",
         "fields": [
@@ -2657,7 +2579,7 @@ export type PredictionMarket = {
             "name": "tokenType",
             "type": {
               "defined": {
-                "name": "marketOutcome"
+                "name": "MarketOutcome"
               }
             }
           }
@@ -2667,24 +2589,19 @@ export type PredictionMarket = {
   ],
   "constants": [
     {
-      "name": "adminPubkey",
-      "type": "pubkey",
-      "value": "DEPaDBPZeXhi8TfLpk4D5Niab6tnb8eF1e2hNUSSKKr8"
+      "name": "MAX_SETTLE_DELAY",
+      "type": "i64",
+      "value": "10"
     },
     {
-      "name": "serviceFee",
+      "name": "RESOLVE_WINDOW",
+      "type": "u64",
+      "value": "172800"
+    },
+    {
+      "name": "SERVICE_FEE",
       "type": "u64",
       "value": "30"
-    },
-    {
-      "name": "usdtPubkey",
-      "type": "pubkey",
-      "value": "CtiAxpKmXtK2bupa59GN6GPYXQiPPYUfSqnY1pgMD7QG"
-    },
-    {
-      "name": "resolveWindow",
-      "type": "u64",
-      "value": "100000"
     }
   ]
 };
