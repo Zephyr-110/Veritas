@@ -45,10 +45,12 @@ pub fn resolve_market(ctx: Context<ResolveMarket>) -> Result<()> {
     && prev_publish_time < market.end_ts,
     ErrorCode::NotFirstAfterExpiry);
     require!(price.exponent == market.exponent, ErrorCode::ExponentMismatch);
-    require!(
-        price.publish_time <= market.end_ts + MAX_SETTLE_DELAY,
-        ErrorCode::SettleTooLate
-    );
+    // 超 10 秒直接销毁盘子
+    if price.publish_time > market.end_ts + MAX_SETTLE_DELAY {
+        market.status = MarketStatus::Burn;
+        msg!("market {:?} voided ", market.id);
+        return Ok(())
+    }
 
     let yes_wins = if market.settle_above {
         price.price >= market.threshold
