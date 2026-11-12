@@ -11,7 +11,7 @@ import { marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
 import { useProgram } from "@/hooks/use-program";
 import { useNow } from "@/hooks/use-now";
 import { useT } from "@/i18n/provider";
-import { Button, Card, Field, Kv, TextInput, useTx } from "./ui";
+import { Button, Card, Chip, PopNum, SegTabs, TextInput, useTx } from "./ui";
 
 export function LpDesk({ market, position }: { market: MarketView; position: UserPosition }) {
   const program = useProgram();
@@ -68,43 +68,61 @@ export function LpDesk({ market, position }: { market: MarketView; position: Use
   };
 
   return (
-    <Card className="desk stack-4">
+    <Card className="stack-4">
       <div>
         <div className="text-base font-medium text-white">{t("lp.title")}</div>
         <p className="mt-1 text-xs text-zinc-500">{t("lp.subtitle", { symbol: COLLATERAL_SYMBOL })}</p>
+        <p className="mt-1 text-xs text-zinc-500">{t("lp.feeNote")}</p>
       </div>
-      <div className="grid grid-cols-2 gap-3 text-sm">
-        <Kv k={t("lp.yourShares")} v={toUi(position.lpShares, market.decimals, 2)} />
-        <Kv k={t("lp.poolShares")} v={toUi(market.totalLpShares, market.decimals, 2)} />
-        <Kv k={t("lp.pendingYes")} v={toUi(position.pendingYes, market.decimals, 4)} />
-        <Kv k={t("lp.pendingNo")} v={toUi(position.pendingNo, market.decimals, 4)} />
+      <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-sm">
+        <span className="text-zinc-500">
+          {t("lp.yourShares")}
+          <span className="num ml-1.5 text-zinc-100">{toUi(position.lpShares, market.decimals, 2)}</span>
+        </span>
+        <span className="text-zinc-500">
+          {t("lp.poolShares")}
+          <span className="num ml-1.5 text-zinc-100">{toUi(market.totalLpShares, market.decimals, 2)}</span>
+        </span>
+        <span className="text-zinc-500">
+          {t("common.pending")}
+          <span className="num ml-1.5 text-zinc-100">
+            {toUi(position.pendingYes, market.decimals, 4)} / {toUi(position.pendingNo, market.decimals, 4)}
+          </span>
+        </span>
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        <Button type="button" tone={tab === "add" ? "primary" : "secondary"} onClick={() => setTab("add")}>
-          {t("lp.add")}
-        </Button>
-        <Button type="button" tone={tab === "withdraw" ? "primary" : "secondary"} onClick={() => setTab("withdraw")}>
-          {t("lp.withdraw")}
-        </Button>
+      <SegTabs
+        value={tab}
+        onChange={setTab}
+        options={[
+          { value: "add", label: t("lp.add"), color: "linear-gradient(to bottom, rgba(255,255,255,0.14), rgba(255,255,255,0.07))" },
+          { value: "withdraw", label: t("lp.withdraw"), color: "linear-gradient(to bottom, rgba(255,255,255,0.14), rgba(255,255,255,0.07))" },
+        ]}
+      />
+      {tab === "add" ? (
+        <div className="text-right text-xs text-zinc-500">
+          {t("common.balance", { amount: `${toUi(position.collateral, market.decimals, 2)} ${COLLATERAL_SYMBOL}` })}
+        </div>
+      ) : null}
+      <TextInput
+        inputMode="decimal"
+        aria-label={tab === "add" ? t("lp.add") : t("lp.withdraw")}
+        value={amount}
+        onChange={(e) => setAmount(e.target.value)}
+        className="font-mono tabular-nums"
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <Chip tone="yes">
+          {t("common.yes")}
+          <PopNum text={money(tab === "add" ? addQuote.yesIn : wdQuote.yesOut, market.decimals)} />
+        </Chip>
+        <Chip tone="no">
+          {t("common.no")}
+          <PopNum text={money(tab === "add" ? addQuote.noIn : wdQuote.noOut, market.decimals)} />
+        </Chip>
       </div>
-      <Field label={tab === "add" ? t("lp.add") : t("lp.withdraw")}>
-        <TextInput inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="font-mono tabular-nums" />
-      </Field>
-      <div className="stack-2 text-sm">
-        {tab === "add" ? (
-          <>
-            <Kv k={t("common.yes")} v={money(addQuote.yesIn, market.decimals)} />
-            <Kv k={t("common.no")} v={money(addQuote.noIn, market.decimals)} />
-          </>
-        ) : (
-          <>
-            <Kv k={t("common.yes")} v={money(wdQuote.yesOut, market.decimals)} />
-            <Kv k={t("common.no")} v={money(wdQuote.noOut, market.decimals)} />
-          </>
-        )}
-      </div>
-      <Button type="button" disabled={busy || !!disabled} onClick={() => void submit()}>
-        {busy ? t("state.confirming") : disabled ?? (tab === "add" ? t("lp.addSubmit") : t("lp.withdrawSubmit"))}
+      <p className="text-xs leading-5 text-amber-300/80">{t("lp.riskNote")}</p>
+      <Button type="button" busy={busy} disabled={busy || !!disabled} onClick={() => void submit()}>
+        {disabled ?? (tab === "add" ? t("lp.addSubmit") : t("lp.withdrawSubmit"))}
       </Button>
     </Card>
   );

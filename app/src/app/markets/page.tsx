@@ -4,11 +4,11 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useMarkets } from "@/hooks/use-markets";
 import { useNow } from "@/hooks/use-now";
-import { listSection, marketKind } from "@/lib/display";
+import { listSection, marketKind, questionTitle } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
 import { MarketTable } from "@/components/market-table";
 import { MarketsSkeleton } from "@/components/skeletons";
-import { Button, StateBlock } from "@/components/ui";
+import { Button, Reveal, StateBlock } from "@/components/ui";
 import { LiveCountdown } from "@/components/live";
 import { useT } from "@/i18n/provider";
 import type { MarketView } from "@/lib/markets";
@@ -22,9 +22,9 @@ export default function MarketsPage() {
   const [tape, setTape] = useState<Tape>("hot");
 
   const groups = useMemo(() => {
-    const live = markets.filter((m) => listSection(marketKind(m, now)) === "live");
+    const live = markets.filter((m) => listSection(marketKind(m, now)) === "live").sort((a, b) => a.expiry - b.expiry);
     const next = markets.filter((m) => listSection(marketKind(m, now)) === "next").sort((a, b) => a.expiry - b.expiry);
-    const ended = markets.filter((m) => listSection(marketKind(m, now)) === "ended");
+    const ended = markets.filter((m) => listSection(marketKind(m, now)) === "ended").sort((a, b) => b.expiry - a.expiry);
     return { live, next, ended };
   }, [markets, now]);
 
@@ -60,7 +60,7 @@ export default function MarketsPage() {
 
   return (
     <div className="split split-markets">
-      <div className="stack-5 fade-in">
+      <div className="stack-5 enter-up">
         <div className="flex items-end justify-between gap-3">
           <h1 className="page-title">{t("markets.title")}</h1>
           <div className="cluster-2 rounded-full border border-zinc-800 p-1">
@@ -77,7 +77,7 @@ export default function MarketsPage() {
           </div>
         </div>
         {sections.map((section) => (
-          <section key={section.key} className="stack-3">
+          <Reveal key={section.key}><section className="stack-3">
             <h2 className="section-title">{section.title}</h2>
             {section.rows.length ? (
               <MarketTable markets={section.rows} actionHref={tape === "history" ? "view" : "open"} />
@@ -93,31 +93,31 @@ export default function MarketsPage() {
                 }
               />
             )}
-          </section>
+          </section></Reveal>
         ))}
       </div>
-      <aside className="desk-rail stack-4">
-        <div className="surface p-4 stack-3">
+      <aside className="desk-rail stack-4 enter-side">
+        <Reveal><div className="surface p-4 stack-3">
           <div className="section-title">{nextMarket ? t("markets.nextRound") : t("markets.thisRound")}</div>
           {nextMarket ? (
             <>
-              <div className="truncate text-sm text-white">{nextMarket.title}</div>
+              <div className="truncate text-sm text-white">{questionTitle(nextMarket)}</div>
               <div className="text-right">
-                <LiveCountdown expiry={nextMarket.expiry} now={now} className="text-[28px] num-accent" />
+                <LiveCountdown expiry={nextMarket.expiry} now={now} className="text-[28px] num-accent cd-glow" />
               </div>
             </>
           ) : currentLive ? (
             <>
-              <div className="truncate text-sm text-white">{currentLive.title}</div>
+              <div className="truncate text-sm text-white">{questionTitle(currentLive)}</div>
               <div className="text-right">
-                <LiveCountdown expiry={currentLive.expiry} now={now} className="text-[28px] num-accent" />
+                <LiveCountdown expiry={currentLive.expiry} now={now} className="text-[28px] num-accent cd-glow" />
               </div>
             </>
           ) : (
             <p className="text-sm text-zinc-500">{t("markets.noNext")}</p>
           )}
-        </div>
-        <div className="surface p-4 stack-3">
+        </div></Reveal>
+        <Reveal><div className="surface p-4 stack-3">
           <div className="section-title">{t("markets.rulesTitle")}</div>
           <p className="text-[15px] leading-relaxed text-zinc-400">{t("markets.rule1")}</p>
           <p className="text-[15px] leading-relaxed text-zinc-400">{t("markets.rule2")}</p>
@@ -125,7 +125,7 @@ export default function MarketsPage() {
           <Link href="/help" className="link-accent text-[15px]">
             {t("markets.rulesMore")}
           </Link>
-        </div>
+        </div></Reveal>
       </aside>
     </div>
   );

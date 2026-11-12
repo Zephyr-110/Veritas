@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { COLLATERAL_SYMBOL, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
-import { money } from "@/lib/display";
-import { fromUi, toUi } from "@/lib/format";
+import { formatCents, fromUi, toUi } from "@/lib/format";
+import { thresholdToHuman } from "@/lib/feeds";
 import { applySlippage, quoteBet, quoteSwapOut } from "@/lib/quote";
 import { ixSwap, ixUserBetOn } from "@/lib/instructions";
 import { marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
@@ -12,9 +12,12 @@ import { useProgram } from "@/hooks/use-program";
 import { useNow } from "@/hooks/use-now";
 import type { Side } from "@/lib/types";
 import { useT } from "@/i18n/provider";
-import { Button, Card, Field, Kv, TextInput, choiceClass, useTx } from "./ui";
+import { Button, Card, Field, Kv, PopNum, SegTabs, TextInput, useTx } from "./ui";
 
 const PRESETS = ["1", "2", "5", "10"];
+const SEG_NEUTRAL = "linear-gradient(to bottom, rgba(255,255,255,0.14), rgba(255,255,255,0.07))";
+const SEG_YES = "linear-gradient(to bottom, rgba(52,211,153,0.30), rgba(52,211,153,0.15))";
+const SEG_NO = "linear-gradient(to bottom, rgba(251,113,133,0.30), rgba(251,113,133,0.15))";
 
 export function TradeDesk({ market, position }: { market: MarketView; position: UserPosition }) {
   const program = useProgram();
@@ -43,6 +46,10 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
   }, [amount, market.decimals]);
 
   const betQuote = quoteBet(market.reserveYes, market.reserveNo, parsed.value, side);
+  const curSideCents = (side === "yes" ? market.yesPrice : 1 - market.yesPrice) * 100;
+  const avgCents =
+    betQuote.totalOut > 0n && parsed.value > 0n ? (Number(parsed.value) / Number(betQuote.totalOut)) * 100 : null;
+  const impactPct = avgCents != null && curSideCents > 0 ? (avgCents / curSideCents - 1) * 100 : null;
   const swapOut = quoteSwapOut(
     side === "yes" ? market.reserveYes : market.reserveNo,
     side === "yes" ? market.reserveNo : market.reserveYes,
@@ -92,50 +99,66 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
   return (
     <Card className="desk flex flex-col gap-4">
       <div className="text-base font-medium text-white">{t("trade.title")}</div>
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => setTab("bet")}
-          className={choiceClass(tab === "bet")}
-        >
-          {t("trade.confirm")}
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("swap")}
-          className={choiceClass(tab === "swap")}
-        >
-          {t("trade.switch")}
-        </button>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <Button type="button" tone={side === "yes" ? "yes" : "secondary"} onClick={() => setSide("yes")}>
-          {t("trade.buyYes")}
-        </Button>
-        <Button type="button" tone={side === "no" ? "no" : "secondary"} onClick={() => setSide("no")}>
-          {t("trade.buyNo")}
-        </Button>
-      </div>
+      <SegTabs
+        value={tab}
+        onChange={setTab}
+        options={[
+          { value: "bet", label: t("trade.confirm"), color: SEG_NEUTRAL },
+          { value: "swap", label: t("trade.switch"), color: SEG_NEUTRAL },
+        ]}
+      />
+      <SegTabs
+        value={side}
+        onChange={setSide}
+        options={[
+          { value: "yes", label: t("trade.buyYes"), color: SEG_YES, activeText: "text-emerald-300" },
+          { value: "no", label: t("trade.buyNo"), color: SEG_NO, activeText: "text-rose-300" },
+        ]}
+      />
+      <p className="-mt-2 text-xs leading-5 text-zinc-500">
+        {t("trade.gloss", {
+          side: sideLabel,
+          op: (side === "yes") === market.settleAbove ? "≥" : "<",
+          price: thresholdToHuman(market.threshold, market.exponent),
+        })}
+      </p>
       <Field label={t("trade.youPay")} hint={t("trade.protect", { pct: (slippage / 100).toFixed(1) })}>
         <TextInput inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="font-mono tabular-nums" />
       </Field>
+      <div className="-mt-2 text-right text-xs text-zinc-500">
+        {t("common.balance", {
+          amount:
+            tab === "bet"
+              ? `${toUi(position.collateral, market.decimals, 2)} ${COLLATERAL_SYMBOL}`
+              : `${toUi(sellBalance, market.decimals, 2)} ${otherLabel}`,
+        })}
+      </div>
       <div className="cluster-2">
         {PRESETS.map((p) => (
-          <button key={p} type="button" className="rounded-full border border-zinc-800 px-3 py-1 text-xs text-zinc-400" onClick={() => setAmount(p)}>
+          <button key={p} type="button" className="rounded-full border border-zinc-800 px-3 py-1 text-xs text-zinc-400 transition hover:bg-white/[0.06] active:scale-95" onClick={() => setAmount(p)}>
             {p}
           </button>
         ))}
         <button
           type="button"
-          className="rounded-full border border-zinc-800 px-3 py-1 text-xs text-zinc-400"
+          className="rounded-full border border-zinc-800 px-3 py-1 text-xs text-zinc-400 transition hover:bg-white/[0.06] active:scale-95"
           onClick={() => setAmount(toUi(tab === "bet" ? position.collateral : sellBalance, market.decimals, 6))}
         >
           {t("common.max")}
         </button>
       </div>
       <div className="stack-2 text-sm">
-        <Kv k={t("trade.youGet")} v={money(tab === "bet" ? betQuote.totalOut : swapOut, market.decimals)} />
-        <Kv k={sideLabel} v={toUi(side === "yes" ? position.yes : position.no, market.decimals, 2)} />
+        <Kv
+          k={t("trade.youGet")}
+          v={<PopNum text={`${toUi(tab === "bet" ? betQuote.totalOut : swapOut, market.decimals, 2)} ${sideLabel}`} />}
+        />
+        {tab === "bet" && betQuote.totalOut > 0n && parsed.value > 0n ? (
+          <Kv k={t("trade.avgPrice")} v={<PopNum text={formatCents(Number(parsed.value) / Number(betQuote.totalOut))} />} />
+        ) : null}
+        {tab === "swap" ? <p className="text-xs leading-5 text-zinc-500">{t("trade.swapHint")}</p> : null}
+        {tab === "bet" && impactPct != null && impactPct > 10 ? (
+          <p className="text-xs leading-5 text-amber-300/90">{t("trade.impactWarn", { pct: Math.round(impactPct) })}</p>
+        ) : null}
       </div>
       <input
         type="range"
@@ -145,8 +168,8 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
         value={slippage}
         onChange={(e) => setSlippage(Number(e.target.value))}
       />
-      <Button type="button" disabled={busy || !!disabledReason} onClick={() => void submit()}>
-        {busy ? t("state.confirming") : disabledReason ?? (tab === "bet" ? (side === "yes" ? t("trade.buyYes") : t("trade.buyNo")) : t("trade.switch"))}
+      <Button type="button" busy={busy} disabled={busy || !!disabledReason} onClick={() => void submit()}>
+        {disabledReason ?? (tab === "bet" ? (side === "yes" ? t("trade.buyYes") : t("trade.buyNo")) : t("trade.switch"))}
       </Button>
     </Card>
   );

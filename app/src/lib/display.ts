@@ -1,9 +1,28 @@
 import { COLLATERAL_SYMBOL, RESOLVE_WINDOW } from "./constants";
 import { countdown, formatStamp, toUi } from "./format";
 import { marketPhase, type MarketView, type UserPosition } from "./markets";
-import { t } from "@/i18n/store";
+import { feedByHex, thresholdToHuman } from "./feeds";
+import { getLocale, t } from "@/i18n/store";
 
 export type MarketKind = "live" | "awaiting" | "voidable" | "resolved" | "voided" | "upcoming";
+
+const AUTO_TITLE = /^(.+?) (>=|<) ([\d,]+) @ /;
+
+/** Auto-generated spec titles ("BTC/USD >= 73,479 @ ...") read as questions;
+    a creator's custom title is returned untouched. */
+export function questionTitle(market: MarketView): string {
+  if (!AUTO_TITLE.test(market.title)) return market.title;
+  const symbol = feedByHex(market.feedHex)?.symbol ?? market.title.split(" ")[0];
+  const human = thresholdToHuman(market.threshold, market.exponent);
+  const d = new Date(market.expiry * 1000);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  if (getLocale() === "zh") {
+    return symbol + " " + (d.getMonth() + 1) + "月" + d.getDate() + "日 " + hh + ":" + mm + " " + (market.settleAbove ? "能站上" : "会跌破") + " " + human + " 吗？";
+  }
+  const mon = d.toLocaleString("en-US", { month: "short" });
+  return symbol + " " + (market.settleAbove ? "above" : "below") + " " + human + " at " + hh + ":" + mm + " on " + mon + " " + d.getDate() + "?";
+}
 
 export function money(amount: bigint, decimals: number, digits = 2): string {
   return `${toUi(amount, decimals, digits)} ${COLLATERAL_SYMBOL}`;

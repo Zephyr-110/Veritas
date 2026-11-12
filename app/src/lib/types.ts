@@ -3,7 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 export type Side = "yes" | "no";
 export type MarketStatusName = "upcoming" | "open" | "resolved" | "burn";
 export type ClusterName = "localnet" | "devnet" | "testnet" | "mainnet-beta";
-export type FeedKey = "btc" | "sol" | "xau";
+export type FeedKey = "btc" | "eth" | "sol" | "doge" | "xau";
 
 export type MarketPdas = {
   market: PublicKey;

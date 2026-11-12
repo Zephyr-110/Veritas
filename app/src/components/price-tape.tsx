@@ -5,44 +5,83 @@ import { FEEDS, formatPythPrice } from "@/lib/feeds";
 import { useFeeds } from "@/hooks/use-feeds";
 import { useT } from "@/i18n/provider";
 import { cx } from "./ui";
-import { PriceTapeSkeleton } from "./skeletons";
+import { PricePanelSkeleton } from "./skeletons";
 
-function FlashAccent({ value, children }: { value: number; children: string }) {
-  const prev = useRef(value);
-  const [on, setOn] = useState(false);
+function PriceValue({ value }: { value: number }) {
+  const [display, setDisplay] = useState(0);
+  const [dir, setDir] = useState<"up" | "down" | null>(null);
+  const fromRef = useRef(0);
+  const mountedRef = useRef(false);
+  const rafRef = useRef(0);
 
   useEffect(() => {
-    if (value === prev.current) return;
-    prev.current = value;
-    setOn(true);
-    const id = window.setTimeout(() => setOn(false), 650);
+    const first = !mountedRef.current;
+    mountedRef.current = true;
+    const from = first ? 0 : fromRef.current;
+    const to = value;
+    fromRef.current = value;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setDisplay(to);
+      return;
+    }
+    if (from === to) {
+      setDisplay(to);
+      return;
+    }
+    if (!first) setDir(to > from ? "up" : "down");
+    const start = performance.now();
+    const dur = first ? 950 : 450;
+    cancelAnimationFrame(rafRef.current);
+    const step = (nowMs: number) => {
+      const k = Math.min(1, (nowMs - start) / dur);
+      const eased = 1 - Math.pow(1 - k, 3);
+      setDisplay(from + (to - from) * eased);
+      if (k < 1) rafRef.current = requestAnimationFrame(step);
+    };
+    rafRef.current = requestAnimationFrame(step);
+    if (first) return;
+    const id = window.setTimeout(() => setDir(null), 700);
     return () => window.clearTimeout(id);
   }, [value]);
 
-  return <span className={cx("num home-tape-price", on && "flash-accent")}>{children}</span>;
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
+
+  return (
+    <span className={cx("num home-prices-value", dir === "up" && "flash-up", dir === "down" && "flash-down")}>
+      {formatPythPrice(display)}
+    </span>
+  );
 }
 
-export function PriceTape() {
+export function PricePanel() {
   const { quotes, ready } = useFeeds();
   const t = useT();
-  if (!ready) return <PriceTapeSkeleton />;
+  if (!ready) return <PricePanelSkeleton />;
   const visible = FEEDS.filter((feed) => {
     const q = quotes[feed.key];
     return Boolean(q?.available && q.price != null);
   });
   if (!visible.length) return null;
   return (
-    <div className="home-tape fade-in">
-      {visible.map((feed, index) => {
-        const q = quotes[feed.key];
-        return (
-          <span key={feed.key} className="home-tape-item">
-            {index > 0 ? <span className="home-tape-sep">｜</span> : null}
-            <span className="home-tape-pair">{t(feed.labelKey)}</span>
-            <FlashAccent value={q.price as number}>{formatPythPrice(q.price)}</FlashAccent>
-          </span>
-        );
-      })}
-    </div>
+    <aside className="surface home-prices panel-float panel-in">
+      <div className="flex items-center justify-between gap-3">
+        <span className="home-kicker flex items-center gap-2">
+          <span className="live-dot h-1.5 w-1.5 rounded-full bg-accent" />
+          {t("home.prices")}
+        </span>
+        <span className="text-xs text-zinc-600">{t("home.pricesSrc")}</span>
+      </div>
+      <div className="mt-1">
+        {visible.map((feed) => {
+          const q = quotes[feed.key];
+          return (
+            <div key={feed.key} className="home-prices-row">
+              <span className="home-prices-pair">{t(feed.labelKey)}</span>
+              <PriceValue value={q.price as number} />
+            </div>
+          );
+        })}
+      </div>
+    </aside>
   );
 }

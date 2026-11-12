@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   useEffect,
+  useRef,
   useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
@@ -29,6 +30,9 @@ import { sendIxs, mustWallet } from "@/lib/send";
 import { useAnchorWallet } from "@solana/wallet-adapter-react";
 import type { ClusterName } from "@/lib/types";
 import { useI18n, useT } from "@/i18n/provider";
+import { useFeeds } from "@/hooks/use-feeds";
+import { PulseAreaMark } from "./logo-marks";
+import { FEEDS, formatPythPrice } from "@/lib/feeds";
 import { useRefresh, useSettings, useToasts } from "./providers";
 
 export function cx(...parts: Array<string | false | null | undefined>): string {
@@ -44,23 +48,34 @@ export function onSpot(e: MouseEvent<HTMLElement>) {
 export function Button({
   tone = "primary",
   className,
+  busy,
+  children,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { tone?: "primary" | "secondary" | "yes" | "no" }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { tone?: "primary" | "secondary" | "yes" | "no"; busy?: boolean }) {
   const tones: Record<string, string> = {
-    primary: "shine bg-accent text-zinc-950 hover:bg-cyan-300 shadow-[0_0_24px_rgba(34,211,238,0.22)]",
-    secondary: "bg-transparent text-zinc-200 border border-zinc-800 hover:border-zinc-700 hover:bg-white/5",
-    yes: "shine bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25",
-    no: "shine bg-rose-500/15 text-rose-400 border border-rose-500/30 hover:bg-rose-500/25",
+    primary:
+      "shine font-semibold bg-gradient-to-b from-cyan-400 to-cyan-500 text-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_0_20px_rgba(34,211,238,0.3),0_4px_14px_0_rgba(34,211,238,0.39)] hover:from-cyan-300 hover:to-cyan-400 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_0_26px_rgba(34,211,238,0.42),0_4px_18px_0_rgba(34,211,238,0.5)]",
+    secondary:
+      "btn-ghost font-medium bg-transparent text-zinc-200 border border-white/10 hover:border-white/25 hover:bg-white/[0.06]",
+    yes:
+      "shine font-medium bg-gradient-to-b from-emerald-400/25 to-emerald-500/10 text-emerald-300 border border-emerald-500/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.15),0_4px_14px_0_rgba(52,211,153,0.22)] hover:from-emerald-400/35 hover:to-emerald-500/15 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.15),0_4px_16px_0_rgba(52,211,153,0.32)]",
+    no: "shine font-medium bg-gradient-to-b from-rose-400/25 to-rose-500/10 text-rose-300 border border-rose-500/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.15),0_4px_14px_0_rgba(251,113,133,0.22)] hover:from-rose-400/35 hover:to-rose-500/15 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.15),0_4px_16px_0_rgba(251,113,133,0.32)]",
   };
   return (
     <button
+      data-tone={tone}
       className={cx(
-        "inline-flex h-10 items-center justify-center rounded-2xl px-4 text-sm font-medium transition-colors duration-200 hover:brightness-110 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100",
+        "relative inline-flex h-10 items-center justify-center rounded-2xl px-4 text-sm transition-all duration-150 hover:brightness-110 active:brightness-95 enabled:hover:scale-[1.02] enabled:active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100",
         tones[tone],
         className
       )}
       {...props}
-    />
+    >
+      <span className={busy ? "opacity-0" : "opacity-100"}>{children}</span>
+      {busy ? (
+        <span className="absolute h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent opacity-70" />
+      ) : null}
+    </button>
   );
 }
 
@@ -111,7 +126,7 @@ export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
     <input
       {...props}
       className={cx(
-        "h-11 w-full rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 text-sm text-white outline-none placeholder:text-zinc-600 transition-[border-color,box-shadow] duration-200 focus:border-cyan-500/40 focus:ring-2 focus:ring-cyan-500/10",
+        "field h-11 w-full rounded-xl border border-zinc-800 px-3 text-sm text-white outline-none placeholder:text-zinc-600 transition-all duration-300",
         props.className
       )}
     />
@@ -133,7 +148,7 @@ export function Chip({
     ink: "border-zinc-700 text-zinc-200",
   };
   return (
-    <span className={cx("inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[11px] font-medium", tones[tone])}>
+    <span className={cx("chip-x inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[11px] font-medium", tones[tone])}>
       {children}
     </span>
   );
@@ -186,6 +201,178 @@ export function Kv({ k, v }: { k: string; v: ReactNode }) {
     <div className="flex items-baseline justify-between gap-4">
       <span className="text-zinc-500">{k}</span>
       <span className="num text-right font-medium text-white">{v}</span>
+    </div>
+  );
+}
+
+export function PopNum({ text }: { text: string }) {
+  return (
+    <span key={text} className="pop-num inline-block">
+      {text}
+    </span>
+  );
+}
+
+export function Reveal({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (
+      typeof IntersectionObserver === "undefined" ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      setShown(true);
+      return;
+    }
+    const show = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) setShown(true);
+      },
+      { rootMargin: "0px 0px -20% 0px", threshold: 0 }
+    );
+    const rearm = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry.isIntersecting && entry.boundingClientRect.top > 0) setShown(false);
+      },
+      { threshold: 0 }
+    );
+    show.observe(el);
+    rearm.observe(el);
+    return () => {
+      show.disconnect();
+      rearm.disconnect();
+    };
+  }, []);
+  return (
+    <div ref={ref} className={cx("reveal", shown && "reveal-in")}>
+      {children}
+    </div>
+  );
+}
+
+export function StickyRail({ children, className }: { children: ReactNode; className?: string }) {
+  const ref = useRef<HTMLElement>(null);
+  const [stuck, setStuck] = useState(false);
+  const [soft, setSoft] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const desktop = window.matchMedia("(min-width: 1024px)").matches;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!desktop || reduced) {
+      let raf = 0;
+      const check = () => {
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => setStuck(el.getBoundingClientRect().top <= 81));
+      };
+      check();
+      window.addEventListener("scroll", check, { passive: true });
+      return () => {
+        window.removeEventListener("scroll", check);
+        cancelAnimationFrame(raf);
+      };
+    }
+    setSoft(true);
+    let shift = 0;
+    let dirty = true;
+    const measureUntil = performance.now() + 2500;
+    let naturalTop = 0;
+    let maxShift = 0;
+    let raf = 0;
+    const measure = () => {
+      const parent = el.parentElement;
+      if (!parent) return;
+      naturalTop = el.getBoundingClientRect().top + window.scrollY - shift;
+      maxShift = Math.max(
+        0,
+        parent.getBoundingClientRect().bottom + window.scrollY - el.offsetHeight - naturalTop
+      );
+      dirty = false;
+    };
+    const loop = () => {
+      if (dirty || performance.now() < measureUntil) measure();
+      const target = Math.min(Math.max(window.scrollY + 80 - naturalTop, 0), maxShift);
+      const diff = target - shift;
+      if (Math.abs(diff) > 0.05) {
+        shift += diff * 0.16;
+        el.style.transform = `translate3d(0, ${shift.toFixed(2)}px, 0)`;
+        setStuck(shift > 4);
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    const mark = () => {
+      dirty = true;
+    };
+    window.addEventListener("resize", mark);
+    window.addEventListener("load", mark);
+    const ro = new ResizeObserver(mark);
+    if (el.parentElement) ro.observe(el.parentElement);
+    ro.observe(el);
+    if (document.body) ro.observe(document.body);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", mark);
+      window.removeEventListener("load", mark);
+      ro.disconnect();
+      el.style.transform = "";
+    };
+  }, []);
+  return (
+    <aside ref={ref} className={cx(className, soft && "soft-rail-on", stuck && "rail-stuck")}>
+      {children}
+    </aside>
+  );
+}
+
+export function SegTabs<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: T; label: ReactNode; color: string; activeText?: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  const index = Math.max(
+    0,
+    options.findIndex((o) => o.value === value)
+  );
+  const active = options[index];
+  return (
+    <div
+      className="seg-tabs relative grid rounded-xl border border-zinc-800/60 bg-zinc-900/50 p-1"
+      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
+    >
+      <span
+        aria-hidden
+        className="seg-thumb absolute inset-y-1 rounded-lg transition-all duration-300"
+        style={{
+          left: "0.25rem",
+          width: `calc((100% - 0.5rem) / ${options.length})`,
+          transform: `translateX(${index * 100}%)`,
+          background: active?.color,
+          boxShadow: "0 1px 3px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08)",
+          transitionTimingFunction: "cubic-bezier(0.34, 1.3, 0.64, 1)",
+        }}
+      />
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => onChange(o.value)}
+          className={`relative z-10 h-9 rounded-lg text-sm font-medium transition-all duration-150 active:scale-95 ${
+            o.value === value
+              ? (o.activeText ?? "text-white")
+              : "bg-white/[0.05] text-zinc-400 hover:bg-white/[0.09] hover:text-zinc-200"
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -265,6 +452,44 @@ export function WalletButton() {
   );
 }
 
+function ThemeToggle() {
+  const t = useT();
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  useEffect(() => {
+    setTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark");
+  }, []);
+  const toggle = () => {
+    const next = theme === "light" ? "dark" : "light";
+    document.documentElement.dataset.theme = next;
+    try {
+      localStorage.setItem("veritas-theme", next);
+    } catch {
+      /* storage unavailable */
+    }
+    setTheme(next);
+  };
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      aria-label={t("nav.theme")}
+      title={t("nav.theme")}
+      className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-zinc-800 bg-zinc-950/80 text-zinc-400 transition-colors hover:text-white"
+    >
+      {theme === "light" ? (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+        </svg>
+      ) : (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 function LangSwitch() {
   const { locale, setLocale, t } = useI18n();
   return (
@@ -297,6 +522,21 @@ function LangSwitch() {
   );
 }
 
+function HeaderTape() {
+  const { quotes } = useFeeds();
+  const items = FEEDS.filter((f) => f.key === "btc" || f.key === "sol");
+  return (
+    <div className="pointer-events-none absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 items-center gap-5 xl:flex">
+      {items.map((f) => (
+        <span key={f.key} className="flex items-baseline gap-1.5 text-[13px]">
+          <span className="font-medium text-zinc-500">{f.symbol}</span>
+          <span className="num text-zinc-200">{formatPythPrice(quotes[f.key]?.price ?? null)}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function Header() {
   const pathname = usePathname();
   const { settings } = useSettings();
@@ -316,8 +556,32 @@ export function Header() {
     };
   }, [connection, settings.rpcUrl]);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    if (pathname !== "/") {
+      delete root.dataset.brand;
+      return;
+    }
+    const el = document.getElementById("masthead");
+    if (!el) {
+      delete root.dataset.brand;
+      return;
+    }
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) root.dataset.brand = "hidden";
+        else delete root.dataset.brand;
+      },
+      { rootMargin: "-56px 0px 0px 0px" }
+    );
+    io.observe(el);
+    return () => {
+      io.disconnect();
+      delete root.dataset.brand;
+    };
+  }, [pathname]);
+
   const nav = [
-    { href: "/", label: t("nav.home") },
     { href: "/markets", label: t("nav.markets") },
     { href: "/create", label: t("nav.create") },
     { href: "/me", label: t("nav.me") },
@@ -325,14 +589,12 @@ export function Header() {
   ];
 
   return (
-    <header className="header-line sticky top-0 z-40 border-b border-cyan-500/10 bg-[#05070c]/75 backdrop-blur-xl">
-      <div className="page-width mx-auto flex min-h-14 min-w-0 flex-wrap items-start justify-between gap-2 px-3 py-2 sm:h-14 sm:flex-nowrap sm:items-center sm:px-4 sm:py-0">
+    <header className="app-header header-line nav-in sticky top-0 z-40 border-b border-cyan-500/10 backdrop-blur-xl">
+      <div className="page-width relative mx-auto flex min-h-14 min-w-0 flex-wrap items-start justify-between gap-2 px-3 py-2 sm:h-14 sm:flex-nowrap sm:items-center sm:px-4 sm:py-0">
         <div className="flex min-w-0 items-center gap-2 md:gap-5">
-          <Link href="/" className="flex items-center gap-2.5">
-            <span className="grid h-7 w-7 place-items-center rounded-lg border border-cyan-500/30 bg-zinc-900 text-xs font-bold text-cyan-200 shadow-[0_0_16px_rgba(34,211,238,0.35)]">
-              V
-            </span>
-            <span className="hidden text-sm font-bold tracking-tight text-white sm:inline">{t("brand.name")}</span>
+          <Link href="/" className="header-brand flex items-center gap-2.5">
+<PulseAreaMark size={30} />
+            <span className="brand-word hidden text-base font-bold text-white sm:inline">{t("brand.name")}</span>
           </Link>
           <nav className="hidden items-center gap-1 md:flex">
             {nav.map((item) => {
@@ -353,6 +615,7 @@ export function Header() {
           </nav>
         </div>
 
+        <HeaderTape />
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1 sm:flex-none sm:gap-2">
           <button
             type="button"
@@ -377,6 +640,7 @@ export function Header() {
           <Button type="button" tone="secondary" className="h-8 whitespace-nowrap px-2 text-[11px] md:hidden" onClick={() => setOpen(true)}>
             {t("nav.settings")}
           </Button>
+          <ThemeToggle />
           <LangSwitch />
           <WalletButton />
         </div>

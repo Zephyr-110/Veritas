@@ -157,7 +157,7 @@ export function Ambience() {
 
   return (
     <>
-      <canvas ref={ref} className="pointer-events-none fixed inset-0 -z-10 h-full w-full" aria-hidden />
+      <canvas ref={ref} className="ambience-canvas pointer-events-none fixed inset-0 -z-10 h-full w-full" aria-hidden />
       <div className="pointer-events-none fixed inset-0 -z-10 grid-veil" aria-hidden />
       <div className="pointer-events-none fixed inset-0 z-[60] noise" aria-hidden />
     </>

@@ -1,22 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { COLLATERAL_SYMBOL, MIN_CREATE_COLLATERAL, PREDICTION_BYTES } from "@/lib/constants";
-import { encodePrediction, formatStamp, fromUi, randomMarketId, utf8Len } from "@/lib/format";
+import { countdown, encodePrediction, formatStamp, fromUi, randomMarketId, utf8Len } from "@/lib/format";
 import { FEEDS, feedByKey, feedIdBytes, humanToThreshold } from "@/lib/feeds";
 import { findMarketPdas } from "@/lib/pdas";
 import { fetchMintMeta } from "@/lib/tokens";
 import { ixCreateMarket } from "@/lib/instructions";
 import { localizeError } from "@/lib/errors";
 import { useFeeds } from "@/hooks/use-feeds";
+import { useNow } from "@/hooks/use-now";
 import { useProgram } from "@/hooks/use-program";
 import { useSettings, useToasts } from "@/components/providers";
 import { FeatureCard } from "@/components/market-card";
-import { Button, Field, TextInput, choiceClass, useTx } from "@/components/ui";
-import { useT } from "@/i18n/provider";
+import { Button, Reveal, TextInput, choiceClass, useTx } from "@/components/ui";
+import { useI18n, useT } from "@/i18n/provider";
 import type { FeedKey } from "@/lib/types";
 
 const PRESETS = [
@@ -26,14 +27,23 @@ const PRESETS = [
   { id: "1d", key: "create.preset1d" as const, ms: 24 * 60 * 60 * 1000 },
 ];
 
+const SEED_CHIPS = ["2", "5", "10", "50"];
+
 function defaultExpiry(): Date {
   const next = new Date(Date.now() + 60 * 60 * 1000);
   next.setSeconds(0, 0);
   return next;
 }
 
-function buildTitle(symbol: string, human: string, above: boolean, expiry: Date): string {
-  return symbol + " " + (above ? ">=" : "<") + " " + human + " @ " + formatStamp(expiry);
+function buildTitle(symbol: string, human: string, above: boolean, expiry: Date, locale: string): string {
+  const grouped = /^\d+$/.test(human) ? human.replace(/\B(?=(\d{3})+(?!\d))/g, ",") : human;
+  const hh = String(expiry.getHours()).padStart(2, "0");
+  const mm = String(expiry.getMinutes()).padStart(2, "0");
+  if (locale === "zh") {
+    return symbol + " " + (expiry.getMonth() + 1) + "月" + expiry.getDate() + "日 " + hh + ":" + mm + " " + (above ? "能站上" : "会跌破") + " " + grouped + " 吗？";
+  }
+  const mon = expiry.toLocaleString("en-US", { month: "short" });
+  return symbol + " " + (above ? "above" : "below") + " " + grouped + " at " + hh + ":" + mm + " on " + mon + " " + expiry.getDate() + "?";
 }
 
 function parseSeed(amount: string): bigint | null {
@@ -44,9 +54,38 @@ function parseSeed(amount: string): bigint | null {
   }
 }
 
-function clampPart(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.min(max, Math.max(min, Math.round(value)));
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function isoLocal(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function Row({
+  label,
+  error,
+  hint,
+  children,
+}: {
+  label: string;
+  error?: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex items-start gap-4">
+      <span className="w-24 shrink-0 pt-2 text-sm text-zinc-400">{label}</span>
+      <div className="stack-2 min-w-0 flex-1">
+        {children}
+        {error ? (
+          <span className="text-[13px] leading-5 text-rose-400">{error}</span>
+        ) : hint ? (
+          <span className="field-hint">{hint}</span>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 export default function CreatePage() {
@@ -58,7 +97,9 @@ export default function CreatePage() {
   const { busy, run } = useTx();
   const { push } = useToasts();
   const { quotes, ready } = useFeeds();
+  const now = useNow(1000);
   const t = useT();
+  const { locale } = useI18n();
 
   const [feedKey, setFeedKey] = useState<FeedKey>("btc");
   const feed = feedByKey(feedKey);
@@ -66,8 +107,9 @@ export default function CreatePage() {
   const [above, setAbove] = useState(true);
   const [expiry, setExpiry] = useState(defaultExpiry);
   const [preset, setPreset] = useState("1h");
+  const [exactOpen, setExactOpen] = useState(false);
   const [amount, setAmount] = useState("2");
-  const [title, setTitle] = useState(buildTitle(t(feed.labelKey), feed.defaultHuman, true, defaultExpiry()));
+  const [title, setTitle] = useState(buildTitle(t(feed.labelKey), feed.defaultHuman, true, defaultExpiry(), locale));
   const [titleLocked, setTitleLocked] = useState(false);
   const [attempted, setAttempted] = useState(false);
   const userThreshold = useRef(false);
@@ -83,7 +125,16 @@ export default function CreatePage() {
     const next = new Date(Date.now() + ms);
     next.setSeconds(0, 0);
     setExpiry(next);
-    syncTitle(buildTitle(t(feed.labelKey), human, above, next));
+    syncTitle(buildTitle(t(feed.labelKey), human, above, next, locale));
+  };
+
+  const applyExact = (value: string) => {
+    const next = new Date(value);
+    if (Number.isNaN(next.getTime())) return;
+    next.setSeconds(0, 0);
+    setPreset("custom");
+    setExpiry(next);
+    syncTitle(buildTitle(t(feed.labelKey), human, above, next, locale));
   };
 
   const onFeed = (key: FeedKey) => {
@@ -103,29 +154,15 @@ export default function CreatePage() {
       const rounded = String(Math.round(q.price));
       setHuman(rounded);
       lastAutoFeed.current = feedKey;
-      if (!titleLocked) setTitle(buildTitle(t(feed.labelKey), rounded, above, expiry));
+      if (!titleLocked) setTitle(buildTitle(t(feed.labelKey), rounded, above, expiry, locale));
       return;
     }
     if (ready) {
       setHuman(feed.defaultHuman);
       lastAutoFeed.current = feedKey;
-      if (!titleLocked) setTitle(buildTitle(t(feed.labelKey), feed.defaultHuman, above, expiry));
+      if (!titleLocked) setTitle(buildTitle(t(feed.labelKey), feed.defaultHuman, above, expiry, locale));
     }
   }, [feedKey, quotes, ready, feed.labelKey, feed.defaultHuman, above, expiry, titleLocked, t]);
-
-  const setExpiryPart = (part: "month" | "day" | "hour" | "minute", raw: string) => {
-    const n = Number(raw);
-    if (!Number.isFinite(n)) return;
-    const next = new Date(expiry.getTime());
-    if (part === "month") next.setMonth(clampPart(n, 1, 12) - 1);
-    if (part === "day") next.setDate(clampPart(n, 1, 31));
-    if (part === "hour") next.setHours(clampPart(n, 0, 23));
-    if (part === "minute") next.setMinutes(clampPart(n, 0, 59));
-    next.setSeconds(0, 0);
-    setPreset("custom");
-    setExpiry(next);
-    syncTitle(buildTitle(t(feed.labelKey), human, above, next));
-  };
 
   const expiryUnix = Math.floor(expiry.getTime() / 1000);
   const seedAtoms = parseSeed(amount);
@@ -143,6 +180,20 @@ export default function CreatePage() {
   }
   const seedError =
     seedAtoms == null || seedAtoms < MIN_CREATE_COLLATERAL ? t("create.needPoolBody", { symbol: COLLATERAL_SYMBOL }) : "";
+
+  const spot = quotes[feedKey];
+  const applySpot = () => {
+    if (!spot?.available || spot.price == null) return;
+    userThreshold.current = false;
+    const rounded = String(Math.round(spot.price));
+    setHuman(rounded);
+    syncTitle(buildTitle(t(feed.labelKey), rounded, above, expiry, locale));
+  };
+
+  const displayHuman = useMemo(() => {
+    const n = Number(human);
+    return human.trim() && Number.isFinite(n) ? n.toLocaleString("en-US") : human;
+  }, [human]);
 
   const submit = async () => {
     setAttempted(true);
@@ -193,142 +244,180 @@ export default function CreatePage() {
       <div className="stack-6">
         <h1 className="page-title">{t("create.title")}</h1>
         <form
-          className="stack-6"
+          className="stack-5"
           onSubmit={(e) => {
             e.preventDefault();
             void submit();
           }}
         >
-          <section className="stack-4">
-            <h2 className="section-title">{t("create.groupQuestion")}</h2>
-            <Field label={t("create.question")} error={attempted ? questionError : undefined}>
-              <TextInput
+          <Reveal><section className="surface stack-6 p-5">
+            <div className="stack-2">
+              <span className="text-[13px] font-medium text-zinc-500">{t("create.question")}</span>
+              <input
                 value={title}
                 onChange={(e) => {
                   setTitleLocked(true);
                   setTitle(e.target.value);
                 }}
                 placeholder={t("create.placeholder")}
+                className="w-full border-b border-white/10 bg-transparent pb-2 text-lg font-medium text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-cyan-400/50"
               />
-            </Field>
-            <Field label={t("create.tradingEnds")} error={attempted ? expiryError : undefined}>
-              <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {attempted && questionError ? (
+                <span className="text-[13px] leading-5 text-rose-400">{questionError}</span>
+              ) : (
+                <span className="field-hint">{t("create.titleHint")}</span>
+              )}
+            </div>
+
+            <p className="text-xl font-medium leading-relaxed text-zinc-200">
+              <span className="text-white">{t(feed.labelKey)}</span>
+              {" · "}
+              {t("create.sayWhen", { stamp: formatStamp(expiry) })}
+              {" · "}
+              <span className="num text-cyan-300">
+                {t("create.sayIf", { op: above ? "≥" : "<", threshold: displayHuman })}
+              </span>
+              {" → "}
+              <span className="font-semibold text-emerald-300">{t("create.sayThen")}</span>
+            </p>
+
+            <div className="hairline" />
+
+            <div className="stack-4">
+              <Row label={t("create.feed")} hint={t("create.feedHint")}>
+                <div className="flex flex-wrap gap-2">
+                  {FEEDS.filter((item) => item.market).map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => onFeed(item.key)}
+                      className={choiceClass(feedKey === item.key) + " choice-sm"}
+                    >
+                      {t(item.labelKey)}
+                    </button>
+                  ))}
+                </div>
+              </Row>
+              <Row label={t("create.direction")}>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAbove(true);
+                      syncTitle(buildTitle(t(feed.labelKey), human, true, expiry, locale));
+                    }}
+                    className={choiceClass(above) + " choice-sm"}
+                  >
+                    {t("create.directionAbove")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAbove(false);
+                      syncTitle(buildTitle(t(feed.labelKey), human, false, expiry, locale));
+                    }}
+                    className={choiceClass(!above) + " choice-sm"}
+                  >
+                    {t("create.directionBelow")}
+                  </button>
+                </div>
+              </Row>
+              <Row label={t("create.threshold")} error={attempted ? thresholdError : undefined}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div style={{ width: "11rem" }}>
+                    <TextInput
+                    inputMode="decimal"
+                    value={human}
+                    onChange={(e) => {
+                      userThreshold.current = true;
+                      setHuman(e.target.value);
+                      syncTitle(buildTitle(t(feed.labelKey), e.target.value, above, expiry, locale));
+                    }}
+                    className="num text-right"
+                    />
+                  </div>
+                  {spot?.available && spot.price != null ? (
+                    <button type="button" onClick={applySpot} className={choiceClass(false) + " choice-sm num"}>
+                      {t("create.spotNow", { price: Math.round(spot.price).toLocaleString("en-US") })}
+                    </button>
+                  ) : null}
+                </div>
+              </Row>
+            </div>
+          </section></Reveal>
+
+          <Reveal><section className="surface stack-6 p-5">
+            <Row label={t("create.tradingEnds")} error={attempted ? expiryError : undefined}>
+              <div className="flex flex-wrap gap-2">
                 {PRESETS.map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => applyPreset(item.id, item.ms)}
-                    className={choiceClass(preset === item.id)}
+                    className={choiceClass(preset === item.id) + " choice-sm"}
                   >
                     {t(item.key)}
                   </button>
                 ))}
               </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <Field label={t("create.month")}>
-                  <TextInput
-                    inputMode="numeric"
-                    className="num text-right"
-                    value={String(expiry.getMonth() + 1)}
-                    onChange={(e) => setExpiryPart("month", e.target.value)}
-                  />
-                </Field>
-                <Field label={t("create.day")}>
-                  <TextInput
-                    inputMode="numeric"
-                    className="num text-right"
-                    value={String(expiry.getDate())}
-                    onChange={(e) => setExpiryPart("day", e.target.value)}
-                  />
-                </Field>
-                <Field label={t("create.hour")}>
-                  <TextInput
-                    inputMode="numeric"
-                    className="num text-right"
-                    value={String(expiry.getHours())}
-                    onChange={(e) => setExpiryPart("hour", e.target.value)}
-                  />
-                </Field>
-                <Field label={t("create.minute")}>
-                  <TextInput
-                    inputMode="numeric"
-                    className="num text-right"
-                    value={String(expiry.getMinutes())}
-                    onChange={(e) => setExpiryPart("minute", e.target.value)}
-                  />
-                </Field>
-              </div>
-            </Field>
-          </section>
-
-          <section className="stack-4">
-            <h2 className="section-title">{t("create.groupSettlement")}</h2>
-            <Field label={t("create.feed")} hint={t("create.feedHint")}>
-              <div className="grid grid-cols-3 gap-2">
-                {FEEDS.map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => onFeed(item.key)}
-                    className={choiceClass(feedKey === item.key)}
-                  >
-                    {t(item.labelKey)}
-                  </button>
-                ))}
-              </div>
-            </Field>
-            <Field label={t("create.threshold")} error={attempted ? thresholdError : undefined}>
-              <TextInput
-                inputMode="decimal"
-                value={human}
-                onChange={(e) => {
-                  userThreshold.current = true;
-                  setHuman(e.target.value);
-                  syncTitle(buildTitle(t(feed.labelKey), e.target.value, above, expiry));
-                }}
-                className="num text-right"
-              />
-            </Field>
-            <Field label={t("create.direction")}>
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-zinc-500">
+                <span>{t("create.endsAt", { stamp: formatStamp(expiry), left: countdown(expiryUnix, now) })}</span>
                 <button
                   type="button"
-                  onClick={() => {
-                    setAbove(true);
-                    syncTitle(buildTitle(t(feed.labelKey), human, true, expiry));
-                  }}
-                  className={choiceClass(above)}
+                  className="link-accent"
+                  onClick={() => setExactOpen((v) => !v)}
                 >
-                  {t("create.directionAbove")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAbove(false);
-                    syncTitle(buildTitle(t(feed.labelKey), human, false, expiry));
-                  }}
-                  className={choiceClass(!above)}
-                >
-                  {t("create.directionBelow")}
+                  {t("create.exact")}
                 </button>
               </div>
-            </Field>
-          </section>
-
-          <section className="stack-4">
-            <h2 className="section-title">{t("create.groupSeed")}</h2>
-            <Field
-              label={t("create.starting", { symbol: COLLATERAL_SYMBOL })}
+              {exactOpen ? (
+                <div style={{ width: "16rem" }}>
+                  <TextInput
+                    type="datetime-local"
+                    min={isoLocal(new Date())}
+                    value={isoLocal(expiry)}
+                    onChange={(e) => applyExact(e.target.value)}
+                    className="num"
+                  />
+                </div>
+              ) : null}
+            </Row>
+            <div className="hairline" />
+            <Row
+              label={t("create.groupSeed")}
               hint={t("create.seedLiveHint", { symbol: COLLATERAL_SYMBOL })}
               error={attempted || amount.trim().length > 0 ? seedError : undefined}
             >
-              <TextInput inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="num text-right" />
-            </Field>
-          </section>
+              <div className="flex flex-wrap items-center gap-2">
+                <div style={{ width: "11rem" }}>
+                  <TextInput
+                    inputMode="decimal"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    className="num text-right"
+                  />
+                </div>
+                <div className="flex gap-1.5">
+                  {SEED_CHIPS.map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setAmount(v)}
+                      className={choiceClass(amount === v) + " choice-sm num"}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </Row>
+          </section></Reveal>
 
-          <Button type="submit" className="h-12 w-full" disabled={busy || !publicKey}>
+          <div className="max-w-xs">
+            <Button type="submit" className="h-12 w-full" disabled={busy || !publicKey}>
             {busy ? t("state.confirming") : publicKey ? t("create.submit") : t("create.connectFirst")}
-          </Button>
+            </Button>
+          </div>
         </form>
       </div>
       <aside className="desk-rail stack-3">
@@ -340,6 +429,12 @@ export default function CreatePage() {
           liquidity={t("create.previewSeed", { amount: amount || "0", symbol: COLLATERAL_SYMBOL })}
           threshold={previewThreshold}
         />
+        <div className="surface stack-2 p-4">
+          <div className="section-title">{t("create.notesTitle")}</div>
+          <p className="text-[13px] leading-5 text-zinc-400">{t("markets.rule1")}</p>
+          <p className="text-[13px] leading-5 text-zinc-400">{t("markets.rule2")}</p>
+          <p className="text-[13px] leading-5 text-zinc-400">{t("create.noteFinal")}</p>
+        </div>
       </aside>
     </div>
   );

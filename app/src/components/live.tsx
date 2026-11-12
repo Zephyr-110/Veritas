@@ -66,3 +66,39 @@ export function LiveCountdown({
     </span>
   );
 }
+
+export function CountUp({
+  value,
+  format,
+  duration = 1000,
+}: {
+  value: number;
+  format: (v: number) => string;
+  duration?: number;
+}) {
+  const [display, setDisplay] = useState(0);
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (started.current) {
+      setDisplay(value);
+      return;
+    }
+    started.current = true;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setDisplay(value);
+      return;
+    }
+    let raf = 0;
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const p = Math.min(1, (now - t0) / duration);
+      setDisplay(value * (1 - Math.pow(1 - p, 3)));
+      if (p < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [value, duration]);
+
+  return <>{format(display)}</>;
+}

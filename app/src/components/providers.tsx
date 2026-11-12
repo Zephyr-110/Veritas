@@ -12,6 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import { ConnectionProvider, WalletProvider } from "@solana/wallet-adapter-react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import { Buffer } from "buffer";
 import {
@@ -206,10 +207,25 @@ function ToastViewport({
 }
 
 export function Providers({ children }: { children: ReactNode }) {
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 15_000,
+            gcTime: 5 * 60_000,
+            refetchOnWindowFocus: false,
+            retry: 1,
+          },
+        },
+      })
+  );
   return (
-    <LocaleProvider>
-      <SettingsInner>{children}</SettingsInner>
-    </LocaleProvider>
+    <QueryClientProvider client={queryClient}>
+      <LocaleProvider>
+        <SettingsInner>{children}</SettingsInner>
+      </LocaleProvider>
+    </QueryClientProvider>
   );
 }
 

@@ -6,11 +6,12 @@ import { PublicKey } from "@solana/web3.js";
 
 export type FeedPreset = {
   key: FeedKey;
-  labelKey: "feeds.btc" | "feeds.sol" | "feeds.xau";
+  labelKey: "feeds.btc" | "feeds.eth" | "feeds.sol" | "feeds.doge" | "feeds.xau";
   symbol: string;
   hex: string;
   exponent: number;
   defaultHuman: string;
+  market: boolean;
 };
 
 export const FEEDS: FeedPreset[] = [
@@ -21,6 +22,16 @@ export const FEEDS: FeedPreset[] = [
     hex: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
     exponent: -8,
     defaultHuman: "100000",
+    market: true,
+  },
+  {
+    key: "eth",
+    labelKey: "feeds.eth",
+    symbol: "ETH/USD",
+    hex: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
+    exponent: -8,
+    defaultHuman: "3000",
+    market: false,
   },
   {
     key: "sol",
@@ -29,6 +40,16 @@ export const FEEDS: FeedPreset[] = [
     hex: "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d",
     exponent: -8,
     defaultHuman: "200",
+    market: true,
+  },
+  {
+    key: "doge",
+    labelKey: "feeds.doge",
+    symbol: "DOGE/USD",
+    hex: "dcef50dd0a4cd2dcc17e45df1676dcb336a11a61c69df7a0299b0150c672d25c",
+    exponent: -8,
+    defaultHuman: "0.2",
+    market: false,
   },
   {
     key: "xau",
@@ -37,6 +58,7 @@ export const FEEDS: FeedPreset[] = [
     hex: "765d2ba50737720fda44d313598912d0bd42cd1da5ce2489bfaa23784067b3fc",
     exponent: -8,
     defaultHuman: "4000",
+    market: true,
   },
 ];
 

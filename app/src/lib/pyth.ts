@@ -10,7 +10,9 @@ const PUSH = new PublicKey(PYTH_PUSH_ORACLE);
 export function emptyQuotes(): Record<FeedKey, FeedQuote> {
   return {
     btc: { key: "btc", price: null, expo: null, publishTime: null, conf: null, available: false },
+    eth: { key: "eth", price: null, expo: null, publishTime: null, conf: null, available: false },
     sol: { key: "sol", price: null, expo: null, publishTime: null, conf: null, available: false },
+    doge: { key: "doge", price: null, expo: null, publishTime: null, conf: null, available: false },
     xau: { key: "xau", price: null, expo: null, publishTime: null, conf: null, available: false },
   };
 }
@@ -81,7 +83,12 @@ type HermesParsed = {
 
 async function hermesAt(timestamp: number, feedHex: string): Promise<HermesParsed> {
   const url = `${HERMES_URL}/v2/updates/price/${timestamp}?ids[]=0x${feedHex}&encoding=base64&parsed=true`;
-  const res = await fetch(url, { headers: { accept: "application/json" } });
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { accept: "application/json" } });
+  } catch {
+    throw new Error("errors.pythFetch");
+  }
   if (!res.ok) throw new Error("errors.pythFetch");
   return (await res.json()) as HermesParsed;
 }

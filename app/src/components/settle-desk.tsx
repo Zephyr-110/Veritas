@@ -14,7 +14,7 @@ import { useNow } from "@/hooks/use-now";
 import { useRefresh, useSettings, useToasts } from "./providers";
 import type { Side } from "@/lib/types";
 import { useT } from "@/i18n/provider";
-import { Button, Card, Field, TextInput, useTx } from "./ui";
+import { Button, Card, Field, SegTabs, TextInput, useTx } from "./ui";
 
 export function SettleDesk({ market, position }: { market: MarketView; position: UserPosition }) {
   const program = useProgram();
@@ -39,6 +39,7 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
               <p className="text-sm text-zinc-400">{t("settle.mergeBody", { symbol: COLLATERAL_SYMBOL })}</p>
               <Button
                 type="button"
+                busy={busy}
                 disabled={busy || !publicKey || !program}
                 onClick={() => publicKey && program && run(t("tx.cashOut"), () => ixMergeToken(program, market, publicKey, mergeable))}
               >
@@ -50,6 +51,7 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
             <Button
               type="button"
               tone={market.winner === "yes" ? "yes" : "no"}
+              busy={busy}
               disabled={busy || !publicKey}
               onClick={() => {
                 if (!publicKey) return;
@@ -77,6 +79,7 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
             <Button
               type="button"
               tone="secondary"
+              busy={busy}
               disabled={busy || !phase.afterWindow || !publicKey || !program}
               onClick={() => publicKey && program && run(t("tx.cancelMarket"), () => ixVoidMarket(program, market, publicKey))}
             >
@@ -116,8 +119,8 @@ function ResolveButton({ market }: { market: MarketView }) {
   };
 
   return (
-    <Button type="button" disabled={busy || !wallet || !program} onClick={() => void onClick()}>
-      {busy ? t("state.confirming") : t("settle.submitResolve")}
+    <Button type="button" busy={busy} disabled={busy || !wallet || !program} onClick={() => void onClick()}>
+      {t("settle.submitResolve")}
     </Button>
   );
 }
@@ -141,19 +144,20 @@ function VoidClaim({ market, position }: { market: MarketView; position: UserPos
 
   return (
     <div className="w-full stack-3 rounded-2xl border border-zinc-800 p-4">
-      <div className="cluster-2">
-        <Button type="button" tone={side === "yes" ? "yes" : "secondary"} onClick={() => setSide("yes")}>
-          {t("settle.refundYes")}
-        </Button>
-        <Button type="button" tone={side === "no" ? "no" : "secondary"} onClick={() => setSide("no")}>
-          {t("settle.refundNo")}
-        </Button>
-      </div>
+      <SegTabs
+        value={side}
+        onChange={setSide}
+        options={[
+          { value: "yes", label: t("settle.refundYes"), color: "linear-gradient(to bottom, rgba(52,211,153,0.30), rgba(52,211,153,0.15))", activeText: "text-emerald-300" },
+          { value: "no", label: t("settle.refundNo"), color: "linear-gradient(to bottom, rgba(251,113,133,0.30), rgba(251,113,133,0.15))", activeText: "text-rose-300" },
+        ]}
+      />
       <Field label={t("settle.sharesToRefund")} hint={t("settle.evenHint")}>
         <TextInput value={amount} onChange={(e) => setAmount(e.target.value)} className="font-mono tabular-nums" />
       </Field>
       <Button
         type="button"
+        busy={busy}
         disabled={busy || !publicKey || !program || parsed.invalid || parsed.value < 2n || parsed.value > max}
         onClick={() => {
           if (!publicKey || !program) return;

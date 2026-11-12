@@ -18,7 +18,7 @@ import type { Side } from "./types";
 
 const ASSOCIATED_PROGRAM = ASSOCIATED_TOKEN_PROGRAM_ID;
 
-function cuIx(units = 400_000): TransactionInstruction {
+function cuIx(units = 800_000): TransactionInstruction {
   return ComputeBudgetProgram.setComputeUnitLimit({ units });
 }
 
@@ -262,7 +262,7 @@ export async function ixResolveMarket(
       clock: SYSVAR_CLOCK_PUBKEY,
     })
     .instruction();
-  return [cuIx(400_000), ix];
+  return [cuIx(800_000), ix];
 }
 
 export async function ixVoidMarket(
