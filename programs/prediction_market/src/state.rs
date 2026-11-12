@@ -5,7 +5,8 @@ pub enum MarketStatus {
     Upcoming,
     Open,
     Resolved,
-    Burn,
+    WindowBurn, // 日期迟到
+    StaleBurn, // 裁决迟到
 }
 
 #[derive(AnchorDeserialize, AnchorSerialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]

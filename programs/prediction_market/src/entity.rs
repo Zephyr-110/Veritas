@@ -14,7 +14,7 @@ pub struct Market {
     pub no_mint: Pubkey, // the market's own mint
     pub status: MarketStatus, // current status
     pub collateral_mint: Pubkey, // which token is used for settlement
-    pub winner: MarketOutcome, // who won
+    pub winner: Option<MarketOutcome>, // who won
     pub market_collateral_bump: u8, // market collateral bump
     pub prediction: [u8; 64],
 
@@ -41,8 +41,9 @@ pub struct Market {
 impl Market {
     pub fn yes_or_no(&self) -> Option<Pubkey> {
         match self.winner {
-            MarketOutcome::Yes => Some(self.yes_mint),
-            MarketOutcome::No => Some(self.no_mint),
+            Some(MarketOutcome::Yes) => Some(self.yes_mint),
+            Some(MarketOutcome::No) => Some(self.no_mint),
+            None => None
         }
     }
 
@@ -95,7 +96,7 @@ impl Market {
     }
 
     pub fn resolved(&self) -> bool {
-        matches!(self.status, MarketStatus::Resolved | MarketStatus::Burn)
+        matches!(self.status, MarketStatus::Resolved | MarketStatus::WindowBurn | MarketStatus::StaleBurn)
     }
 }
 

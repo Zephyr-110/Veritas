@@ -18,7 +18,10 @@ pub struct GetLiquidity<'info> {
 
     #[account(
         mut,
-        constraint = market.status == MarketStatus::Open || market.status == MarketStatus::Resolved || market.status == MarketStatus::Burn @ ErrorCode::MarketNotTradable,
+        constraint = market.status == MarketStatus::Open 
+        || market.status == MarketStatus::Resolved 
+        || market.status == MarketStatus::WindowBurn
+        || market.status == MarketStatus::StaleBurn @ ErrorCode::MarketNotTradable,
         seeds = [b"market", market.id.as_ref()],
         bump = market.bump,
     )]
@@ -46,20 +49,22 @@ pub struct GetLiquidity<'info> {
     pub no_mint: Box<InterfaceAccount<'info, Mint>>, // No token
 
     #[account(
-        mut,
+        init_if_needed,
+        payer = signer,
         associated_token::mint = yes_mint,
         associated_token::authority = signer,
         associated_token::token_program = token_program
     )]
-    pub businessman_yes_ata: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub maker_yes_ata: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
-        mut,
+        init_if_needed,
+        payer = signer,
         associated_token::mint = no_mint,
         associated_token::authority = signer,
         associated_token::token_program = token_program
     )]
-    pub businessman_no_ata: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub maker_no_ata: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -186,7 +191,7 @@ pub fn get_liquidity(ctx: Context<GetLiquidity>, lp_share: u64) -> Result<()> {
     let yes_cpi_account = TransferChecked {
         from: ctx.accounts.yes_pool.to_account_info(),
         mint: ctx.accounts.yes_mint.to_account_info(),
-        to: ctx.accounts.businessman_yes_ata.to_account_info(),
+        to: ctx.accounts.maker_yes_ata.to_account_info(),
         authority: market.to_account_info(),
     };
     let yes_cpi_program = ctx.accounts.token_program.key();
@@ -198,7 +203,7 @@ pub fn get_liquidity(ctx: Context<GetLiquidity>, lp_share: u64) -> Result<()> {
     let no_cpi_account = TransferChecked {
         from: ctx.accounts.no_pool.to_account_info(),
         mint: ctx.accounts.no_mint.to_account_info(),
-        to: ctx.accounts.businessman_no_ata.to_account_info(),
+        to: ctx.accounts.maker_no_ata.to_account_info(),
         authority: market.to_account_info(),
     };
     let no_cpi_program = ctx.accounts.token_program.key();

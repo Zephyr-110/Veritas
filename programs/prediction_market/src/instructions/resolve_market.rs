@@ -37,7 +37,7 @@ pub fn resolve_market(ctx: Context<ResolveMarket>) -> Result<()> {
 
     let price = ctx.accounts.price_update
         .get_price_no_older_than(
-            &ctx.accounts.clock, u64::MAX, &market.feed_id
+            &ctx.accounts.clock, i64::MAX as u64, &market.feed_id
         )?;
     let prev_publish_time = ctx.accounts.price_update.price_message.prev_publish_time;
 
@@ -47,7 +47,7 @@ pub fn resolve_market(ctx: Context<ResolveMarket>) -> Result<()> {
     require!(price.exponent == market.exponent, ErrorCode::ExponentMismatch);
     // 超 10 秒直接销毁盘子
     if price.publish_time > market.end_ts + MAX_SETTLE_DELAY {
-        market.status = MarketStatus::Burn;
+        market.status = MarketStatus::StaleBurn;
 
         market.settled_price = price.price;
         market.settled_publish_time = price.publish_time;
@@ -62,7 +62,7 @@ pub fn resolve_market(ctx: Context<ResolveMarket>) -> Result<()> {
         price.price < market.threshold
     };
 
-    market.winner = if yes_wins { MarketOutcome::Yes } else { MarketOutcome::No };
+    market.winner = if yes_wins { Some(MarketOutcome::Yes) } else { Some(MarketOutcome::No) };
     market.settled_price = price.price;
     market.settled_publish_time = price.publish_time;
     market.status = MarketStatus::Resolved;

@@ -222,7 +222,7 @@ mod tests {
             no_mint: Pubkey::default(),
             status: MarketStatus::Open,
             collateral_mint: Pubkey::default(),
-            winner: MarketOutcome::Yes,
+            winner: Some(MarketOutcome::Yes),
             market_collateral_bump: 0,
             prediction: [0u8; 64],
             l_zero: 0,

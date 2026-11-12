@@ -13,7 +13,9 @@ pub struct GetCollateral<'info> {
     pub signer: Signer<'info>,
 
     #[account(
-        constraint = market.status == MarketStatus::Resolved || market.status == MarketStatus::Burn @ ErrorCode::MarketNotResolved,
+        constraint = market.status == MarketStatus::Resolved
+        || market.status == MarketStatus::StaleBurn
+        || market.status == MarketStatus::WindowBurn @ ErrorCode::MarketNotResolved,
         constraint = (market.yes_mint == token_mint.key()) || (market.no_mint == token_mint.key()) @ ErrorCode::InvalidMint,
         seeds = [b"market", market.id.as_ref()],
         bump = market.bump,
@@ -23,7 +25,8 @@ pub struct GetCollateral<'info> {
     #[account(
         mut,
         constraint = Some(token_mint.key()) == market.yes_or_no() && market.status == MarketStatus::Resolved
-        || market.status == MarketStatus::Burn @ ErrorCode::NotWinnerMint,
+        || market.status == MarketStatus::WindowBurn
+        || market.status == MarketStatus::StaleBurn @ ErrorCode::NotWinnerMint,
     )]
     pub token_mint: Box<InterfaceAccount<'info, Mint>>,
 
@@ -56,7 +59,9 @@ pub struct GetCollateral<'info> {
 }
 
 pub fn get_collateral(ctx: Context<GetCollateral>, amount: u64, ) -> Result<()> {
-    require!(amount > 0 && ctx.accounts.market.status == MarketStatus::Resolved || amount >= 2 && ctx.accounts.market.status == MarketStatus::Burn, ErrorCode::InvalidAmount);
+    require!(amount > 0 && ctx.accounts.market.status == MarketStatus::Resolved
+        || (amount >= 2 && ctx.accounts.market.status == MarketStatus::StaleBurn)
+        || (amount >= 2 && ctx.accounts.market.status == MarketStatus::WindowBurn), ErrorCode::InvalidAmount);
     require!(ctx.accounts.token_ata.amount >= amount, ErrorCode::InsufficientBalance);
 
     // burn tokens
@@ -87,7 +92,8 @@ pub fn get_collateral(ctx: Context<GetCollateral>, amount: u64, ) -> Result<()> 
         seeds,
     );
 
-    if ctx.accounts.market.status == MarketStatus::Burn {
+    if ctx.accounts.market.status == MarketStatus::StaleBurn
+    || ctx.accounts.market.status == MarketStatus::WindowBurn {
         let get_amount = amount.checked_div(2).ok_or(ErrorCode::MathOverflow)?;
         transfer_checked(collateral_cpi_context, get_amount, ctx.accounts.collateral_mint.decimals)?;
         msg!("winner {:?} redeemed {:?} collateral", ctx.accounts.signer.key(), get_amount);

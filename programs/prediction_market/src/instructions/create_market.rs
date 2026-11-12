@@ -8,6 +8,7 @@ use crate::math::*;
 
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::*;
+use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;
 use crate::RESOLVE_WINDOW;
 
 #[derive(Accounts)]
@@ -25,6 +26,8 @@ pub struct CreateMarket<'info> {
         bump
     )]
     pub market: Box<Account<'info, Market>>, // the market
+
+    pub price_update: Box<Account<'info, PriceUpdateV2>>,
 
     #[account(
         init,
@@ -111,9 +114,7 @@ pub struct CreateMarketParams {
     pub prediction: [u8; 64],
     pub collateral_amount: u64,
 
-    pub feed_id: [u8; 32],
     pub threshold: i64,
-    pub exponent: i32,
     pub settle_above: bool,
 }
 
@@ -142,9 +143,9 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
     market.last_accrual_ts = ctx.accounts.clock.unix_timestamp;
     market.fee_bps = crate::SERVICE_FEE as u16;
 
-    market.feed_id = param.feed_id;
+    market.feed_id = ctx.accounts.price_update.price_message.feed_id;
+    market.exponent = ctx.accounts.price_update.price_message.exponent;
     market.threshold = param.threshold;
-    market.exponent = param.exponent;
     market.settle_above = param.settle_above;
     market.settled_price = 0;
     market.settled_publish_time = 0;

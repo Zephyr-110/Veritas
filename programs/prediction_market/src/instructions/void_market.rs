@@ -31,7 +31,7 @@ pub fn void_market(ctx: Context<VoidMarket>) -> Result<()> {
     let accrual = compute_accrual(market, now)?;
     apply_accrual(market, &accrual);
 
-    market.status = MarketStatus::Burn;
+    market.status = MarketStatus::WindowBurn;
     msg!("market {:?} voided ", market.id);
     Ok(())
 }
