@@ -17,6 +17,7 @@ pub struct Market {
     pub winner: Option<MarketOutcome>, // who won
     pub market_collateral_bump: u8, // market collateral bump
     pub prediction: [u8; 64],
+    pub finish_ts: u64, // 市场完成的时间戳
 
     pub l_zero: i128, // 初始流动性参数
     pub last_accrual_ts: i64, // 上次 accrual 时间戳

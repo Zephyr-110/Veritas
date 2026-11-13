@@ -59,7 +59,7 @@ pub struct GetCollateral<'info> {
 }
 
 pub fn get_collateral(ctx: Context<GetCollateral>, amount: u64, ) -> Result<()> {
-    require!(amount > 0 && ctx.accounts.market.status == MarketStatus::Resolved
+    require!((amount > 0 && ctx.accounts.market.status == MarketStatus::Resolved)
         || (amount >= 2 && ctx.accounts.market.status == MarketStatus::StaleBurn)
         || (amount >= 2 && ctx.accounts.market.status == MarketStatus::WindowBurn), ErrorCode::InvalidAmount);
     require!(ctx.accounts.token_ata.amount >= amount, ErrorCode::InsufficientBalance);

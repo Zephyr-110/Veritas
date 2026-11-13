@@ -1,7 +1,7 @@
 [workspace]
 members = [
-    "programs/*"
-, "pyth_peek"]
+    "programs/*",
+]
 resolver = "2"
 
 [workspace.package]

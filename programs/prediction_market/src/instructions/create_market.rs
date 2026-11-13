@@ -138,6 +138,7 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
     market.collateral_mint = ctx.accounts.collateral_mint.key();
     market.market_collateral_bump = ctx.bumps.collateral_vault;
     market.prediction = param.prediction;
+    market.finish_ts = 0;
 
     market.end_ts = param.expiry as i64;
     market.last_accrual_ts = ctx.accounts.clock.unix_timestamp;

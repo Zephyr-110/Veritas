@@ -56,4 +56,8 @@ pub mod prediction_market {
     pub fn void_market(ctx: Context<VoidMarket>) -> Result<()> {
         instructions::void_market(ctx)
     }
+
+    pub fn burn_account(ctx: Context<BurnAccount>) -> Result<()> {
+        instructions::burn_account(ctx)
+    }
 }

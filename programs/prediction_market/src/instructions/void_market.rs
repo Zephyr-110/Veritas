@@ -15,7 +15,7 @@ pub struct VoidMarket<'info> {
     #[account(
         mut,
         seeds = [b"market", market.id.as_ref()],
-        constraint = ((clock.unix_timestamp as u64) > market.expiry + RESOLVE_WINDOW) @ ErrorCode::MarketNotOpen,
+        constraint = ((clock.unix_timestamp as u64) > market.expiry + RESOLVE_WINDOW) @ ErrorCode::MarketNotInWindow,
         constraint = market.status == MarketStatus::Open @ ErrorCode::MarketNotOpen,
         bump = market.bump,
     )]
@@ -32,6 +32,7 @@ pub fn void_market(ctx: Context<VoidMarket>) -> Result<()> {
     apply_accrual(market, &accrual);
 
     market.status = MarketStatus::WindowBurn;
+    market.finish_ts = ctx.accounts.clock.unix_timestamp as u64;
     msg!("market {:?} voided ", market.id);
     Ok(())
 }

@@ -167,9 +167,6 @@ pub fn get_liquidity(ctx: Context<GetLiquidity>, lp_share: u64) -> Result<()> {
             .checked_sub(shares_in).ok_or(ErrorCode::MathOverflow)?).ok_or(ErrorCode::MathOverflow)?
         .checked_div(total).ok_or(ErrorCode::MathOverflow)?;
 
-    let cum_yes = market.cum_yes_per_share_fixed();
-    let cum_no = market.cum_no_per_share_fixed();
-
     // 5. 落库
 
     market.set_l_zero_fixed(new_l_zero);
@@ -178,11 +175,6 @@ pub fn get_liquidity(ctx: Context<GetLiquidity>, lp_share: u64) -> Result<()> {
     market.set_total_lp_shares_fixed(new_total);
 
     position.set_shares_fixed(new_shares);
-    // 取完了时间标才会后移
-    if shares_in == old_shares {
-        position.set_checkpoint_yes_fixed(cum_yes);
-        position.set_checkpoint_no_fixed(cum_no);
-    }
 
     // ======================== withdraw tokens pro rata ========================
 
@@ -209,6 +201,12 @@ pub fn get_liquidity(ctx: Context<GetLiquidity>, lp_share: u64) -> Result<()> {
     let no_cpi_program = ctx.accounts.token_program.key();
     let no_cpi_context = CpiContext::new_with_signer(no_cpi_program, no_cpi_account, seeds);
     transfer_checked(no_cpi_context, no_amount, ctx.accounts.no_mint.decimals)?;
+
+    let close_lp = new_shares == I80F48::ZERO;
+    if close_lp {
+        ctx.accounts.lp_position.close(ctx.accounts.signer.to_account_info())?;
+    }
+
     msg!("LP {:?} withdrew:\nYes: {:?}\n No: {:?}", ctx.accounts.signer.key(), yes_amount, no_amount);
 
     Ok(())

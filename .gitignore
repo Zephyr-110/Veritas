@@ -80,3 +80,14 @@ tmp-*.png
 # Misc
 .vscode-test/
 .history/
+
+# Python
+**/__pycache__/
+*.py[cod]
+
+# Local scratch (do not commit)
+tmp_patch.txt
+h --force-with-lease
+pyth_peek/
+app/scripts/shot.js
+app/scripts/write-pages.js

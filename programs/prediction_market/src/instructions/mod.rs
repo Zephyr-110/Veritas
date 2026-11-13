@@ -7,6 +7,7 @@ pub mod merge_token;
 pub mod resolve_market;
 pub mod get_collateral;
 pub mod void_market;
+pub mod burn_accounts;
 
 pub use create_market::*;
 pub use add_liquidity::*;
@@ -17,3 +18,4 @@ pub use merge_token::*;
 pub use resolve_market::*;
 pub use get_collateral::*;
 pub use void_market::*;
+pub use burn_accounts::*;

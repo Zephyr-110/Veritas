@@ -227,6 +227,7 @@ mod tests {
             winner: Some(MarketOutcome::Yes),
             market_collateral_bump: 0,
             prediction: [0u8; 64],
+            finish_ts: 0,
             l_zero: 0,
             last_accrual_ts: now,
             cum_yes_per_share: 0,

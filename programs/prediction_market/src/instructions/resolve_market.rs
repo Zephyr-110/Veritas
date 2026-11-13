@@ -18,7 +18,7 @@ pub struct ResolveMarket<'info> {
         seeds = [b"market", market.id.as_ref()],
         constraint = market.status == MarketStatus::Open @ ErrorCode::MarketNotOpen,
         constraint = (clock.unix_timestamp as u64) >= market.expiry @ ErrorCode::MarketNotExpired,
-        constraint = (clock.unix_timestamp as u64) <= market.expiry + RESOLVE_WINDOW @ ErrorCode::MarketNotExpired,
+        constraint = (clock.unix_timestamp as u64) <= market.expiry + RESOLVE_WINDOW @ ErrorCode::MarketNotInWindow,
         bump = market.bump,
     )]
     pub market: Account<'info, Market>,
@@ -45,6 +45,8 @@ pub fn resolve_market(ctx: Context<ResolveMarket>) -> Result<()> {
     && prev_publish_time < market.end_ts,
     ErrorCode::NotFirstAfterExpiry);
     require!(price.exponent == market.exponent, ErrorCode::ExponentMismatch);
+
+    market.finish_ts = ctx.accounts.clock.unix_timestamp as u64;
     // 超 10 秒直接销毁盘子
     if price.publish_time > market.end_ts + MAX_SETTLE_DELAY {
         market.status = MarketStatus::StaleBurn;

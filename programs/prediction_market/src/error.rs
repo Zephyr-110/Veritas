@@ -10,7 +10,7 @@ pub enum ErrorCode {
     MarketNotTradable,
     #[msg("Market has expired.")]
     MarketExpired,
-    #[msg("Market is outside the settlement window.")]
+    #[msg("Market has not expired yet.")]
     MarketNotExpired,
     #[msg("Amount or expiry is invalid.")]
     InvalidAmount,
@@ -40,4 +40,16 @@ pub enum ErrorCode {
     NotFirstAfterExpiry,
     #[msg("Pyth exponent does not match this market.")]
     ExponentMismatch,
+    #[msg("Market is not in the required time window.")]
+    MarketNotInWindow,
+    #[msg("Redeemable tokens still exist.")]
+    TokensOutstanding,
+    #[msg("No residual collateral in the vault.")]
+    NoResidual,
+    #[msg("Signer is not the market creator.")]
+    NoCreator,
+    #[msg("Claim window has not ended yet.")]
+    NoArriveFinishTS,
+    #[msg("Market is still open.")]
+    MarketIsOpen,
 }
