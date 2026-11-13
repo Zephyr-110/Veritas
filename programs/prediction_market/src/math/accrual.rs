@@ -120,6 +120,8 @@ pub fn compute_accrual(market: &Market, now: i64) -> Result<AccrualResult> {
 
     // New reserves at same price but lower L_eff
     let (x_new, y_new) = pm_math::reserves_from_price(price, l_eff_new)?;
+    let x_new = x_new.min(x_old);
+    let y_new = y_new.min(y_old);
 
     // Tokens released (always >= 0 since L_eff decreased)
     let yes_released = (x_old - x_new).max(I80F48::ZERO);
@@ -650,5 +652,45 @@ mod tests {
 
         let result = compute_accrual(&market, 86400).unwrap();
         assert!(result.is_noop, "Resolved market should be noop");
+    }
+
+    fn set_extreme_z_reserves(market: &mut Market, z: I80F48) {
+        let t_rem = market.end_ts - market.last_accrual_ts;
+        let l_eff = pm_math::l_effective(market.l_zero_fixed(), t_rem).unwrap();
+        let p = pm_math::capital_phi_fixed(z).unwrap();
+        let phi_z = pm_math::phi_fixed(z).unwrap();
+        market.set_reserve_yes_fixed(l_eff * (z * p + phi_z - z));
+        market.set_reserve_no_fixed(l_eff * (z * p + phi_z));
+    }
+
+    // --- Test 15: price clamp must not inflate book reserves ---
+    #[test]
+    fn test_accrual_clamped_price_does_not_inflate_reserves() {
+        let start = 0;
+        let end = 86400 * 7;
+
+        let mut high = make_market(10.0, 0.5, end, start, 1000.0);
+        set_extreme_z_reserves(&mut high, I80F48::lit("5.9"));
+        let x_high = high.reserve_yes_fixed();
+        let y_high = high.reserve_no_fixed();
+        let l_eff_high = pm_math::l_effective(high.l_zero_fixed(), end - start).unwrap();
+        let raw_high = pm_math::price_from_reserves(x_high, y_high, l_eff_high).unwrap();
+        assert!(raw_high > pm_math::PRICE_UPPER_BOUND);
+
+        let high_result = compute_accrual(&high, start + 1).unwrap();
+        assert!(high_result.new_reserve_yes <= x_high);
+        assert!(high_result.new_reserve_no <= y_high);
+
+        let mut low = make_market(10.0, 0.5, end, start, 1000.0);
+        set_extreme_z_reserves(&mut low, I80F48::lit("-5.9"));
+        let x_low = low.reserve_yes_fixed();
+        let y_low = low.reserve_no_fixed();
+        let l_eff_low = pm_math::l_effective(low.l_zero_fixed(), end - start).unwrap();
+        let raw_low = pm_math::price_from_reserves(x_low, y_low, l_eff_low).unwrap();
+        assert!(raw_low < pm_math::PRICE_LOWER_BOUND);
+
+        let low_result = compute_accrual(&low, start + 1).unwrap();
+        assert!(low_result.new_reserve_yes <= x_low);
+        assert!(low_result.new_reserve_no <= y_low);
     }
 }
