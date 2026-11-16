@@ -4,10 +4,10 @@
   "description": "",
   "main": "index.js",
   "directories": {
-    "test": "tests"
+    "test": "programs/prediction_market/tests"
   },
   "scripts": {
-    "test": "anchor test"
+    "test": "cargo test -p prediction_market --lib --test spec_scenarios --test econ_settlement -- --test-threads=1"
   },
   "keywords": [],
   "author": "",
@@ -27,4 +27,5 @@
     "typescript": "^5.9.3"
   }
 }
+
 

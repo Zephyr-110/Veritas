@@ -15,10 +15,11 @@ cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.spec.ts"
+test = "cargo test -p prediction_market --lib --test spec_scenarios --test econ_settlement -- --test-threads=1"
 
 [test]
 startup_wait = 5000
 
 [test.validator]
 url = "https://api.mainnet-beta.solana.com"
+

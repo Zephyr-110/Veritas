@@ -37,11 +37,53 @@ impl Env {
         expiry: u64,
         settle_above: bool,
     ) -> (MarketKeys, Result<TransactionMetadata, FailedTransactionMetadata>) {
+        self.create_market_raw_pyth(seed, expiry, settle_above, None, None)
+    }
+
+    pub fn create_market_with_pyth(
+        &mut self,
+        seed: u64,
+        duration: i64,
+        settle_above: bool,
+        feed_id: [u8; 32],
+        exponent: i32,
+    ) -> MarketKeys {
+        let (keys, res) = self.create_market_raw_pyth(
+            seed,
+            (self.clock + duration) as u64,
+            settle_above,
+            Some(feed_id),
+            Some(exponent),
+        );
+        let meta = res.unwrap_or_else(|e| panic!("create_market failed: {:?}\n{}", e.err, e.meta.logs.join("\n")));
+        println!(
+            "create_market cu={} seed={seed} duration={duration} settle_above={settle_above} exponent={exponent}",
+            meta.compute_units_consumed
+        );
+        self.ops += 1;
+        self.lps.push(self.house_pk());
+        keys
+    }
+
+    pub fn create_market_raw_pyth(
+        &mut self,
+        seed: u64,
+        expiry: u64,
+        settle_above: bool,
+        feed_id: Option<[u8; 32]>,
+        exponent: Option<i32>,
+    ) -> (MarketKeys, Result<TransactionMetadata, FailedTransactionMetadata>) {
         let mut keys = MarketKeys::derive(next_market_id());
         keys.settle_above = settle_above;
         keys.start_ts = self.clock;
         keys.expiry = expiry;
         keys.seed = seed;
+        if let Some(feed_id) = feed_id {
+            keys.feed_id = feed_id;
+        }
+        if let Some(exponent) = exponent {
+            keys.exponent = exponent;
+        }
         self.ensure_ata(self.house_pk(), self.mint);
         let pyth = self.inject_pyth(
             keys.threshold,

@@ -4,7 +4,7 @@ use litesvm::types::{FailedTransactionMetadata, TransactionMetadata};
 use litesvm::LiteSVM;
 use prediction_market::{LpPosition, Market};
 use pyth_solana_receiver_sdk::price_update::{PriceFeedMessage, PriceUpdateV2, VerificationLevel};
-use solana_account::Account as SolAccount;
+use solana_account::{Account as SolAccount, ReadableAccount};
 use solana_clock::Clock;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::Instruction;
@@ -26,6 +26,7 @@ pub struct Env {
     pub clock: i64,
     pub ops: u32,
     pub lps: Vec<Pubkey>,
+    pub last_cu: u64,
     tx_nonce: u64,
 }
 
@@ -43,6 +44,7 @@ impl Env {
             clock: start_ts,
             ops: 0,
             lps: Vec::new(),
+            last_cu: 0,
             tx_nonce: 0,
         };
         env.set_clock(start_ts);
@@ -133,6 +135,10 @@ impl Env {
         let tx = Transaction::new(&kps, msg, blockhash);
         let res = self.svm.send_transaction(tx);
         self.svm.expire_blockhash();
+        match &res {
+            Ok(meta) => self.last_cu = meta.compute_units_consumed,
+            Err(err) => self.last_cu = err.meta.compute_units_consumed,
+        }
         res
     }
 
@@ -220,6 +226,28 @@ impl Env {
             }
             _ => 0,
         }
+    }
+
+    pub fn token_cover(&self, mint: Pubkey) -> u64 {
+        let token_program = addr(TOKEN_PROGRAM);
+        let mint_bytes = mint.to_bytes();
+        let mut sum = 0u64;
+        for acc in self.svm.accounts_db().inner.values() {
+            if acc.owner() != &token_program {
+                continue;
+            }
+            let data = acc.data();
+            if data.len() < TokenAccount::LEN {
+                continue;
+            }
+            let Ok(ta) = TokenAccount::unpack(data) else {
+                continue;
+            };
+            if ta.mint.to_bytes() == mint_bytes {
+                sum = sum.saturating_add(ta.amount);
+            }
+        }
+        sum
     }
 
     pub fn mint_supply(&self, mint: Pubkey) -> u64 {

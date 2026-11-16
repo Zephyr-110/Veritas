@@ -133,12 +133,6 @@ Rust 1.89, Solana CLI, and Anchor 1.2 are required.
 anchor build
 ```
 
-Unit tests for the math crate:
-
-```bash
-cargo test --manifest-path programs/prediction_market/Cargo.toml --lib
-```
-
 Deploy (devnet example):
 
 ```bash
@@ -146,7 +140,28 @@ anchor deploy --provider.cluster devnet
 ```
 
 The program id is declared in `programs/prediction_market/src/lib.rs` and
-`Anchor.toml`.
+`Anchor.toml`. LiteSVM tests load `target/deploy/prediction_market.so`,
+which must be built with `cargo build-sbf --arch v0`.
+
+---
+
+## Test
+
+`npm test` and `anchor test` run the LiteSVM net:
+
+```bash
+cargo test -p prediction_market --lib --test spec_scenarios --test econ_settlement -- --test-threads=1
+```
+
+That is math unit tests plus on-chain spec and economic-security tests.
+Python (`PYTHON` or PATH) is required for the protocol_sim comparisons.
+Details are in `programs/prediction_market/tests/README.md`.
+
+Math crate only, no `.so`:
+
+```bash
+cargo test --manifest-path programs/prediction_market/Cargo.toml --lib
+```
 
 ---
 
@@ -169,6 +184,7 @@ program changes, regenerate it before expecting the UI to match.
 
 ## Status
 
-The on-chain program is the source of truth. Frontend copy, the committed
-IDL, and the integration tests may lag a program change. Instruction-level
-lifecycle tests are still being written.
+The on-chain program is the source of truth. Frontend copy and the committed
+IDL may lag a program change. Settlement and economic-security tests live in
+`programs/prediction_market/tests` and run on LiteSVM, not a live Pyth
+receiver.

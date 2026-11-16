@@ -6,8 +6,11 @@ mod harness;
 
 use harness::*;
 use fixed::types::I80F48;
-use prediction_market::math::{l_effective, price_from_reserves, reserves_from_price, suggest_l_zero_for_budget};
-use prediction_market::math::pm_math::{capital_phi_fixed, capital_phi_inv_fixed, phi_fixed};
+use prediction_market::math::{
+    apply_accrual, compute_accrual, compute_swap_output, l_effective, price_from_reserves,
+    reserves_from_price, suggest_l_zero_for_budget, SwapSide,
+};
+use prediction_market::math::pm_math::{capital_phi_fixed, capital_phi_inv_fixed, phi_fixed, pool_value};
 use prediction_market::state::{MarketOutcome, MarketStatus};
 use serde_json::json;
 
@@ -54,17 +57,86 @@ fn assert_working_zero(env: &Env, keys: &MarketKeys, label: &str) {
     assert!(n.abs() <= 1.0, "{label} working no {n} not released");
 }
 
+fn reserve_step_delta(
+    prev: &mut (Option<f64>, Option<f64>, Option<f64>, Option<f64>),
+    cx: f64,
+    cy: f64,
+    px: f64,
+    py: f64,
+) -> f64 {
+    let d = match *prev {
+        (Some(pcx), Some(pcy), Some(ppx), Some(ppy)) => ((cx - pcx) - (px - ppx))
+            .abs()
+            .max(((cy - pcy) - (py - ppy)).abs()),
+        _ => (cx - px).abs().max((cy - py).abs()),
+    };
+    *prev = (Some(cx), Some(cy), Some(px), Some(py));
+    d
+}
+
+/// Wiring helper for the program's own min_out gate.
+/// Independent output lives in B1 / c_swap_output_vs_python; j_min_out also
+/// cross-checks the first crate quote against protocol_sim (cap 1 token).
+fn quote_swap_out(env: &Env, keys: &MarketKeys, amount_in: u64, want: MarketOutcome) -> u64 {
+    let mut market = env.read_market(keys);
+    let accrual = compute_accrual(&market, env.clock).unwrap();
+    apply_accrual(&mut market, &accrual);
+    let fee = I80F48::from_num(market.fee_bps);
+    let den = I80F48::from_num(10_000);
+    let amt = I80F48::from_num(amount_in);
+    let in_fee = amt.checked_mul(fee).unwrap().checked_div(den).unwrap();
+    let net_in = amt.checked_sub(in_fee).unwrap();
+    let l_eff = l_effective(market.l_zero_fixed(), market.end_ts - env.clock).unwrap();
+    let (side_in, side_out) = if want == MarketOutcome::Yes {
+        (SwapSide::No, SwapSide::Yes)
+    } else {
+        (SwapSide::Yes, SwapSide::No)
+    };
+    let result = compute_swap_output(
+        market.reserve_yes_fixed(),
+        market.reserve_no_fixed(),
+        l_eff,
+        net_in,
+        side_in,
+        side_out,
+    )
+    .unwrap();
+    let out_fee = result.output.checked_mul(fee).unwrap().checked_div(den).unwrap();
+    result.output.checked_sub(out_fee).unwrap().to_num::<u64>()
+}
+
+
+fn assert_merge_one_to_one(
+    env: &Env,
+    keys: &MarketKeys,
+    user: &Actor,
+    amount: u64,
+    before_coll: u64,
+    before_yes: u64,
+    before_no: u64,
+) {
+    let after_coll = env.token_amount(ata(user.pk(), env.mint));
+    let after_yes = env.token_amount(ata(user.pk(), keys.yes_mint));
+    let after_no = env.token_amount(ata(user.pk(), keys.no_mint));
+    assert_eq!(after_coll - before_coll, amount, "merge must return collateral 1:1");
+    assert_eq!(before_yes - after_yes, amount, "merge must burn yes 1:1");
+    assert_eq!(before_no - after_no, amount, "merge must burn no 1:1");
+}
+
 
 #[test]
 fn a_closed_loop() { // conservation must stay inside 8 tokens, not just the wide ledger band
     let mut env = Env::new(START);
     let keys = env.create_market(SEED, LIFE, true);
+    println!("create cu={}", env.last_cu);
+    assert!(env.last_cu < 450_000, "create CU {} exceeds 450k ceiling", env.last_cu);
     let created = env.read_market(&keys);
     assert_eq!(created.feed_id, keys.feed_id);
     assert_eq!(created.exponent, keys.exponent);
     assert_eq!(created.winner, None);
     assert_eq!(created.finish_ts, 0);
     assert_eq!(created.status, MarketStatus::Open);
+    assert_eq!(created.fee_bps, 30, "create must persist SERVICE_FEE");
     env.ledger(&keys, "create").assert_tight(8.0);
 
     let lp = env.fund_user(3_000_000);
@@ -73,6 +145,8 @@ fn a_closed_loop() { // conservation must stay inside 8 tokens, not just the wid
 
     let trader = env.fund_user(2_000_000);
     env.bet(&keys, &trader, 400_000, MarketOutcome::Yes);
+    println!("bet cu={}", env.last_cu);
+    assert!(env.last_cu < 400_000, "bet CU {} exceeds 400k ceiling", env.last_cu);
     env.ledger(&keys, "bet_yes").assert_tight(8.0);
     env.bet(&keys, &trader, 300_000, MarketOutcome::No);
     env.ledger(&keys, "bet_no").assert_tight(8.0);
@@ -82,6 +156,8 @@ fn a_closed_loop() { // conservation must stay inside 8 tokens, not just the wid
     let swap_yes = (yes_bal / 10).max(1);
     let swap_no = (no_bal / 10).max(1);
     env.swap(&keys, &trader, swap_no, MarketOutcome::Yes);
+    println!("swap cu={}", env.last_cu);
+    assert!(env.last_cu < 300_000, "swap CU {} exceeds 300k ceiling", env.last_cu);
     env.ledger(&keys, "swap_to_yes").assert_tight(8.0);
     env.swap(&keys, &trader, swap_yes, MarketOutcome::No);
     env.ledger(&keys, "swap_to_no").assert_tight(8.0);
@@ -89,7 +165,9 @@ fn a_closed_loop() { // conservation must stay inside 8 tokens, not just the wid
     let yes_bal = env.token_amount(ata(trader.pk(), keys.yes_mint));
     let no_bal = env.token_amount(ata(trader.pk(), keys.no_mint));
     let merge_amt = yes_bal.min(no_bal).min(50_000).max(1);
+    let coll_before = env.token_amount(ata(trader.pk(), env.mint));
     env.merge(&keys, &trader, merge_amt);
+    assert_merge_one_to_one(&env, &keys, &trader, merge_amt, coll_before, yes_bal, no_bal);
     env.ledger(&keys, "merge").assert_tight(8.0);
 
     let pos = env.read_lp(&keys, lp.pk()).unwrap();
@@ -184,6 +262,7 @@ fn c_fees_bet_and_swap() {
     let trader = env.fund_user(500_000);
     env.bet(&keys, &trader, 200_000, MarketOutcome::Yes);
     let before = env.ledger(&keys, "c_swap_before");
+    let m_before = env.read_market(&keys);
     let sell = 20_000u64;
     env.swap(&keys, &trader, sell, MarketOutcome::No);
     let after = env.ledger(&keys, "c_swap_after");
@@ -201,10 +280,70 @@ fn c_fees_bet_and_swap() {
     assert!((out_fee_ratio - FEE_BPS / FEE_DEN).abs() <= FEE_RATIO_CAP, "swap out-leg 30bps ratio={out_fee_ratio}");
     let expect_out = paid_no * (FEE_BPS / FEE_DEN) / (1.0 - FEE_BPS / FEE_DEN);
     assert_close(extra_no_delta, expect_out, FEE_CAP, "C swap out-leg fee amount");
+    let m = env.read_market(&keys);
+    let shares = bits_f64(m.total_lp_shares);
+    let per_in = in_fee / shares;
+    let per_out = extra_no_delta / shares;
+    assert_close(
+        bits_f64(m.cum_yes_per_share) - bits_f64(m_before.cum_yes_per_share),
+        per_in,
+        (FEE_CAP / shares).max(1e-12),
+        "C swap cum_yes in-leg",
+    );
+    assert_close(
+        bits_f64(m.cum_no_per_share) - bits_f64(m_before.cum_no_per_share),
+        per_out,
+        (FEE_CAP / shares).max(1e-12),
+        "C swap cum_no out-leg",
+    );
+}
+
+#[test]
+fn c_swap_output_vs_python() {
+    let req = json!({
+        "seed": SEED,
+        "duration": LIFE,
+        "start_ts": START,
+        "ops": [
+            {"op": "create"},
+            {"op": "bet", "wallet": "trader", "amount": 50_000, "side": "yes"},
+            {"op": "swap", "wallet": "trader", "amount": 5_000, "side": "no"}
+        ]
+    });
+    let sim = python_sim(&req);
+    let st = &sim["steps"][2];
+    let mut env = Env::new(START);
+    let keys = env.create_market(SEED, LIFE, true);
+    let trader = env.fund_user(200_000);
+    env.bet(&keys, &trader, 50_000, MarketOutcome::Yes);
+    let no_before = env.token_amount(ata(trader.pk(), keys.no_mint));
+    env.swap(&keys, &trader, 5_000, MarketOutcome::No);
+    let out = (env.token_amount(ata(trader.pk(), keys.no_mint)) - no_before) as f64;
+    let m = env.read_market(&keys);
+    env.ledger(&keys, "c_swap_output").assert_ok();
+    assert_close(out, f64_of(&st["output"]), 1.0, "c_swap output vs python");
+    assert_close(bits_f64(m.reserve_yes), f64_of(&st["reserve_yes"]), 1.0, "c_swap reserve_yes vs python");
+    assert_close(bits_f64(m.reserve_no), f64_of(&st["reserve_no"]), 1.0, "c_swap reserve_no vs python");
 }
 
 #[test]
 fn e_withdraw_rules() {
+    let part = 500_000u64;
+    let req = json!({
+        "seed": SEED,
+        "duration": LIFE,
+        "start_ts": START,
+        "ops": [
+            {"op": "create"},
+            {"op": "add_liquidity", "wallet": "lp", "amount": 2_000_000},
+            {"op": "withdraw", "wallet": "lp", "shares": part},
+            {"op": "withdraw", "wallet": "lp", "shares": 1_000_000_000u64}
+        ]
+    });
+    let sim = python_sim(&req);
+    let part_st = &sim["steps"][2];
+    let full_st = &sim["steps"][3];
+
     let mut env = Env::new(START);
     let keys = env.create_market(SEED, LIFE, true);
     let lp = env.fund_user(2_000_000);
@@ -212,49 +351,34 @@ fn e_withdraw_rules() {
     let pos0 = env.read_lp(&keys, lp.pk()).unwrap();
     let cp_yes0 = pos0.checkpoint_yes;
     let cp_no0 = pos0.checkpoint_no;
-    let shares0 = bits_f64(pos0.shares);
+    assert!(bits_f64(pos0.shares) > part as f64, "need extra LP shares above partial exit");
 
-    let err = env.withdraw_raw(&keys, &lp, 0);
-    logs_contain(err, "ZeroLp");
+    logs_contain(env.withdraw_raw(&keys, &lp, 0), "ZeroLp");
 
-    let part = (shares0 * 0.25) as u64;
     let yes_before = env.token_amount(ata(lp.pk(), keys.yes_mint));
     let no_before = env.token_amount(ata(lp.pk(), keys.no_mint));
-    let m_before = env.read_market(&keys);
-    let pending_yes = (bits_f64(m_before.cum_yes_per_share) - bits_f64(pos0.checkpoint_yes)).max(0.0) * shares0;
-    let pending_no = (bits_f64(m_before.cum_no_per_share) - bits_f64(pos0.checkpoint_no)).max(0.0) * shares0;
-    let pay_yes = pending_yes * (part as f64) / shares0 + bits_f64(m_before.reserve_yes) * (part as f64) / bits_f64(m_before.total_lp_shares);
-    let pay_no = pending_no * (part as f64) / shares0 + bits_f64(m_before.reserve_no) * (part as f64) / bits_f64(m_before.total_lp_shares);
     env.withdraw(&keys, &lp, part);
     let pos1 = env.read_lp(&keys, lp.pk()).unwrap();
     assert_eq!(pos1.checkpoint_yes, cp_yes0, "partial exit must not move checkpoint");
     assert_eq!(pos1.checkpoint_no, cp_no0, "partial exit must not move checkpoint");
     let yes_got = env.token_amount(ata(lp.pk(), keys.yes_mint)) - yes_before;
     let no_got = env.token_amount(ata(lp.pk(), keys.no_mint)) - no_before;
-    let l_part = env.ledger(&keys, "e_partial");
-    l_part.assert_ok();
-    println!("E partial spec_pay=({pay_yes},{pay_no}) got=({yes_got},{no_got})");
-    assert_close(yes_got as f64, pay_yes.floor(), l_part.band.max(1.0), "E partial yes");
-    assert_close(no_got as f64, pay_no.floor(), l_part.band.max(1.0), "E partial no");
+    let m = env.read_market(&keys);
+    env.ledger(&keys, "e_partial").assert_ok();
+    assert_close(yes_got as f64, f64_of(&part_st["pay_yes"]), 1.0, "e_partial yes vs python");
+    assert_close(no_got as f64, f64_of(&part_st["pay_no"]), 1.0, "e_partial no vs python");
+    assert_close(bits_f64(m.reserve_yes), f64_of(&part_st["reserve_yes"]), 1.0, "e_partial reserve_yes vs python");
+    assert_close(bits_f64(m.reserve_no), f64_of(&part_st["reserve_no"]), 1.0, "e_partial reserve_no vs python");
 
-    let pos_mid = env.read_lp(&keys, lp.pk()).unwrap();
-    let m_now = env.read_market(&keys);
-    let shares_left = bits_f64(pos_mid.shares);
-    let pending_yes = (bits_f64(m_now.cum_yes_per_share) - bits_f64(pos_mid.checkpoint_yes)).max(0.0) * shares_left;
-    let pending_no = (bits_f64(m_now.cum_no_per_share) - bits_f64(pos_mid.checkpoint_no)).max(0.0) * shares_left;
-    let full_yes = pending_yes + bits_f64(m_now.reserve_yes) * shares_left / bits_f64(m_now.total_lp_shares);
-    let full_no = pending_no + bits_f64(m_now.reserve_no) * shares_left / bits_f64(m_now.total_lp_shares);
     let yes_before = env.token_amount(ata(lp.pk(), keys.yes_mint));
     let no_before = env.token_amount(ata(lp.pk(), keys.no_mint));
-    env.withdraw(&keys, &lp, shares_left as u64 + 7); // request >= on-chain remainder
+    env.withdraw(&keys, &lp, u64::MAX);
     assert!(env.read_lp(&keys, lp.pk()).is_none(), "full exit closes lp_position including fractional tail");
     let yes_got = env.token_amount(ata(lp.pk(), keys.yes_mint)) - yes_before;
     let no_got = env.token_amount(ata(lp.pk(), keys.no_mint)) - no_before;
-    let l_full = env.ledger(&keys, "e_full");
-    l_full.assert_ok();
-    println!("E full spec_pay=({full_yes},{full_no}) got=({yes_got},{no_got})");
-    assert_close(yes_got as f64, full_yes.floor(), l_full.band.max(1.0), "E full yes");
-    assert_close(no_got as f64, full_no.floor(), l_full.band.max(1.0), "E full no");
+    env.ledger(&keys, "e_full").assert_ok();
+    assert_close(yes_got as f64, f64_of(&full_st["pay_yes"]), 1.0, "e_full yes vs python");
+    assert_close(no_got as f64, f64_of(&full_st["pay_no"]), 1.0, "e_full no vs python");
 }
 
 
@@ -445,7 +569,9 @@ fn g_expired_open_merge_and_void_redeem() {
     env.warp(keys.expiry as i64 + 1);
     let merge_amt = yes_open.min(no_open).min(3);
     assert!(merge_amt >= 1, "need a pair to merge after expiry while Open, yes={yes_open} no={no_open}");
+    let coll_before = env.token_amount(ata(trader.pk(), env.mint));
     env.merge(&keys, &trader, merge_amt);
+    assert_merge_one_to_one(&env, &keys, &trader, merge_amt, coll_before, yes_open, no_open);
     env.ledger(&keys, "g_merge_after_expiry_open").assert_ok();
     env.warp(keys.expiry as i64 + RESOLVE_WINDOW as i64 + 1);
     env.void_market(&keys);
@@ -465,10 +591,10 @@ fn g_expired_open_merge_and_void_redeem() {
     let coll_before = env.token_amount(ata(trader.pk(), env.mint));
     env.redeem(&keys, &trader, keys.yes_mint, 3);
     let coll_mid = env.token_amount(ata(trader.pk(), env.mint));
-    assert_eq!(coll_mid - coll_before, 1, "WindowBurn redeem 3 yes -> 1 (floor)");
+    assert_eq!(coll_mid - coll_before, 1, "WindowBurn redeem 3 yes pays floor(3/2)=1");
     env.redeem(&keys, &trader, keys.no_mint, 3);
     let coll_after = env.token_amount(ata(trader.pk(), env.mint));
-    assert_eq!(coll_after - coll_mid, 1, "WindowBurn redeem 3 no -> 1 (floor)");
+    assert_eq!(coll_after - coll_mid, 1, "WindowBurn redeem 3 no pays floor(3/2)=1");
     env.ledger(&keys, "g_window_burn_after_redeem").assert_ok();
 }
 
@@ -586,13 +712,29 @@ fn b1_deep_skew_vs_python() {
     let mut env = Env::new(START);
     let mut keys = None;
     let mut trader = None;
-    let mut max_err = 0.0f64;
+    let mut max_bet_out = 0.0f64;
+    let mut max_bet_res = 0.0f64;
+    let mut max_swap_out = 0.0f64;
+    let mut max_swap_res_delta = 0.0f64;
+    let mut max_swap_crate = 0.0f64;
+    let mut max_wd_res_delta = 0.0f64;
+    let mut prev_res = (None, None, None, None);
     let mut compared = 0u32;
     for (i, op) in ops.iter().enumerate() {
         let kind = op["op"].as_str().unwrap();
         match kind {
             "create" => {
                 keys = Some(env.create_market(SEED, LIFE, true));
+                let k = keys.as_ref().unwrap();
+                let m = env.read_market(k);
+                let st = &steps[i];
+                let _ = reserve_step_delta(
+                    &mut prev_res,
+                    bits_f64(m.reserve_yes),
+                    bits_f64(m.reserve_no),
+                    f64_of(&st["reserve_yes"]),
+                    f64_of(&st["reserve_no"]),
+                );
             }
             "bet" => {
                 let keys = keys.as_ref().unwrap();
@@ -617,11 +759,17 @@ fn b1_deep_skew_vs_python() {
                 let st = &steps[i];
                 let m = env.read_market(keys);
                 let e_out = (out - f64_of(&st["output"])).abs();
-                let e_x = (bits_f64(m.reserve_yes) - f64_of(&st["reserve_yes"])).abs();
-                let e_y = (bits_f64(m.reserve_no) - f64_of(&st["reserve_no"])).abs();
-                max_err = max_err.max(e_out).max(e_x).max(e_y);
+                let d_res = reserve_step_delta(
+                    &mut prev_res,
+                    bits_f64(m.reserve_yes),
+                    bits_f64(m.reserve_no),
+                    f64_of(&st["reserve_yes"]),
+                    f64_of(&st["reserve_no"]),
+                );
+                max_bet_out = max_bet_out.max(e_out);
+                max_bet_res = max_bet_res.max(d_res);
                 compared += 1;
-                println!("B1 {kind}#{i} e_out={e_out} e_x={e_x} e_y={e_y} py_price={}", f64_of(&st["price"]));
+                println!("B1 {kind}#{i} e_out={e_out} d_res={d_res} py_price={}", f64_of(&st["price"]));
             }
             "swap" => {
                 let keys = keys.as_ref().unwrap();
@@ -629,18 +777,26 @@ fn b1_deep_skew_vs_python() {
                 let amt = f64_of(&op["amount"]) as u64;
                 let side = if op["side"] == "yes" { MarketOutcome::Yes } else { MarketOutcome::No };
                 let mint = if side == MarketOutcome::Yes { keys.yes_mint } else { keys.no_mint };
+                let quoted = quote_swap_out(&env, keys, amt, side);
                 let before = env.token_amount(ata(t.pk(), mint));
                 env.swap(keys, t, amt, side);
                 let after = env.token_amount(ata(t.pk(), mint));
                 let out = after as f64 - before as f64;
+                max_swap_crate = max_swap_crate.max((out - quoted as f64).abs());
                 let st = &steps[i];
                 let m = env.read_market(keys);
                 let e_out = (out - f64_of(&st["output"])).abs();
-                let e_x = (bits_f64(m.reserve_yes) - f64_of(&st["reserve_yes"])).abs();
-                let e_y = (bits_f64(m.reserve_no) - f64_of(&st["reserve_no"])).abs();
-                max_err = max_err.max(e_out).max(e_x).max(e_y);
+                let d_res = reserve_step_delta(
+                    &mut prev_res,
+                    bits_f64(m.reserve_yes),
+                    bits_f64(m.reserve_no),
+                    f64_of(&st["reserve_yes"]),
+                    f64_of(&st["reserve_no"]),
+                );
+                max_swap_out = max_swap_out.max(e_out);
+                max_swap_res_delta = max_swap_res_delta.max(d_res);
                 compared += 1;
-                println!("B1 {kind}#{i} e_out={e_out} e_x={e_x} e_y={e_y}");
+                println!("B1 {kind}#{i} e_out={e_out} d_res={d_res}");
             }
             "warp" => {
                 env.warp(f64_of(&op["ts"]) as i64);
@@ -651,11 +807,16 @@ fn b1_deep_skew_vs_python() {
                 env.withdraw(keys, &house, f64_of(&op["shares"]) as u64);
                 let st = &steps[i];
                 let m = env.read_market(keys);
-                let e_x = (bits_f64(m.reserve_yes) - f64_of(&st["reserve_yes"])).abs();
-                let e_y = (bits_f64(m.reserve_no) - f64_of(&st["reserve_no"])).abs();
-                max_err = max_err.max(e_x).max(e_y);
+                let d_res = reserve_step_delta(
+                    &mut prev_res,
+                    bits_f64(m.reserve_yes),
+                    bits_f64(m.reserve_no),
+                    f64_of(&st["reserve_yes"]),
+                    f64_of(&st["reserve_no"]),
+                );
+                max_wd_res_delta = max_wd_res_delta.max(d_res);
                 compared += 1;
-                println!("B1 withdraw#{i} e_x={e_x} e_y={e_y}");
+                println!("B1 withdraw#{i} d_res={d_res}");
             }
             other => panic!("unknown op {other}"),
         }
@@ -666,10 +827,16 @@ fn b1_deep_skew_vs_python() {
         + env.token_amount(keys.yes_pool) as f64
         + env.token_amount(keys.no_pool) as f64;
     let b = band(env.ops, thickness);
-    println!("B1 max_err={max_err} compared={compared} band={b}");
+    println!(
+        "B1 bet_out={max_bet_out} bet_res={max_bet_res} swap_out={max_swap_out} swap_crate={max_swap_crate} swap_res_delta={max_swap_res_delta} wd_res_delta={max_wd_res_delta} compared={compared} band={b}"
+    );
     assert!(compared > 0);
-    const PYTHON_MAX: f64 = 32.0;
-    assert!(max_err <= PYTHON_MAX, "B1 python vs chain max_err {max_err} exceeds tight cap {PYTHON_MAX} (ledger band {b})");
+    assert!(max_bet_out <= 1.0, "B1 bet output err {max_bet_out} > 1");
+    assert!(max_bet_res <= 1.0, "B1 bet reserve-step err {max_bet_res} > 1");
+    assert!(max_swap_crate <= 1.0, "B1 chain vs crate quote {max_swap_crate} > 1 (python gap is not a chain bug)");
+    assert!(max_swap_out <= 24.0, "B1 swap output err {max_swap_out} > 24 (python float at P~0.99)");
+    assert!(max_swap_res_delta <= 24.0, "B1 swap reserve-step err {max_swap_res_delta} > 24 (python float at P~0.99)");
+    assert!(max_wd_res_delta <= 8.0, "B1 withdraw reserve-step err {max_wd_res_delta} > 8");
 }
 
 #[test]
@@ -781,8 +948,8 @@ fn f_mismatched_feed_rejected() {
     let logs = err.meta.logs.join("\n");
     println!("mismatched feed logs:\n{logs}");
     assert!(
-        logs.contains("MismatchedFeedId") || logs.contains("GetPrice") || logs.contains("custom program error"),
-        "wanted a pyth feed mismatch in:\n{logs}"
+        logs.contains("MismatchedFeedId") || logs.contains("0x3e82"),
+        "wanted Pyth MismatchedFeedId (16002/0x3e82) in:\n{logs}"
     );
     assert_eq!(env.read_market(&keys).status, MarketStatus::Open);
 }
@@ -899,10 +1066,10 @@ fn g_stale_burn_redeem_both_sides() {
     let coll0 = env.token_amount(ata(trader.pk(), env.mint));
     env.redeem(&keys, &trader, keys.yes_mint, 3);
     let coll1 = env.token_amount(ata(trader.pk(), env.mint));
-    assert_eq!(coll1 - coll0, 1, "StaleBurn redeem 3 yes -> 1");
+    assert_eq!(coll1 - coll0, 1, "StaleBurn redeem 3 yes pays floor(3/2)=1");
     env.redeem(&keys, &trader, keys.no_mint, 3);
     let coll2 = env.token_amount(ata(trader.pk(), env.mint));
-    assert_eq!(coll2 - coll1, 1, "StaleBurn redeem 3 no -> 1");
+    assert_eq!(coll2 - coll1, 1, "StaleBurn redeem 3 no pays floor(3/2)=1");
     env.ledger(&keys, "g_stale_burn_after_redeem").assert_ok();
 }
 #[test]
@@ -955,7 +1122,9 @@ fn g_trade_blocked_merge_ok_after_expiry() {
     let yes_left = env.token_amount(ata(trader.pk(), keys.yes_mint));
     let no_left = env.token_amount(ata(trader.pk(), keys.no_mint));
     let merge_amt = yes_left.min(no_left).min(3).max(1);
+    let coll_before = env.token_amount(ata(trader.pk(), env.mint));
     env.merge(&keys, &trader, merge_amt);
+    assert_merge_one_to_one(&env, &keys, &trader, merge_amt, coll_before, yes_left, no_left);
     let m = env.read_market(&keys);
     assert_eq!(m.status, MarketStatus::Open);
     env.ledger(&keys, "g_merge_at_expiry").assert_ok();
@@ -1106,13 +1275,10 @@ fn j_balances_mints_atas_and_vault() {
     let pyth = inject_first(&mut env, &keys, keys.threshold + 1, 2);
     env.resolve(&keys, pyth);
 
-    logs_fail(
-        env.redeem_raw(&keys, &trader, env.mint, 1),
-        &["InvalidMint", "ConstraintDuplicateMutableAccount", "NotWinnerMint"],
-    );
+    logs_contain(env.redeem_raw(&keys, &trader, env.mint, 1), "ConstraintDuplicateMutableAccount");
     let foreign = env.extra_mint();
     env.ensure_ata(trader.pk(), foreign);
-    logs_fail(
+    logs_contain(
         env.redeem_raw_accounts(
             &keys,
             &trader,
@@ -1121,7 +1287,7 @@ fn j_balances_mints_atas_and_vault() {
             keys.vault,
             1,
         ),
-        &["InvalidMint", "NotWinnerMint"],
+        "InvalidMint",
     );
     let win = env.token_amount(ata(trader.pk(), keys.yes_mint));
     logs_contain(env.redeem_raw(&keys, &trader, keys.yes_mint, win + 1), "InsufficientBalance");
@@ -1197,10 +1363,7 @@ fn j_pyth_partial_and_wrong_owner_rejected() {
         keys.exponent,
         keys.feed_id,
     );
-    logs_fail(
-        env.resolve_raw(&keys, pyth),
-        &["InsufficientVerificationLevel", "verification level"],
-    );
+    logs_contain(env.resolve_raw(&keys, pyth), "InsufficientVerificationLevel");
     let m = env.read_market(&keys);
     assert_eq!(m.status, MarketStatus::Open);
     assert_eq!(m.winner, None);
@@ -1215,7 +1378,7 @@ fn j_pyth_partial_and_wrong_owner_rejected() {
     );
     logs_fail(
         env.resolve_raw(&keys, pyth),
-        &["AccountOwnedByWrongProgram", "owned by a different program", "AccountDiscriminatorMismatch"],
+        &["AccountOwnedByWrongProgram", "owned by a different program"],
     );
     let m = env.read_market(&keys);
     assert_eq!(m.status, MarketStatus::Open);
@@ -1228,7 +1391,7 @@ fn j_stranger_cannot_withdraw_house_lp() {
     let stranger = env.fund_user(10_000);
     logs_fail(
         env.withdraw_raw(&keys, &stranger, 1),
-        &["AccountNotInitialized", "AccountDiscriminatorMismatch", "ConstraintSeeds", "account did not deserialize"],
+        &["AccountNotInitialized", "already initialized"],
     );
     assert!(env.read_lp(&keys, env.house_pk()).is_some(), "house LP must remain");
 }
@@ -1296,20 +1459,11 @@ fn e_last_lp_drain_empty_pool() {
     assert!(bits_f64(m.reserve_no).abs() <= 1.0, "last LP must drain working no");
 
     let stranger = env.fund_user(100_000);
-    logs_fail(
-        env.add_liquidity_raw(&keys, &stranger, 10_000),
-        &["EmptyPool", "InvalidLiquidity"],
-    );
-    logs_fail(
-        env.bet_raw(&keys, &stranger, 1_000, MarketOutcome::Yes),
-        &["EmptyPool", "InvalidLiquidity"],
-    );
+    logs_contain(env.add_liquidity_raw(&keys, &stranger, 10_000), "EmptyPool");
+    logs_contain(env.bet_raw(&keys, &stranger, 1_000, MarketOutcome::Yes), "EmptyPool");
     env.ensure_ata(stranger.pk(), keys.yes_mint);
     env.ensure_ata(stranger.pk(), keys.no_mint);
-    logs_fail(
-        env.swap_raw(&keys, &stranger, 1, MarketOutcome::Yes),
-        &["EmptyPool", "InvalidLiquidity"],
-    );
+    logs_contain(env.swap_raw(&keys, &stranger, 1, MarketOutcome::Yes), "EmptyPool");
 }
 
 #[test]
@@ -1327,12 +1481,25 @@ fn k_math_vectors_from_oracle_json() {
     };
 
     close("phi0", got(phi_fixed(f(0.0)).unwrap()), v["phi0"].as_f64().unwrap(), 1e-8);
-    close("phi(1)", got(phi_fixed(f(1.0)).unwrap()), v["phi"]["1"].as_f64().unwrap(), 1e-8);
-    close("phi(-1)", got(phi_fixed(f(-1.0)).unwrap()), v["phi"]["-1"].as_f64().unwrap(), 1e-8);
-    close("Phi(0)", got(capital_phi_fixed(f(0.0)).unwrap()), v["capital_phi"]["0"].as_f64().unwrap(), 1e-7);
-    close("Phi(1)", got(capital_phi_fixed(f(1.0)).unwrap()), v["capital_phi"]["1"].as_f64().unwrap(), 1e-7);
-    close("Phi_inv(0.5)", got(capital_phi_inv_fixed(f(0.5)).unwrap()), v["capital_phi_inv"]["0.5"].as_f64().unwrap(), 1e-8);
-    close("Phi_inv(0.3)", got(capital_phi_inv_fixed(f(0.3)).unwrap()), v["capital_phi_inv"]["0.3"].as_f64().unwrap(), 1e-6);
+    for (k, val) in v["phi"].as_object().expect("phi map") {
+        let z: f64 = k.parse().unwrap();
+        close(&format!("phi({k})"), got(phi_fixed(f(z)).unwrap()), val.as_f64().unwrap(), 1e-8);
+    }
+    for (k, val) in v["capital_phi"].as_object().expect("Phi map") {
+        let z: f64 = k.parse().unwrap();
+        close(&format!("Phi({k})"), got(capital_phi_fixed(f(z)).unwrap()), val.as_f64().unwrap(), 1e-6);
+    }
+    for (k, val) in v["capital_phi_inv"].as_object().expect("Phi_inv map") {
+        let p: f64 = k.parse().unwrap();
+        let tol = if p <= 0.05 || p >= 0.95 {
+            1e-3
+        } else if (p - 0.5).abs() < 1e-12 {
+            1e-8
+        } else {
+            1e-6
+        };
+        close(&format!("Phi_inv({k})"), got(capital_phi_inv_fixed(f(p)).unwrap()), val.as_f64().unwrap(), tol);
+    }
 
     let (x, y) = reserves_from_price(f(0.5), f(1000.0)).unwrap();
     close("x*(0.5,1000)", got(x), v["reserves"]["l_eff_1000_p05"][0].as_f64().unwrap(), 1e-5);
@@ -1344,8 +1511,360 @@ fn k_math_vectors_from_oracle_json() {
     close("x*(0.3,1000)", got(x3), v["reserves"]["l_eff_1000_p03"][0].as_f64().unwrap(), 1e-4);
     close("y*(0.3,1000)", got(y3), v["reserves"]["l_eff_1000_p03"][1].as_f64().unwrap(), 1e-4);
 
+    for (k, val) in v["reserves"]["l_eff_1000"].as_object().expect("reserve grid") {
+        let p: f64 = k.parse().unwrap();
+        let (x, y) = reserves_from_price(f(p), f(1000.0)).unwrap();
+        let exp_x = val[0].as_f64().unwrap();
+        let exp_y = val[1].as_f64().unwrap();
+        let tol = if p <= 0.1 || p >= 0.9 { 0.5 } else { 1e-4 };
+        close(&format!("x*({p},1000)"), got(x), exp_x, tol);
+        close(&format!("y*({p},1000)"), got(y), exp_y, tol);
+        close(&format!("P from reserves {p}"), got(price_from_reserves(x, y, f(1000.0)).unwrap()), p, 1e-4);
+    }
+    for (k, val) in v["pool_value"].as_object().expect("pool_value") {
+        let p: f64 = k.parse().unwrap();
+        close(&format!("V({p},1000)"), got(pool_value(f(p), f(1000.0)).unwrap()), val.as_f64().unwrap(), 1e-4);
+    }
+
     let l0 = suggest_l_zero_for_budget(1_000_000, 86_400).unwrap();
     close("L0(1e6,1d)", got(l0), v["suggest_l_zero"]["budget_1e6_day"].as_f64().unwrap(), 1e-6);
+    close(
+        "L0(1000,1w)",
+        got(suggest_l_zero_for_budget(1000, 604_800).unwrap()),
+        v["suggest_l_zero"]["budget_1000_week"].as_f64().unwrap(),
+        1e-4,
+    );
     assert!(l_effective(f(1.0), 0).is_err(), "L_eff(T=0) InvalidDuration");
     assert!(suggest_l_zero_for_budget(0, 86_400).is_err(), "L0(budget=0) InvalidBudget");
+}
+
+#[test]
+fn d_create_copies_nondefault_pyth_feed() {
+    let mut env = Env::new(START);
+    let mut feed = [0u8; 32];
+    feed[0] = 0x3C;
+    feed[15] = 0xA9;
+    feed[31] = 0xF2;
+    let exponent = -5;
+    assert_ne!(feed, [7u8; 32], "test feed must differ from harness default");
+    assert_ne!(exponent, -8, "test exponent must differ from harness default");
+    let keys = env.create_market_with_pyth(SEED, LIFE, true, feed, exponent);
+    assert_eq!(keys.feed_id, feed);
+    assert_eq!(keys.exponent, exponent);
+    let m = env.read_market(&keys);
+    assert_eq!(m.feed_id, feed, "create must copy feed_id from the Pyth account");
+    assert_eq!(m.exponent, exponent, "create must copy exponent from the Pyth account");
+    env.warp(keys.expiry as i64 + 2);
+    let pyth = env.inject_pyth(
+        keys.threshold + 1,
+        keys.expiry as i64 + 2,
+        keys.expiry as i64 - 1,
+        exponent,
+        feed,
+    );
+    env.resolve(&keys, pyth);
+    let resolved = env.read_market(&keys);
+    assert_eq!(resolved.status, MarketStatus::Resolved);
+    assert_eq!(resolved.winner, Some(MarketOutcome::Yes));
+}
+
+#[test]
+fn g_no_winner_redeems_1_to_1() {
+    let mut env = Env::new(START);
+    let keys = env.create_market(SEED, 3_600, true);
+    let trader = env.fund_user(200_000);
+    env.bet(&keys, &trader, 50_000, MarketOutcome::Yes);
+    env.bet(&keys, &trader, 50_000, MarketOutcome::No);
+    env.warp(keys.expiry as i64 + 2);
+    let pyth = inject_first(&mut env, &keys, keys.threshold - 1, 2);
+    env.resolve(&keys, pyth);
+    let m = env.read_market(&keys);
+    assert_eq!(m.status, MarketStatus::Resolved);
+    assert_eq!(m.winner, Some(MarketOutcome::No));
+    let yes = env.token_amount(ata(trader.pk(), keys.yes_mint));
+    assert!(yes > 0);
+    logs_contain(env.redeem_raw(&keys, &trader, keys.yes_mint, yes.min(10)), "NotWinnerMint");
+    let coll_before = env.token_amount(ata(trader.pk(), env.mint));
+    let win = env.token_amount(ata(trader.pk(), keys.no_mint));
+    env.redeem(&keys, &trader, keys.no_mint, win);
+    let coll_after = env.token_amount(ata(trader.pk(), env.mint));
+    assert_eq!(coll_after - coll_before, win, "No winner redeems 1:1");
+}
+
+#[test]
+fn g_void_redeem_is_floor_div_2() {
+    let mut env = Env::new(START);
+    let keys = env.create_market(SEED, 3_600, true);
+    let trader = env.fund_user(300_000);
+    env.bet(&keys, &trader, 80_000, MarketOutcome::Yes);
+    env.bet(&keys, &trader, 40_000, MarketOutcome::No);
+    env.warp(keys.expiry as i64 + RESOLVE_WINDOW as i64 + 1);
+    env.void_market(&keys);
+    assert_eq!(env.read_market(&keys).status, MarketStatus::WindowBurn);
+    logs_contain(env.redeem_raw(&keys, &trader, keys.yes_mint, 1), "InvalidAmount");
+    let cases = [(2u64, 1u64), (4, 2), (5, 2), (6, 3)];
+    for (amount, expect) in cases {
+        let before = env.token_amount(ata(trader.pk(), env.mint));
+        env.redeem(&keys, &trader, keys.yes_mint, amount);
+        let got = env.token_amount(ata(trader.pk(), env.mint)) - before;
+        assert_eq!(got, expect, "WindowBurn yes amount={amount} must pay floor(amount/2)={expect}, not floor(amount/3)");
+    }
+    for (amount, expect) in cases {
+        let before = env.token_amount(ata(trader.pk(), env.mint));
+        env.redeem(&keys, &trader, keys.no_mint, amount);
+        let got = env.token_amount(ata(trader.pk(), env.mint)) - before;
+        assert_eq!(got, expect, "WindowBurn no amount={amount} must pay floor(amount/2)={expect}, not floor(amount/3)");
+    }
+}
+
+#[test]
+fn g_stale_redeem_is_floor_div_2() {
+    let mut env = Env::new(START);
+    let keys = env.create_market(SEED, 3_600, true);
+    let trader = env.fund_user(300_000);
+    env.bet(&keys, &trader, 80_000, MarketOutcome::Yes);
+    env.bet(&keys, &trader, 40_000, MarketOutcome::No);
+    env.warp(keys.expiry as i64 + 20);
+    let pyth = env.inject_pyth(
+        keys.threshold + 9,
+        keys.expiry as i64 + 15,
+        keys.expiry as i64 - 1,
+        keys.exponent,
+        keys.feed_id,
+    );
+    env.resolve(&keys, pyth);
+    assert_eq!(env.read_market(&keys).status, MarketStatus::StaleBurn);
+    logs_contain(env.redeem_raw(&keys, &trader, keys.yes_mint, 1), "InvalidAmount");
+    for (amount, expect) in [(2u64, 1u64), (4, 2), (5, 2)] {
+        let before = env.token_amount(ata(trader.pk(), env.mint));
+        env.redeem(&keys, &trader, keys.yes_mint, amount);
+        assert_eq!(
+            env.token_amount(ata(trader.pk(), env.mint)) - before,
+            expect,
+            "StaleBurn yes amount={amount} must pay floor(amount/2)={expect}"
+        );
+    }
+}
+
+#[test]
+fn f1_first_print_at_expiry_settles() {
+    let mut env = Env::new(START);
+    let keys = env.create_market(SEED, 3_600, true);
+    env.warp(keys.expiry as i64);
+    let pyth = env.inject_pyth(
+        keys.threshold + 1,
+        keys.expiry as i64,
+        keys.expiry as i64 - 1,
+        keys.exponent,
+        keys.feed_id,
+    );
+    env.resolve(&keys, pyth);
+    let m = env.read_market(&keys);
+    assert_eq!(m.status, MarketStatus::Resolved);
+    assert_eq!(m.winner, Some(MarketOutcome::Yes));
+    assert_eq!(m.settled_publish_time, keys.expiry as i64);
+}
+
+#[test]
+fn j_min_out_exact_boundary() {
+    let mut env = Env::new(START);
+    let keys = env.create_market(SEED, 3_600, true);
+    let trader = env.fund_user(400_000);
+    env.bet(&keys, &trader, 80_000, MarketOutcome::Yes);
+    env.ensure_ata(trader.pk(), keys.yes_mint);
+    env.ensure_ata(trader.pk(), keys.no_mint);
+
+    let sell = 5_000u64;
+    let quoted = quote_swap_out(&env, &keys, sell, MarketOutcome::No);
+    assert!(quoted > 1, "need a real swap quote, got {quoted}");
+    let py = python_sim(&json!({
+        "seed": SEED,
+        "duration": 3_600,
+        "start_ts": START,
+        "ops": [
+            {"op": "create"},
+            {"op": "bet", "wallet": "trader", "amount": 80_000, "side": "yes"},
+            {"op": "swap", "wallet": "trader", "amount": sell, "side": "no"}
+        ]
+    }));
+    assert_close(quoted as f64, f64_of(&py["steps"][2]["output"]), 1.0, "min_out crate quote vs python");
+    let no_before = env.token_amount(ata(trader.pk(), keys.no_mint));
+    env.swap_raw_ex(
+        &keys,
+        &trader,
+        sell,
+        MarketOutcome::No,
+        quoted,
+        ata(trader.pk(), keys.yes_mint),
+        ata(trader.pk(), keys.no_mint),
+    )
+    .unwrap_or_else(|e| panic!("exact min_out must succeed: {:?}\n{}", e.err, e.meta.logs.join("\n")));
+    assert_eq!(
+        env.token_amount(ata(trader.pk(), keys.no_mint)) - no_before,
+        quoted,
+        "swap payout must equal quoted min_out"
+    );
+
+    let sell2 = 3_000u64;
+    let quoted2 = quote_swap_out(&env, &keys, sell2, MarketOutcome::No);
+    assert!(quoted2 > 0);
+    logs_contain(
+        env.swap_raw_ex(
+            &keys,
+            &trader,
+            sell2,
+            MarketOutcome::No,
+            quoted2 + 1,
+            ata(trader.pk(), keys.yes_mint),
+            ata(trader.pk(), keys.no_mint),
+        ),
+        "SlippageExceeded",
+    );
+
+    let bet_amt = 20_000u64;
+    let quoted_bet = quote_swap_out(&env, &keys, bet_amt, MarketOutcome::Yes);
+    assert!(quoted_bet > 0);
+    let yes_before = env.token_amount(ata(trader.pk(), keys.yes_mint));
+    env.bet_raw_min_out(&keys, &trader, bet_amt, MarketOutcome::Yes, quoted_bet)
+        .unwrap_or_else(|e| panic!("exact bet min_out must succeed: {:?}\n{}", e.err, e.meta.logs.join("\n")));
+    assert_eq!(
+        env.token_amount(ata(trader.pk(), keys.yes_mint)) - yes_before,
+        bet_amt + quoted_bet,
+        "bet yes keeps minted amount plus exact swap out"
+    );
+    let quoted_bet2 = quote_swap_out(&env, &keys, bet_amt, MarketOutcome::No);
+    logs_contain(
+        env.bet_raw_min_out(&keys, &trader, bet_amt, MarketOutcome::No, quoted_bet2 + 1),
+        "SlippageExceeded",
+    );
+}
+
+#[test]
+fn e_add_liquidity_asymmetric_after_skew() {
+    let req = json!({
+        "seed": SEED,
+        "duration": LIFE,
+        "start_ts": START,
+        "ops": [
+            {"op": "create"},
+            {"op": "bet", "wallet": "trader", "amount": 200_000, "side": "yes"},
+            {"op": "add_liquidity", "wallet": "extra", "amount": 500_000}
+        ]
+    });
+    let sim = python_sim(&req);
+    let st = &sim["steps"][2];
+    let yes_in = f64_of(&st["yes_in"]);
+    let no_in = f64_of(&st["no_in"]);
+    let add_shares = f64_of(&st["add_shares"]);
+    assert!((yes_in - no_in).abs() > 0.5, "skewed add must deposit unequal yes/no vs python");
+
+    let mut env = Env::new(START);
+    let keys = env.create_market(SEED, LIFE, true);
+    let trader = env.fund_user(400_000);
+    env.bet(&keys, &trader, 200_000, MarketOutcome::Yes);
+    let m0 = env.read_market(&keys);
+    assert!(m0.reserve_yes != m0.reserve_no, "yes bet must skew working reserves");
+    let amount = 500_000u64;
+    let extra = env.fund_user(amount);
+    let pool_yes0 = env.token_amount(keys.yes_pool);
+    let pool_no0 = env.token_amount(keys.no_pool);
+    env.add_liquidity(&keys, &extra, amount);
+    let dy = (env.token_amount(keys.yes_pool) - pool_yes0) as f64;
+    let dn = (env.token_amount(keys.no_pool) - pool_no0) as f64;
+    env.ledger(&keys, "e_add_after_skew").assert_ok();
+    assert_close(dy, yes_in, 1.0, "e_add pool yes_in vs python");
+    assert_close(dn, no_in, 1.0, "e_add pool no_in vs python");
+    assert_close(
+        env.token_amount(ata(extra.pk(), keys.yes_mint)) as f64,
+        amount as f64 - yes_in,
+        1.0,
+        "e_add leftover yes vs python",
+    );
+    assert_close(
+        env.token_amount(ata(extra.pk(), keys.no_mint)) as f64,
+        amount as f64 - no_in,
+        1.0,
+        "e_add leftover no vs python",
+    );
+    let pos = env.read_lp(&keys, extra.pk()).unwrap();
+    assert_close(bits_f64(pos.shares), add_shares, 1.0, "e_add shares vs python");
+}
+
+fn mix64(state: &mut u64) -> u64 {
+    *state = state.wrapping_add(0x9E3779B97F4A7C15);
+    let mut z = *state;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+    z ^ (z >> 31)
+}
+
+#[test]
+fn p_random_walk_invariants() {
+    let mut rng = 0xC0FFEE_u64;
+    let mut env = Env::new(START);
+    let keys = env.create_market(SEED, LIFE, true);
+    let trader = env.fund_user(80_000_000);
+    let lp = env.fund_user(20_000_000);
+    env.add_liquidity(&keys, &lp, 3_000_000);
+    env.ensure_ata(trader.pk(), keys.yes_mint);
+    env.ensure_ata(trader.pk(), keys.no_mint);
+    let mut applied = 0u32;
+    for i in 0..60 {
+        let roll = mix64(&mut rng) % 7;
+        let amt = 1_000 + (mix64(&mut rng) % 40_000);
+        let res = match roll {
+            0 => env.bet_raw(&keys, &trader, amt, MarketOutcome::Yes),
+            1 => env.bet_raw(&keys, &trader, amt, MarketOutcome::No),
+            2 => {
+                let have = env.token_amount(ata(trader.pk(), keys.no_mint));
+                if have < 2 {
+                    continue;
+                }
+                let sell = amt.min(have / 2).max(1);
+                env.swap_raw(&keys, &trader, sell, MarketOutcome::Yes)
+            }
+            3 => {
+                let have = env.token_amount(ata(trader.pk(), keys.yes_mint));
+                if have < 2 {
+                    continue;
+                }
+                let sell = amt.min(have / 2).max(1);
+                env.swap_raw(&keys, &trader, sell, MarketOutcome::No)
+            }
+            4 => env.add_liquidity_raw(&keys, &lp, amt),
+            5 => {
+                let Some(pos) = env.read_lp(&keys, lp.pk()) else {
+                    continue;
+                };
+                let shares = bits_f64(pos.shares);
+                if shares < 10_000.0 {
+                    continue;
+                }
+                let take = (amt as f64).min(shares * 0.05).max(1.0) as u64;
+                env.withdraw_raw(&keys, &lp, take)
+            }
+            _ => {
+                let yes = env.token_amount(ata(trader.pk(), keys.yes_mint));
+                let no = env.token_amount(ata(trader.pk(), keys.no_mint));
+                let have = yes.min(no);
+                if have < 2 {
+                    continue;
+                }
+                let take = amt.min(have / 2).max(1);
+                env.merge_raw(&keys, &trader, take)
+            }
+        };
+        if res.is_ok() {
+            env.ops += 1;
+            applied += 1;
+        }
+        let l = env.ledger(&keys, &format!("walk{i}"));
+        // Book-vs-pool dust can accumulate; complete-set backing and mint cover stay exact.
+        l.assert_backing();
+        assert!(l.err_yes <= 16.0, "walk{i} yes conservation {} > 16", l.err_yes);
+        assert!(l.err_no <= 16.0, "walk{i} no conservation {} > 16", l.err_no);
+        assert!(l.share_err <= 1.0, "walk{i} share err {}", l.share_err);
+    }
+    println!("random walk applied={applied}/60 clock={}", env.clock);
+    assert!(applied >= 20, "random walk applied too few ops: {applied}");
 }

@@ -286,6 +286,8 @@ class Protocol:
         snap["output"] = add_shares
         snap["add_shares"] = add_shares
         snap["old_shares"] = old_shares
+        snap["yes_in"] = yes_in
+        snap["no_in"] = no_in
         return snap
 
     def withdraw(self, wallet: str, shares_req: float) -> dict:
@@ -405,21 +407,27 @@ def plan_deep_skew(req: dict) -> dict:
 
 
 def write_vectors(path: Path) -> None:
+    phi_zs = (-3, -2, -1, -0.5, 0, 0.5, 1, 2, 3)
+    inv_ps = (0.05, 0.1, 0.25, 0.3, 0.5, 0.75, 0.9, 0.95)
+    prices = (0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 0.8, 0.9, 0.95)
     vec = {
         "note": "Generated from oracle/pm_amm_math.py (paper formulas). Not copied from Rust.",
         "phi0": m.INV_SQRT_2PI,
-        "phi": {"0": m.phi(0.0), "1": m.phi(1.0), "-1": m.phi(-1.0)},
-        "capital_phi": {"0": m.capital_phi(0.0), "1": m.capital_phi(1.0)},
-        "capital_phi_inv": {"0.5": m.capital_phi_inv(0.5), "0.3": m.capital_phi_inv(0.3)},
+        "phi": {str(z): m.phi(float(z)) for z in phi_zs},
+        "capital_phi": {str(z): m.capital_phi(float(z)) for z in phi_zs},
+        "capital_phi_inv": {str(p): m.capital_phi_inv(p) for p in inv_ps},
         "reserves": {
             "l_eff_1000_p05": list(m.reserves_from_price(0.5, 1000.0)),
             "l_eff_1000_p03": list(m.reserves_from_price(0.3, 1000.0)),
+            "l_eff_1000": {str(p): list(m.reserves_from_price(p, 1000.0)) for p in prices},
         },
+        "pool_value": {str(p): m.pool_value(p, 1000.0) for p in (0.3, 0.5, 0.7)},
         "suggest_l_zero": {
-            "budget_1e6_day": m.suggest_l_zero_for_budget(1_000_000.0, 86400.0)
+            "budget_1e6_day": m.suggest_l_zero_for_budget(1_000_000.0, 86400.0),
+            "budget_1000_week": m.suggest_l_zero_for_budget(1000.0, 7 * 86400.0),
         },
     }
-    path.write_text(json.dumps(vec, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(vec, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":
