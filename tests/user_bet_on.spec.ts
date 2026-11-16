@@ -18,7 +18,8 @@ import {
   waitUntilExpired,
 } from "./helpers";
 
-describe("bet user_bet_on", () => {
+// Retired human-oracle suite. Current spec net: cargo test -p prediction_market --test spec_scenarios
+describe.skip("bet user_bet_on", () => {
   let env: TestEnv;
   let house: User;
   let mint: PublicKey;

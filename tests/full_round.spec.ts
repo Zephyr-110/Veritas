@@ -25,7 +25,8 @@ import {
   waitUntilExpired,
 } from "./helpers";
 
-describe("full round full_round", () => {
+// Retired human-oracle suite. Current spec net: cargo test -p prediction_market --test spec_scenarios
+describe.skip("full round full_round", () => {
   let env: TestEnv;
   let house: User;
   let mint: PublicKey;

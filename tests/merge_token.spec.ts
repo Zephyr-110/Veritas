@@ -23,7 +23,8 @@ import {
   waitUntilExpired,
 } from "./helpers";
 
-describe("merge tokens merge_token", () => {
+// Retired human-oracle suite. Current spec net: cargo test -p prediction_market --test spec_scenarios
+describe.skip("merge tokens merge_token", () => {
   let env: TestEnv;
   let house: User;
   let mint: PublicKey;

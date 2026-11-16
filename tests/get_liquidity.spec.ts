@@ -20,7 +20,8 @@ import {
   waitUntilExpired,
 } from "./helpers";
 
-describe("withdraw liquidity get_liquidity", () => {
+// Retired human-oracle suite. Current spec net: cargo test -p prediction_market --test spec_scenarios
+describe.skip("withdraw liquidity get_liquidity", () => {
   let env: TestEnv;
   let house: User;
   let mint: PublicKey;

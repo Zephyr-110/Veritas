@@ -20,7 +20,8 @@ import {
   User,
 } from "./helpers";
 
-describe("add liquidity add_liquidity", () => {
+// Retired human-oracle suite. Current spec net: cargo test -p prediction_market --test spec_scenarios
+describe.skip("add liquidity add_liquidity", () => {
   let env: TestEnv;
   let house: User;
   let mint: PublicKey;

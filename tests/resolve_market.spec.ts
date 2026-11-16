@@ -14,7 +14,8 @@ import {
   User,
 } from "./helpers";
 
-describe("resolve resolve_market", () => {
+// Retired human-oracle suite. Current spec net: cargo test -p prediction_market --test spec_scenarios
+describe.skip("resolve resolve_market", () => {
   let env: TestEnv;
   let house: User;
   let mint: PublicKey;

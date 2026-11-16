@@ -24,7 +24,8 @@ import {
   waitUntilExpired,
 } from "./helpers";
 
-describe("redeem get_collateral", () => {
+// Retired human-oracle suite. Current spec net: cargo test -p prediction_market --test spec_scenarios
+describe.skip("redeem get_collateral", () => {
   let env: TestEnv;
   let house: User;
   let mint: PublicKey;

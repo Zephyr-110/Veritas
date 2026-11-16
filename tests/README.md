@@ -1,23 +1,15 @@
-# Test layout
+# Tests
 
-Run with `anchor test`. Mocha only picks up `tests/**/*.spec.ts`.
+The live spec net is the LiteSVM suite:
 
 ```
-tests/
-  helpers/            reusable tools, no it()
-    env.ts            connect to local chain, get program
-    pdas.ts           derive market PDAs
-    tokens.ts         mint collateral, ATAs, balances
-    quote.ts          expected output from the on-chain formula
-    users.ts          house / LP / trader
-    make_market.ts    funded, tradable market
-    send_ix.ts        send transactions, no asserts
-    wait.ts           wait for on-chain time
-    assert_tx.ts      assert a tx fails as expected
-  *.spec.ts           one spec per instruction
-  void_market.spec.ts void: oracle in-window / anyone after
-  full_round.spec.ts  create through redeem
+cargo test -p prediction_market --test spec_scenarios -- --test-threads=1
 ```
 
-When adding an instruction test: add a sender in `send_ix.ts`, then add `instruction_name.spec.ts`.
-Default oracle is the creator (same key co-signs). Role splits, missing signatures, post-window void, and half-price redeem live in the matching spec.
+It loads `target/deploy/prediction_market.so` (build with `cargo build-sbf --arch v0`).
+
+Coverage: lifecycle, Pyth settlement, conservation, fees, last-LP EmptyPool, account/status guards, and `oracle/test_vectors.json` vs on-crate math.
+
+Conservation band is `max(ops, 1) + 2` tokens. Closed-loop still uses a tight cap of 8. B1/B2 need a Python interpreter (`PYTHON` or PATH); they compare chain state to `oracle/protocol_sim.py`.
+
+`tests/*.spec.ts` is the old human-oracle validator suite. It does not match the current IDL (no `oracle` / `lpMint`, Pyth `resolve_market`). Every file is `describe.skip` so `anchor test` cannot be mistaken for a pass on the current program.
