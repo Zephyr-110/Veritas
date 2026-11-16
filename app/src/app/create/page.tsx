@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { COLLATERAL_SYMBOL, MIN_CREATE_COLLATERAL, PREDICTION_BYTES } from "@/lib/constants";
-import { countdown, encodePrediction, formatStamp, fromUi, randomMarketId, utf8Len } from "@/lib/format";
+import { countdown, encodePrediction, formatStamp, fromUi, randomMarketId, toUi, utf8Len } from "@/lib/format";
 import { FEEDS, feedByKey, feedIdBytes, humanToThreshold } from "@/lib/feeds";
 import { findMarketPdas } from "@/lib/pdas";
-import { fetchMintMeta } from "@/lib/tokens";
+import { ataOf, fetchMintMeta, unpackAmount } from "@/lib/tokens";
 import { ixCreateMarket } from "@/lib/instructions";
 import { localizeError } from "@/lib/errors";
 import { useFeeds } from "@/hooks/use-feeds";
@@ -16,6 +16,7 @@ import { useNow } from "@/hooks/use-now";
 import { useProgram } from "@/hooks/use-program";
 import { useSettings, useToasts } from "@/components/providers";
 import { FeatureCard } from "@/components/market-card";
+import { PriceAge } from "@/components/price-age";
 import { Button, Reveal, TextInput, choiceClass, useTx } from "@/components/ui";
 import { useI18n, useT } from "@/i18n/provider";
 import type { FeedKey } from "@/lib/types";
@@ -37,13 +38,13 @@ function defaultExpiry(): Date {
 
 function buildTitle(symbol: string, human: string, above: boolean, expiry: Date, locale: string): string {
   const grouped = /^\d+$/.test(human) ? human.replace(/\B(?=(\d{3})+(?!\d))/g, ",") : human;
-  const hh = String(expiry.getHours()).padStart(2, "0");
-  const mm = String(expiry.getMinutes()).padStart(2, "0");
+  // Titles written on-chain use the same formatStamp shape (YYYY-MM-DD HH:mm)
+  // as every other timestamp on the site.
+  const stamp = formatStamp(expiry);
   if (locale === "zh") {
-    return symbol + " " + (expiry.getMonth() + 1) + "月" + expiry.getDate() + "日 " + hh + ":" + mm + " " + (above ? "能站上" : "会跌破") + " " + grouped + " 吗？";
+    return symbol + " " + stamp + " " + (above ? "能站上" : "会跌破") + " " + grouped + " 吗？";
   }
-  const mon = expiry.toLocaleString("en-US", { month: "short" });
-  return symbol + " " + (above ? "above" : "below") + " " + grouped + " at " + hh + ":" + mm + " on " + mon + " " + expiry.getDate() + "?";
+  return symbol + " " + (above ? "above" : "below") + " " + grouped + " at " + stamp + "?";
 }
 
 function parseSeed(amount: string): bigint | null {
@@ -116,6 +117,32 @@ export default function CreatePage() {
   const lastAutoFeed = useRef<FeedKey | null>(null);
   const bytes = utf8Len(title);
 
+  const [walletBalance, setWalletBalance] = useState<{ atoms: bigint; decimals: number } | null>(null);
+  useEffect(() => {
+    if (!publicKey) {
+      setWalletBalance(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const mint = new PublicKey(settings.collateralMint.trim());
+        const meta = await fetchMintMeta(connection, mint);
+        const ata = ataOf(mint, publicKey, meta.tokenProgram);
+        const info = await connection.getAccountInfo(ata);
+        if (!cancelled) {
+          setWalletBalance({ atoms: unpackAmount(ata, info, meta.tokenProgram), decimals: meta.decimals });
+        }
+      } catch {
+        if (!cancelled) setWalletBalance(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, publicKey, settings.collateralMint]);
+  const maxAmount = walletBalance ? toUi(walletBalance.atoms, walletBalance.decimals, walletBalance.decimals) : null;
+
   const syncTitle = (nextTitle: string) => {
     if (!titleLocked) setTitle(nextTitle);
   };
@@ -158,8 +185,12 @@ export default function CreatePage() {
       return;
     }
     if (ready) {
+      // Provisional fallback only: do NOT mark lastAutoFeed here. Locking the
+      // feed on the fallback would freeze the stale default (e.g. BTC 100000)
+      // even after the spot quote arrives a few seconds later; leaving it
+      // unlocked lets the spot branch above replace it as soon as the quote
+      // is available. A manual edit still wins via userThreshold.
       setHuman(feed.defaultHuman);
-      lastAutoFeed.current = feedKey;
       if (!titleLocked) setTitle(buildTitle(t(feed.labelKey), feed.defaultHuman, above, expiry, locale));
     }
   }, [feedKey, quotes, ready, feed.labelKey, feed.defaultHuman, above, expiry, titleLocked, t]);
@@ -262,11 +293,16 @@ export default function CreatePage() {
                 placeholder={t("create.placeholder")}
                 className="w-full border-b border-white/10 bg-transparent pb-2 text-lg font-medium text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-cyan-400/50"
               />
-              {attempted && questionError ? (
-                <span className="text-[13px] leading-5 text-rose-400">{questionError}</span>
-              ) : (
-                <span className="field-hint">{t("create.titleHint")}</span>
-              )}
+              <div className="flex items-baseline justify-between gap-3">
+                {attempted && questionError ? (
+                  <span className="text-[13px] leading-5 text-rose-400">{questionError}</span>
+                ) : (
+                  <span className="field-hint">{t("create.titleHint")}</span>
+                )}
+                <span className={`num shrink-0 text-xs ${bytes > PREDICTION_BYTES ? "text-rose-400" : "text-zinc-600"}`}>
+                  {t("create.byteCount", { bytes, max: PREDICTION_BYTES })}
+                </span>
+              </div>
             </div>
 
             <p className="text-xl font-medium leading-relaxed text-zinc-200">
@@ -337,9 +373,12 @@ export default function CreatePage() {
                     />
                   </div>
                   {spot?.available && spot.price != null ? (
-                    <button type="button" onClick={applySpot} className={choiceClass(false) + " choice-sm num"}>
-                      {t("create.spotNow", { price: Math.round(spot.price).toLocaleString("en-US") })}
-                    </button>
+                    <>
+                      <button type="button" onClick={applySpot} className={choiceClass(false) + " choice-sm num"}>
+                        {t("create.spotNow", { price: Math.round(spot.price).toLocaleString("en-US") })}
+                      </button>
+                      <PriceAge publishTime={spot.publishTime} />
+                    </>
                   ) : null}
                 </div>
               </Row>
@@ -388,27 +427,42 @@ export default function CreatePage() {
               hint={t("create.seedLiveHint", { symbol: COLLATERAL_SYMBOL })}
               error={attempted || amount.trim().length > 0 ? seedError : undefined}
             >
-              <div className="flex flex-wrap items-center gap-2">
-                <div style={{ width: "11rem" }}>
-                  <TextInput
-                    inputMode="decimal"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    className="num text-right"
-                  />
-                </div>
-                <div className="flex gap-1.5">
-                  {SEED_CHIPS.map((v) => (
+              <div className="stack-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div style={{ width: "11rem" }}>
+                    <TextInput
+                      inputMode="decimal"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      className="num text-right"
+                    />
+                  </div>
+                  <div className="flex gap-1.5">
+                    {SEED_CHIPS.map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setAmount(v)}
+                        className={choiceClass(amount === v) + " choice-sm num"}
+                      >
+                        {v}
+                      </button>
+                    ))}
                     <button
-                      key={v}
                       type="button"
-                      onClick={() => setAmount(v)}
-                      className={choiceClass(amount === v) + " choice-sm num"}
+                      disabled={!maxAmount}
+                      onClick={() => maxAmount && setAmount(maxAmount)}
+                      className={choiceClass(maxAmount != null && amount === maxAmount) + " choice-sm"}
                     >
-                      {v}
+                      {t("common.max")}
                     </button>
-                  ))}
+                  </div>
                 </div>
+                {publicKey && walletBalance ? (
+                  <div className="text-right text-xs text-zinc-500">
+                    {t("common.balance", { amount: `${toUi(walletBalance.atoms, walletBalance.decimals, 2)} ${COLLATERAL_SYMBOL}` })}
+                  </div>
+                ) : null}
               </div>
             </Row>
           </section></Reveal>

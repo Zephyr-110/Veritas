@@ -23,6 +23,7 @@ import {
   GITHUB_REPO,
 } from "@/lib/constants";
 import { clusterLabel, kindLabel, kindTone, marketKind } from "@/lib/display";
+import { PriceAge } from "./price-age";
 import { explorerAccount, explorerTx, formatYesNo, shorten } from "@/lib/format";
 import type { MarketView } from "@/lib/markets";
 import { parseTxError } from "@/lib/errors";
@@ -54,18 +55,18 @@ export function Button({
 }: ButtonHTMLAttributes<HTMLButtonElement> & { tone?: "primary" | "secondary" | "yes" | "no"; busy?: boolean }) {
   const tones: Record<string, string> = {
     primary:
-      "shine font-semibold bg-gradient-to-b from-cyan-400 to-cyan-500 text-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_0_20px_rgba(34,211,238,0.3),0_4px_14px_0_rgba(34,211,238,0.39)] hover:from-cyan-300 hover:to-cyan-400 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_0_26px_rgba(34,211,238,0.42),0_4px_18px_0_rgba(34,211,238,0.5)]",
+      "font-semibold bg-cyan-400 text-zinc-950 hover:bg-cyan-300",
     secondary:
-      "btn-ghost font-medium bg-transparent text-zinc-200 border border-white/10 hover:border-white/25 hover:bg-white/[0.06]",
+      "btn-ghost font-medium bg-transparent text-zinc-200 border border-white/[0.08] hover:border-white/20 hover:bg-white/[0.06]",
     yes:
-      "shine font-medium bg-gradient-to-b from-emerald-400/25 to-emerald-500/10 text-emerald-300 border border-emerald-500/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.15),0_4px_14px_0_rgba(52,211,153,0.22)] hover:from-emerald-400/35 hover:to-emerald-500/15 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.15),0_4px_16px_0_rgba(52,211,153,0.32)]",
-    no: "shine font-medium bg-gradient-to-b from-rose-400/25 to-rose-500/10 text-rose-300 border border-rose-500/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.15),0_4px_14px_0_rgba(251,113,133,0.22)] hover:from-rose-400/35 hover:to-rose-500/15 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.15),0_4px_16px_0_rgba(251,113,133,0.32)]",
+      "font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 hover:bg-emerald-500/20",
+    no: "font-medium bg-rose-500/10 text-rose-300 border border-rose-500/20 hover:bg-rose-500/20",
   };
   return (
     <button
       data-tone={tone}
       className={cx(
-        "relative inline-flex h-10 items-center justify-center rounded-2xl px-4 text-sm transition-all duration-150 hover:brightness-110 active:brightness-95 enabled:hover:scale-[1.02] enabled:active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100",
+        "relative inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm transition-all duration-150 hover:brightness-110 active:brightness-95 enabled:active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100",
         tones[tone],
         className
       )}
@@ -126,7 +127,7 @@ export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
     <input
       {...props}
       className={cx(
-        "field h-11 w-full rounded-xl border border-zinc-800 px-3 text-sm text-white outline-none placeholder:text-zinc-600 transition-all duration-300",
+        "field h-11 w-full rounded-lg border border-zinc-700 px-3 text-sm text-white outline-none placeholder:text-zinc-600 transition-all duration-300",
         props.className
       )}
     />
@@ -141,11 +142,11 @@ export function Chip({
   tone?: "mute" | "yes" | "no" | "accent" | "ink";
 }) {
   const tones: Record<string, string> = {
-    mute: "border-zinc-800 text-zinc-400",
-    yes: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
-    no: "border-rose-500/30 bg-rose-500/10 text-rose-400",
-    accent: "border-cyan-500/30 bg-cyan-500/10 text-cyan-400",
-    ink: "border-zinc-700 text-zinc-200",
+    mute: "border-white/5 text-zinc-400",
+    yes: "border-emerald-500/20 bg-emerald-500/10 text-emerald-400",
+    no: "border-rose-500/20 bg-rose-500/10 text-rose-400",
+    accent: "border-cyan-500/20 bg-cyan-500/10 text-cyan-400",
+    ink: "border-zinc-800 text-zinc-200",
   };
   return (
     <span className={cx("chip-x inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[11px] font-medium", tones[tone])}>
@@ -167,6 +168,10 @@ export function CopyText({ value, label }: { value: string; label?: string }) {
       }}
     >
       {label ?? shorten(value, 4, 4)}
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="ml-1 inline-block align-[-1px] opacity-50" aria-hidden>
+        <rect x="9" y="9" width="12" height="12" rx="2" />
+        <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+      </svg>
     </button>
   );
 }
@@ -188,7 +193,7 @@ export function OddsLine({ yes }: { yes: number }) {
 
 export function StatBox({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-2xl bg-zinc-950/50 px-4 py-3">
+    <div>
       <div className="kicker text-[11px] text-zinc-500">{label}</div>
       <div className="num mt-2 text-right font-medium text-white">{value}</div>
       {hint ? <div className="mt-1 text-right text-xs text-zinc-500">{hint}</div> : null}
@@ -213,7 +218,7 @@ export function PopNum({ text }: { text: string }) {
   );
 }
 
-export function Reveal({ children }: { children: ReactNode }) {
+export function Reveal({ children, className }: { children: ReactNode; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [shown, setShown] = useState(false);
   useEffect(() => {
@@ -247,84 +252,9 @@ export function Reveal({ children }: { children: ReactNode }) {
     };
   }, []);
   return (
-    <div ref={ref} className={cx("reveal", shown && "reveal-in")}>
+    <div ref={ref} className={cx("reveal", shown && "reveal-in", className)}>
       {children}
     </div>
-  );
-}
-
-export function StickyRail({ children, className }: { children: ReactNode; className?: string }) {
-  const ref = useRef<HTMLElement>(null);
-  const [stuck, setStuck] = useState(false);
-  const [soft, setSoft] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const desktop = window.matchMedia("(min-width: 1024px)").matches;
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (!desktop || reduced) {
-      let raf = 0;
-      const check = () => {
-        cancelAnimationFrame(raf);
-        raf = requestAnimationFrame(() => setStuck(el.getBoundingClientRect().top <= 81));
-      };
-      check();
-      window.addEventListener("scroll", check, { passive: true });
-      return () => {
-        window.removeEventListener("scroll", check);
-        cancelAnimationFrame(raf);
-      };
-    }
-    setSoft(true);
-    let shift = 0;
-    let dirty = true;
-    const measureUntil = performance.now() + 2500;
-    let naturalTop = 0;
-    let maxShift = 0;
-    let raf = 0;
-    const measure = () => {
-      const parent = el.parentElement;
-      if (!parent) return;
-      naturalTop = el.getBoundingClientRect().top + window.scrollY - shift;
-      maxShift = Math.max(
-        0,
-        parent.getBoundingClientRect().bottom + window.scrollY - el.offsetHeight - naturalTop
-      );
-      dirty = false;
-    };
-    const loop = () => {
-      if (dirty || performance.now() < measureUntil) measure();
-      const target = Math.min(Math.max(window.scrollY + 80 - naturalTop, 0), maxShift);
-      const diff = target - shift;
-      if (Math.abs(diff) > 0.05) {
-        shift += diff * 0.16;
-        el.style.transform = `translate3d(0, ${shift.toFixed(2)}px, 0)`;
-        setStuck(shift > 4);
-      }
-      raf = requestAnimationFrame(loop);
-    };
-    raf = requestAnimationFrame(loop);
-    const mark = () => {
-      dirty = true;
-    };
-    window.addEventListener("resize", mark);
-    window.addEventListener("load", mark);
-    const ro = new ResizeObserver(mark);
-    if (el.parentElement) ro.observe(el.parentElement);
-    ro.observe(el);
-    if (document.body) ro.observe(document.body);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("resize", mark);
-      window.removeEventListener("load", mark);
-      ro.disconnect();
-      el.style.transform = "";
-    };
-  }, []);
-  return (
-    <aside ref={ref} className={cx(className, soft && "soft-rail-on", stuck && "rail-stuck")}>
-      {children}
-    </aside>
   );
 }
 
@@ -344,12 +274,12 @@ export function SegTabs<T extends string>({
   const active = options[index];
   return (
     <div
-      className="seg-tabs relative grid rounded-xl border border-zinc-800/60 bg-zinc-900/50 p-1"
+      className="seg-tabs relative grid rounded-lg border border-white/5 bg-zinc-900/50 p-1"
       style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
     >
       <span
         aria-hidden
-        className="seg-thumb absolute inset-y-1 rounded-lg transition-all duration-300"
+        className="seg-thumb absolute inset-y-1 rounded transition-all duration-300"
         style={{
           left: "0.25rem",
           width: `calc((100% - 0.5rem) / ${options.length})`,
@@ -474,7 +404,7 @@ function ThemeToggle() {
       onClick={toggle}
       aria-label={t("nav.theme")}
       title={t("nav.theme")}
-      className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-zinc-800 bg-zinc-950/80 text-zinc-400 transition-colors hover:text-white"
+      className="grid h-8 w-8 shrink-0 place-items-center rounded-none border border-zinc-800 bg-zinc-950/80 text-zinc-400 transition-colors hover:text-white"
     >
       {theme === "light" ? (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -494,7 +424,7 @@ function LangSwitch() {
   const { locale, setLocale, t } = useI18n();
   return (
     <div
-      className="inline-flex h-8 shrink-0 items-center rounded-full border border-zinc-800 bg-zinc-950/80 p-0.5"
+      className="inline-flex h-8 shrink-0 items-center rounded-none border border-zinc-800 bg-zinc-950/80 p-0.5"
       role="group"
       aria-label={t("nav.language")}
     >
@@ -502,7 +432,7 @@ function LangSwitch() {
         type="button"
         onClick={() => setLocale("en")}
         className={cx(
-          "rounded-full px-2 py-1 text-[11px] font-medium leading-none transition-colors",
+          "rounded-none px-2 py-1 text-[11px] font-medium leading-none transition-colors",
           locale === "en" ? "bg-accent text-zinc-950" : "text-zinc-400 hover:text-white"
         )}
       >
@@ -512,7 +442,7 @@ function LangSwitch() {
         type="button"
         onClick={() => setLocale("zh")}
         className={cx(
-          "rounded-full px-2 py-1 text-[11px] font-medium leading-none transition-colors",
+          "rounded-none px-2 py-1 text-[11px] font-medium leading-none transition-colors",
           locale === "zh" ? "bg-accent text-zinc-950" : "text-zinc-400 hover:text-white"
         )}
       >
@@ -531,6 +461,7 @@ function HeaderTape() {
         <span key={f.key} className="flex items-baseline gap-1.5 text-[13px]">
           <span className="font-medium text-zinc-500">{f.symbol}</span>
           <span className="num text-zinc-200">{formatPythPrice(quotes[f.key]?.price ?? null)}</span>
+          <PriceAge publishTime={quotes[f.key]?.publishTime ?? null} />
         </span>
       ))}
     </div>
@@ -562,21 +493,30 @@ export function Header() {
       delete root.dataset.brand;
       return;
     }
-    const el = document.getElementById("masthead");
-    if (!el) {
-      delete root.dataset.brand;
-      return;
-    }
-    const io = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) root.dataset.brand = "hidden";
-        else delete root.dataset.brand;
-      },
-      { rootMargin: "-56px 0px 0px 0px" }
-    );
-    io.observe(el);
+    // The small header brand hands over from the homepage masthead: hidden
+    // while any of the masthead is still at or below the header line,
+    // shown once it has scrolled past. This used to be an
+    // IntersectionObserver attached once at mount — on a cold document
+    // load it never produced the initial hidden state (only in-app
+    // navigation worked), so the state is now recomputed directly from
+    // the masthead's rect on scroll/resize and at a few bounded retries
+    // after mount, which cannot miss regardless of mount order.
+    const update = () => {
+      const el = document.getElementById("masthead");
+      if (!el) return;
+      if (el.getBoundingClientRect().bottom > 56) root.dataset.brand = "hidden";
+      else delete root.dataset.brand;
+    };
+    update();
+    const raf = requestAnimationFrame(update);
+    const timers = [window.setTimeout(update, 250), window.setTimeout(update, 1000)];
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
     return () => {
-      io.disconnect();
+      cancelAnimationFrame(raf);
+      timers.forEach((id) => window.clearTimeout(id));
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
       delete root.dataset.brand;
     };
   }, [pathname]);
@@ -594,7 +534,7 @@ export function Header() {
         <div className="flex min-w-0 items-center gap-2 md:gap-5">
           <Link href="/" className="header-brand flex items-center gap-2.5">
 <PulseAreaMark size={30} />
-            <span className="brand-word hidden text-base font-bold text-white sm:inline">{t("brand.name")}</span>
+            <span className="brand-word font-display hidden text-base font-semibold text-white sm:inline">{t("brand.name")}</span>
           </Link>
           <nav className="hidden items-center gap-1 md:flex">
             {nav.map((item) => {
@@ -621,7 +561,7 @@ export function Header() {
             type="button"
             onClick={() => setOpen(true)}
             className={cx(
-              "hidden items-center gap-2 rounded-full px-3 py-1 text-xs md:flex",
+              "hidden items-center gap-2 rounded-none px-3 py-1 text-xs md:flex",
               ok
                 ? "border border-emerald-800/50 bg-emerald-950/40 text-emerald-400"
                 : ok === false
@@ -653,7 +593,7 @@ export function Header() {
               key={item.href}
               href={item.href}
               className={cx(
-                "whitespace-nowrap rounded-full px-3 py-1 text-[11px]",
+                "whitespace-nowrap rounded-none px-3 py-1 text-[11px]",
                 active ? "bg-accent text-zinc-950" : "text-zinc-400"
               )}
             >

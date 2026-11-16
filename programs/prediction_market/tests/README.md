@@ -13,7 +13,7 @@ Needs `target/deploy/prediction_market.so` built with `cargo build-sbf --arch v0
 - `harness/` — LiteSVM fixture: clock, Pyth accounts, txs, ledger
 - `spec_scenarios.rs` — instruction scenarios, fees, Pyth identity, math vectors, CU
 - `econ_settlement.rs` — settlement boundaries and economic-security gate
-- `oracle/pm_amm_math.py` and `oracle/protocol_sim.py` — independent expected values
+- repo-root `oracle/pm_amm_math.py` and `oracle/protocol_sim.py` — independent expected values
 
 ## Invariants
 

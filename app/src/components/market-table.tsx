@@ -9,16 +9,11 @@ import { useFeeds } from "@/hooks/use-feeds";
 import { FEEDS, formatPythPrice } from "@/lib/feeds";
 import { useT } from "@/i18n/provider";
 import { LiveCountdown } from "./live";
+import { PriceAge } from "./price-age";
 import { Button, StatusChip } from "./ui";
 import { marketKind } from "@/lib/display";
 
-export function MarketTable({
-  markets,
-  actionHref = "open",
-}: {
-  markets: MarketView[];
-  actionHref?: "open" | "view";
-}) {
+export function MarketTable({ markets }: { markets: MarketView[] }) {
   const now = useNow(1000);
   const { quotes } = useFeeds();
   const t = useT();
@@ -33,7 +28,16 @@ export function MarketTable({
         <div className="c-trade text-right">{t("markets.colAction")}</div>
       </div>
       {markets.map((market, index) => {
-        const live = marketKind(market, now) === "live";
+        const kind = marketKind(market, now);
+        const live = kind === "live";
+        const actionLabel =
+          kind === "live"
+            ? t("markets.open")
+            : kind === "awaiting"
+              ? t("markets.actionSettle")
+              : kind === "voidable"
+                ? t("markets.actionVoid")
+                : t("markets.view");
         const feedPreset = FEEDS.find((f) => f.hex === market.feedHex);
         const spot = feedPreset ? quotes[feedPreset.key] : undefined;
         let spotLine: string | null = null;
@@ -53,20 +57,25 @@ export function MarketTable({
         return (
           <article
             key={market.address.toBase58()}
-            className="row-in relative border-t border-zinc-800/80 px-5 transition-colors duration-150 hover:bg-white/[0.03]"
+            className="row-in relative border-t border-[var(--hair)] px-5 transition-colors duration-150 hover:bg-white/[0.03]"
             style={{ animationDelay: `${Math.min(index, 7) * 80}ms` }}
           >
             <Link href={href} className="absolute inset-0 z-10" aria-label={title} />
             <div className="market-row">
               <div className="c-name min-w-0">
                 <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-[15px] font-semibold text-white">{title}</span>
+                  <span className="line-clamp-2 min-w-0 leading-snug text-[15px] font-semibold text-white">{title}</span>
                   <span className="shrink-0 md:hidden">
                     <StatusChip market={market} now={now} />
                   </span>
                 </div>
                 <div className="mt-1 text-xs text-zinc-500 md:hidden">{formatYesNo(market.yesPrice)}</div>
-                {spotLine ? <div className="mt-1 hidden truncate text-xs text-zinc-500 md:block">{spotLine}</div> : null}
+                {spotLine ? (
+                  <div className="mt-1 hidden items-baseline gap-2 text-xs text-zinc-500 md:flex">
+                    <span className="truncate">{spotLine}</span>
+                    <PriceAge publishTime={spot?.publishTime ?? null} className="shrink-0 text-[10px] text-zinc-400" />
+                  </div>
+                ) : null}
               </div>
               <div className="c-yes text-right">
                 <div className="num text-[17px] font-semibold text-zinc-50">{formatCents(market.yesPrice)}</div>
@@ -76,7 +85,7 @@ export function MarketTable({
                 {live ? (
                   <LiveCountdown expiry={market.expiry} now={now} className="whitespace-nowrap text-[15px] text-zinc-100" />
                 ) : (
-                  <span className="num block truncate text-[15px] text-zinc-500">{timeCopy(market, now)}</span>
+                  <span className="num block whitespace-nowrap text-[13px] text-zinc-500">{timeCopy(market, now)}</span>
                 )}
               </div>
               <div className="c-pool text-right">
@@ -87,8 +96,8 @@ export function MarketTable({
               </div>
               <div className="c-trade text-right">
                 <Link href={href} className="relative z-20">
-                  <Button type="button" tone="secondary" className="h-8 px-3 text-[11px] transition-transform duration-150 hover:scale-105">
-                    {t(actionHref === "view" ? "markets.view" : "markets.open")}
+                  <Button type="button" tone="secondary" className={"h-8 px-3 text-[11px] transition-transform duration-150 hover:scale-105" + (kind === "voidable" ? " btn-void" : "")}>
+                    {actionLabel}
                   </Button>
                 </Link>
               </div>

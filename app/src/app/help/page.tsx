@@ -2,8 +2,6 @@
 
 import { useState, type ComponentType, type ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useWallet } from "@solana/wallet-adapter-react";
 import {
   ChevronDown,
   CircleDollarSign,
@@ -13,7 +11,8 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useT } from "@/i18n/provider";
-import { Button, CopyText, Reveal } from "@/components/ui";
+import { CopyText, Reveal } from "@/components/ui";
+import { FaucetClaimButton } from "@/components/faucet-claim";
 import { DEFAULT_PROGRAM_ID } from "@/lib/constants";
 import { useMarkets } from "@/hooks/use-markets";
 import { useNow } from "@/hooks/use-now";
@@ -94,50 +93,6 @@ function QuickStep({
   );
 }
 
-function ClaimButton() {
-  const t = useT();
-  const { publicKey } = useWallet();
-  const [state, setState] = useState<"idle" | "busy" | "done" | "cooldown" | "unavailable">("idle");
-  const claim = async () => {
-    if (!publicKey) return;
-    setState("busy");
-    try {
-      const res = await fetch("/api/faucet", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ address: publicKey.toBase58() }),
-      });
-      if (res.ok) {
-        setState("done");
-      } else {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        setState(data.error === "cooldown" ? "cooldown" : "unavailable");
-      }
-    } catch {
-      setState("unavailable");
-    }
-  };
-  const label =
-    state === "done"
-      ? t("help.q2Claimed")
-      : state === "cooldown"
-        ? t("help.q2Cooldown")
-        : state === "unavailable"
-          ? t("help.q2Unavailable")
-          : t("help.q2Claim");
-  return (
-    <Button
-      type="button"
-      className="h-9 px-4 text-sm"
-      busy={state === "busy"}
-      disabled={!publicKey || state === "busy" || state === "done"}
-      onClick={() => void claim()}
-    >
-      {label}
-    </Button>
-  );
-}
-
 function LiveNowCard() {
   const t = useT();
   const { markets } = useMarkets();
@@ -161,6 +116,7 @@ function LiveNowCard() {
       <div className="flex shrink-0 flex-col items-end gap-1.5 text-right">
         <LiveCountdown expiry={live.expiry} now={now} className="cd-glow text-lg font-semibold text-white" />
         <span className="num text-sm text-zinc-400">{formatYesNo(live.yesPrice)}</span>
+        <span className="text-sm font-medium text-cyan-300">{t("help.cta")} →</span>
       </div>
     </Link>
   );
@@ -168,12 +124,11 @@ function LiveNowCard() {
 
 export default function HelpPage() {
   const t = useT();
-  const router = useRouter();
   return (
     <div className="mx-auto w-full max-w-3xl stack-6 fade-in">
       <Reveal>
         <header className="stack-4 items-center text-center">
-          <h1 className="text-4xl font-semibold leading-tight tracking-tight text-white sm:text-5xl">
+          <h1 className="font-display text-4xl font-semibold leading-tight tracking-tight text-white sm:text-5xl">
             {t("help.title")}
           </h1>
           <p className="mx-auto max-w-xl text-[15px] leading-relaxed text-zinc-400">{t("help.sub")}</p>
@@ -195,7 +150,7 @@ export default function HelpPage() {
             <QuickStep n={1} title={t("help.q1Title")} body={t("help.q1")} />
             <QuickStep n={2} title={t("help.q2Title")} body={t("help.q2")}>
               <div className="flex flex-wrap items-center gap-3">
-                <ClaimButton />
+                <FaucetClaimButton />
                 <a
                   href="https://faucet.solana.com"
                   target="_blank"
@@ -227,14 +182,6 @@ export default function HelpPage() {
       </Reveal>
 
       <Reveal>
-        <div className="flex justify-center">
-          <Button className="h-12 px-8 text-base" onClick={() => router.push("/markets")}>
-            {t("help.cta")}
-          </Button>
-        </div>
-      </Reveal>
-
-      <Reveal>
         <section className="stack-3">
           <h2 className="section-title">{t("help.deepTitle")}</h2>
           <DeepItem title={t("help.a1Title")} body={t("help.a1")} />
@@ -245,6 +192,18 @@ export default function HelpPage() {
               <p>{t("help.ex2")}</p>
             </div>
           </DeepItem>
+        </section>
+      </Reveal>
+
+      <Reveal>
+        <section className="stack-3">
+          <h2 className="section-title">{t("help.dataTitle")}</h2>
+          <div className="surface stack-3 rounded-xl p-5 text-[15px] leading-relaxed text-zinc-400 backdrop-blur-md">
+            <p>{t("help.d1")}</p>
+            <p>{t("help.d2")}</p>
+            <p>{t("help.d3")}</p>
+            <p>{t("help.d4")}</p>
+          </div>
         </section>
       </Reveal>
 

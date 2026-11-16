@@ -14,14 +14,13 @@ export function questionTitle(market: MarketView): string {
   if (!AUTO_TITLE.test(market.title)) return market.title;
   const symbol = feedByHex(market.feedHex)?.symbol ?? market.title.split(" ")[0];
   const human = thresholdToHuman(market.threshold, market.exponent);
-  const d = new Date(market.expiry * 1000);
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
+  // One site-wide timestamp shape: titles embed the same formatStamp string
+  // (YYYY-MM-DD HH:mm) used for deadlines, stamps and the settled time.
+  const stamp = formatStamp(market.expiry);
   if (getLocale() === "zh") {
-    return symbol + " " + (d.getMonth() + 1) + "月" + d.getDate() + "日 " + hh + ":" + mm + " " + (market.settleAbove ? "能站上" : "会跌破") + " " + human + " 吗？";
+    return symbol + " " + stamp + " " + (market.settleAbove ? "能站上" : "会跌破") + " " + human + " 吗？";
   }
-  const mon = d.toLocaleString("en-US", { month: "short" });
-  return symbol + " " + (market.settleAbove ? "above" : "below") + " " + human + " at " + hh + ":" + mm + " on " + mon + " " + d.getDate() + "?";
+  return symbol + " " + (market.settleAbove ? "above" : "below") + " " + human + " at " + stamp + "?";
 }
 
 export function money(amount: bigint, decimals: number, digits = 2): string {
@@ -96,7 +95,7 @@ export function timeCopy(market: MarketView, now: number): string {
   const kind = marketKind(market, now);
   if (kind === "live") return countdown(market.expiry, now);
   if (kind === "awaiting") return t("time.closed", { when: formatWhen(market.expiry) });
-  if (kind === "voidable") return t("time.waitingRefund");
+  if (kind === "voidable") return formatWhen(market.expiry);
   return formatWhen(market.expiry);
 }
 

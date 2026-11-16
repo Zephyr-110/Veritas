@@ -175,7 +175,8 @@ npm run dev
 ```
 
 Point Phantom (or another Solana wallet) at **devnet**. You need devnet SOL
-and the collateral mint above.
+and the collateral mint above. Claim test USDT from the Help page (once per day).
+Creating a market makes you the LP, not an oracle; resolve and void are permissionless.
 
 The client IDL under `app/src/idl/` is copied from an `anchor build`. After
 program changes, regenerate it before expecting the UI to match.

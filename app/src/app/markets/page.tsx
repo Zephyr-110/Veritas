@@ -50,11 +50,19 @@ export default function MarketsPage() {
     return <MarketsSkeleton />;
   }
 
+  // When nothing is live or scheduled but finished markets exist, two
+  // stacked empty blocks leave the page looking dead. Show one empty
+  // notice for the live section, then the finished list itself — proof
+  // the venue has actually run — in place of the upcoming section.
+  const endedPreview =
+    tape === "hot" && groups.live.length === 0 && groups.next.length === 0 && groups.ended.length > 0;
   const sections =
     tape === "hot"
       ? [
           { key: "live", title: t("markets.live"), rows: groups.live, emptyTitle: t("markets.emptyLiveTitle"), emptyBody: t("markets.emptyLiveBody") },
-          { key: "next", title: t("markets.next"), rows: groups.next, emptyTitle: t("markets.emptyNextTitle"), emptyBody: t("markets.emptyNextBody") },
+          endedPreview
+            ? { key: "ended", title: t("markets.ended"), rows: groups.ended, emptyTitle: t("markets.emptyEndedTitle"), emptyBody: t("markets.emptyEndedBody") }
+            : { key: "next", title: t("markets.next"), rows: groups.next, emptyTitle: t("markets.emptyNextTitle"), emptyBody: t("markets.emptyNextBody") },
         ]
       : [{ key: "ended", title: t("markets.ended"), rows: groups.ended, emptyTitle: t("markets.emptyEndedTitle"), emptyBody: t("markets.emptyEndedBody") }];
 
@@ -63,13 +71,13 @@ export default function MarketsPage() {
       <div className="stack-5 enter-up">
         <div className="flex items-end justify-between gap-3">
           <h1 className="page-title">{t("markets.title")}</h1>
-          <div className="cluster-2 rounded-full border border-zinc-800 p-1">
+          <div className="cluster-2 seg-slot rounded-none p-1">
             {(["hot", "history"] as const).map((id) => (
               <button
                 key={id}
                 type="button"
                 onClick={() => setTape(id)}
-                className={"rounded-full px-3 py-1 text-xs " + (tape === id ? "bg-accent text-zinc-950" : "text-zinc-400")}
+                className={"rounded-none px-3 py-1 text-xs " + (tape === id ? "seg-on" : "text-zinc-400")}
               >
                 {t(id === "hot" ? "markets.hot" : "markets.history")}
               </button>
@@ -80,7 +88,7 @@ export default function MarketsPage() {
           <Reveal key={section.key}><section className="stack-3">
             <h2 className="section-title">{section.title}</h2>
             {section.rows.length ? (
-              <MarketTable markets={section.rows} actionHref={tape === "history" ? "view" : "open"} />
+              <MarketTable markets={section.rows} />
             ) : (
               <StateBlock
                 kind="empty"
@@ -101,14 +109,14 @@ export default function MarketsPage() {
           <div className="section-title">{nextMarket ? t("markets.nextRound") : t("markets.thisRound")}</div>
           {nextMarket ? (
             <>
-              <div className="truncate text-sm text-white">{questionTitle(nextMarket)}</div>
+              <div className="line-clamp-2 leading-snug text-sm text-white">{questionTitle(nextMarket)}</div>
               <div className="text-right">
                 <LiveCountdown expiry={nextMarket.expiry} now={now} className="text-[28px] num-accent cd-glow" />
               </div>
             </>
           ) : currentLive ? (
             <>
-              <div className="truncate text-sm text-white">{questionTitle(currentLive)}</div>
+              <div className="line-clamp-2 leading-snug text-sm text-white">{questionTitle(currentLive)}</div>
               <div className="text-right">
                 <LiveCountdown expiry={currentLive.expiry} now={now} className="text-[28px] num-accent cd-glow" />
               </div>

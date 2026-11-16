@@ -11,6 +11,7 @@ import { GITHUB_REPO } from "@/lib/constants";
 import { PricePanel } from "@/components/price-tape";
 import { PulseAreaMark } from "@/components/logo-marks";
 import { MarketTable } from "@/components/market-table";
+import { MarketCard } from "@/components/market-card";
 import { MarketTableSkeleton } from "@/components/skeletons";
 import { Button, Reveal } from "@/components/ui";
 import { LiveCountdown } from "@/components/live";
@@ -48,60 +49,48 @@ export default function HomePage() {
   return (
     <div className="relative">
       <div className="home-grid" aria-hidden />
-      <section id="masthead" className="masthead">
-        <div className="fade-in flex items-center justify-center gap-2 text-[13px] text-zinc-400">
-          <span className="live-dot h-1.5 w-1.5 rounded-full bg-accent" />
-          <span>{t("home.badge")}</span>
-        </div>
-        <h1 className="mt-6">
-          <span className="line-mask">
-            <span className="line-inner mh-brand" style={{ animationDelay: "100ms" }}>
-              <PulseAreaMark size={76} variant="hero" />
-              <span className="mh-name">{t("brand.name")}</span>
-            </span>
-          </span>
-          <span className="line-mask mh-tag-mask">
-            <span className="line-inner mh-tag" style={{ animationDelay: "200ms" }}>{t("home.mastheadTag")}</span>
-          </span>
-        </h1>
-      </section>
-
       <section className="home-hero">
         <div className="home-hero-grid">
-          <div className="flex flex-col items-center">
-            <p className="home-sub rise-in" style={{ animationDelay: "900ms" }}>{t("home.subtitle")}</p>
-            <div className="rise-in mt-8 flex flex-wrap justify-center gap-3" style={{ animationDelay: "900ms" }}>
-              <Link href="/markets">
-                <Button type="button" className="h-11 px-6">
-                  {t("home.cta")}
-                </Button>
-              </Link>
-              <Link href="#how">
-                <Button type="button" tone="secondary" className="h-11 px-6">
-                  {t("home.howCta")}
-                </Button>
-              </Link>
+          <div className="hero-left">
+            <div id="masthead" className="masthead">
+              <div className="fade-in flex items-center justify-center gap-2 text-[13px] text-zinc-400 lg:justify-start">
+                <span className="live-dot h-1.5 w-1.5 rounded-full bg-accent" />
+                <span>{t("home.badge")}</span>
+              </div>
+              <h1 className="mt-6">
+                <span className="line-mask">
+                  <span className="line-inner mh-brand" style={{ animationDelay: "100ms" }}>
+                    <PulseAreaMark size={76} variant="hero" />
+                    <span className="mh-name">{t("brand.name")}</span>
+                  </span>
+                </span>
+                <span className="line-mask mh-tag-mask">
+                  <span className="line-inner mh-tag" style={{ animationDelay: "200ms" }}>{t("home.mastheadTag")}</span>
+                </span>
+              </h1>
+            </div>
+            <div className="mt-10 flex flex-col items-center lg:items-start">
+              <p className="home-sub rise-in text-center lg:text-left" style={{ animationDelay: "900ms" }}>{t("home.subtitle")}</p>
+              <div className="rise-in mt-8 flex flex-wrap justify-center gap-3 lg:justify-start" style={{ animationDelay: "900ms" }}>
+                <Link href="/markets">
+                  <Button type="button" className="h-11 px-6">
+                    {t("home.cta")}
+                  </Button>
+                </Link>
+                <Link href="#how">
+                  <Button type="button" tone="secondary" className="h-11 px-6">
+                    {t("home.howCta")}
+                  </Button>
+                </Link>
+              </div>
             </div>
           </div>
           <PricePanel />
         </div>
       </section>
 
-      <section className="home-section home-why">
-        <div className="grid gap-6 md:grid-cols-3">
-          <div className="home-how-card rise-in" style={{ animationDelay: "1160ms" }}>
-            <div className="home-why-title">{t("home.why1Title")}</div>
-            <p>{t("home.why1")}</p>
-          </div>
-          <div className="home-how-card rise-in" style={{ animationDelay: "1080ms" }}>
-            <div className="home-why-title">{t("home.why2Title")}</div>
-            <p>{t("home.why2")}</p>
-          </div>
-          <div className="home-how-card rise-in" style={{ animationDelay: "1000ms" }}>
-            <div className="home-why-title">{t("home.why3Title")}</div>
-            <p>{t("home.why3")}</p>
-          </div>
-        </div>
+      <section className="home-statement">
+        <p className="font-display home-statement-text">{t("home.statement")}</p>
       </section>
 
       <Reveal><section className="home-section">
@@ -172,13 +161,43 @@ export default function HomePage() {
             <MarketTableSkeleton rows={3} />
           ) : finished.length ? (
             <div className="fade-in">
-              <MarketTable markets={finished} actionHref="view" />
+              <div className="home-fin-strip">
+                {finished.slice(0, 6).map((market) => (
+                  <div key={market.address.toBase58()} className="home-fin-item">
+                    <MarketCard market={market} />
+                  </div>
+                ))}
+              </div>
+              {finished.length > 6 ? (
+                <div className="mt-3 text-right">
+                  <Link href="/markets" className="link-accent text-[15px]">
+                    {t("home.viewAllFinished")} →
+                  </Link>
+                </div>
+              ) : null}
             </div>
           ) : (
             <p className="text-[15px] text-zinc-500">{t("home.emptyFinished")}</p>
           )}
         </div>
       </section></Reveal>
+
+      <section className="home-section home-why">
+        <div className="grid gap-6 md:grid-cols-3">
+          <div className="home-why-item">
+            <div className="home-why-title">{t("home.why1Title")}</div>
+            <p>{t("home.why1")}</p>
+          </div>
+          <div className="home-why-item">
+            <div className="home-why-title">{t("home.why2Title")}</div>
+            <p>{t("home.why2")}</p>
+          </div>
+          <div className="home-why-item">
+            <div className="home-why-title">{t("home.why3Title")}</div>
+            <p>{t("home.why3")}</p>
+          </div>
+        </div>
+      </section>
 
       <Reveal><section id="how" className="home-section scroll-mt-24">
         <h2 className="home-kicker">{t("home.how")}</h2>

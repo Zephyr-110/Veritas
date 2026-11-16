@@ -10,7 +10,7 @@ import { useFeeds } from "@/hooks/use-feeds";
 import { formatWhen, hasBet, marketKind, money, questionTitle } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
 import { feedByHex, formatPythPrice, thresholdToHuman } from "@/lib/feeds";
-import { countdown, formatUnix, formatYesNo, marketIdHex, shorten, toUi } from "@/lib/format";
+import { countdown, explorerAccount, formatUnix, formatYesNo, marketIdHex, shorten, toUi } from "@/lib/format";
 import { RESOLVE_WINDOW } from "@/lib/constants";
 import { marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
 import { TradeDesk } from "@/components/trade-desk";
@@ -19,11 +19,13 @@ import { chartPair } from "@/lib/chart";
 import { LpDesk } from "@/components/lp-desk";
 import { SettleDesk } from "@/components/settle-desk";
 import { CountUp, FlashNum, LiveCountdown } from "@/components/live";
-import { Button, Card, CopyText, Kv, Reveal, StateBlock, StatusChip, StickyRail } from "@/components/ui";
+import { PriceAge } from "@/components/price-age";
+import { Button, Card, CopyText, Kv, Reveal, SegTabs, StateBlock, StatusChip } from "@/components/ui";
+import { useSettings } from "@/components/providers";
 import { MarketDetailSkeleton } from "@/components/skeletons";
 import { useT } from "@/i18n/provider";
 
-type Spot = { price: number } | null;
+type Spot = { price: number; publishTime: number | null } | null;
 
 export default function MarketDetailPage() {
   const [v2, setV2] = useState<false | "v2" | "v3">(false);
@@ -67,7 +69,10 @@ export default function MarketDetailPage() {
   const preset = feedByHex(market.feedHex);
   const feedKey = preset?.key;
   const quote = feedKey ? quotes[feedKey] : undefined;
-  const spot: Spot = ready && quote?.available && quote?.price != null ? { price: quote.price } : null;
+  const spot: Spot =
+    ready && quote?.available && quote?.price != null
+      ? { price: quote.price, publishTime: quote.publishTime }
+      : null;
   const humanThreshold = thresholdToHuman(market.threshold, market.exponent);
   const pair = chartPair(feedKey);
   const rule = market.settleAbove
@@ -113,31 +118,18 @@ export default function MarketDetailPage() {
       ) : null}
 
       <div className="split split-detail">
-        <div className="stack-4 stack-tight">
+        <div className="stack-4 stack-tight self-stretch">
           <Reveal>
             <PositionCard market={market} position={position} connected={!!publicKey} />
           </Reveal>
-          <Reveal>
-            <Card className="stack-3">
-              <div className="section-title">{t("market.history")}</div>
-              <Kv k={t("market.yesReserve")} v={money(market.reserveYes, market.decimals)} />
-              <Kv k={t("market.noReserve")} v={money(market.reserveNo, market.decimals)} />
-              <Kv k={t("market.depth")} v={money(market.vault, market.decimals)} />
-              <Kv k={t("market.deadline")} v={formatWhen(market.expiry)} />
-              <Kv k={t("market.threshold")} v={humanThreshold} />
-              <Kv k={t("market.settleRule")} v={rule} />
-            </Card>
+          <Reveal className="flex-1">
+            <PoolFactsCard market={market} rule={rule} humanThreshold={humanThreshold} />
           </Reveal>
-          {live ? (
-            <Reveal>
-              <LpDesk market={market} position={position} />
-            </Reveal>
-          ) : null}
         </div>
-        <StickyRail className="desk-rail stack-4">
-          {live ? <TradeDesk market={market} position={position} /> : null}
+        <aside className="desk-rail stack-4">
+          {live ? <DeskSwitcher market={market} position={position} /> : null}
           <SettleDesk market={market} position={position} />
-        </StickyRail>
+        </aside>
       </div>
 
       <AddressesPanel market={market} />
@@ -145,8 +137,49 @@ export default function MarketDetailPage() {
   );
 }
 
+function PoolFactsCard({ market, rule, humanThreshold }: { market: MarketView; rule: string; humanThreshold: string }) {
+  const t = useT();
+  return (
+    <Card className="stack-3 h-full">
+      <div className="section-title">{t("market.history")}</div>
+      <Kv k={t("market.yesReserve")} v={`${toUi(market.reserveYes, market.decimals, 2)} YES`} />
+      <Kv k={t("market.noReserve")} v={`${toUi(market.reserveNo, market.decimals, 2)} NO`} />
+      <Kv k={t("market.depth")} v={money(market.vault, market.decimals)} />
+      <p className="text-xs leading-relaxed text-zinc-500">{t("market.vaultNote")}</p>
+      <Kv k={t("market.deadline")} v={formatWhen(market.expiry)} />
+      <Kv k={t("market.threshold")} v={humanThreshold} />
+      <Kv k={t("market.settleRule")} v={rule} />
+    </Card>
+  );
+}
+
+const DESK_SEG = "linear-gradient(to bottom, rgba(255,255,255,0.14), rgba(255,255,255,0.07))";
+
+function DeskSwitcher({ market, position }: { market: MarketView; position: UserPosition }) {
+  const t = useT();
+  const [desk, setDesk] = useState<"trade" | "lp">("trade");
+  return (
+    <div className="stack-3">
+      <SegTabs
+        value={desk}
+        onChange={setDesk}
+        options={[
+          { value: "trade", label: t("desk.trade"), color: DESK_SEG },
+          { value: "lp", label: t("desk.liquidity"), color: DESK_SEG },
+        ]}
+      />
+      {desk === "trade" ? (
+        <TradeDesk market={market} position={position} />
+      ) : (
+        <LpDesk market={market} position={position} />
+      )}
+    </div>
+  );
+}
+
 function AddressesPanel({ market }: { market: MarketView }) {
   const t = useT();
+  const { settings } = useSettings();
   const [open, setOpen] = useState(false);
   return (
     <div className="surface p-4 text-sm text-zinc-500">
@@ -166,11 +199,12 @@ function AddressesPanel({ market }: { market: MarketView }) {
       >
         <div className="overflow-hidden">
           <div className="stack-2 font-mono text-xs">
-            <Row k={t("market.addrMarket")} v={market.address.toBase58()} />
+            <Row k={t("market.addrMarket")} v={market.address.toBase58()} explorer={explorerAccount(market.address.toBase58(), settings.cluster)} />
             <Row k={t("market.addrQuestionId")} v={marketIdHex(market.id)} />
-            <Row k={t("market.addrCreator")} v={market.creator.toBase58()} />
-            <Row k={t("market.addrToken")} v={market.collateralMint.toBase58()} />
+            <Row k={t("market.addrCreator")} v={market.creator.toBase58()} explorer={explorerAccount(market.creator.toBase58(), settings.cluster)} />
+            <Row k={t("market.addrToken")} v={market.collateralMint.toBase58()} explorer={explorerAccount(market.collateralMint.toBase58(), settings.cluster)} />
             <Row k={t("market.addrFeed")} v={market.feedHex} />
+            <div className="pt-0.5 text-right font-sans text-[11px] text-zinc-600">{t("market.feedNote")}</div>
           </div>
         </div>
       </div>
@@ -220,9 +254,12 @@ function StatusBand({ market, now, spot, humanThreshold }: { market: MarketView;
   const spotCell = (
     <BandCell label={t("market.livePrice")}>
       {spot ? (
-        <FlashNum value={spot.price}>
-          <CountUp value={spot.price} format={(v) => formatPythPrice(v)} />
-        </FlashNum>
+        <span className="flex items-baseline gap-2">
+          <FlashNum value={spot.price}>
+            <CountUp value={spot.price} format={(v) => formatPythPrice(v)} />
+          </FlashNum>
+          <PriceAge publishTime={spot.publishTime} />
+        </span>
       ) : (
         <span className="text-zinc-500">{t("band.spotUnavailable")}</span>
       )}
@@ -328,11 +365,20 @@ function PositionCard({ market, position, connected }: { market: MarketView; pos
   );
 }
 
-function Row({ k, v }: { k: string; v: string }) {
+function Row({ k, v, explorer }: { k: string; v: string; explorer?: string | null }) {
   return (
     <div className="flex items-center justify-between gap-4">
       <span className="min-w-0 truncate">{k}</span>
-      <CopyText value={v} label={shorten(v, 8, 8)} />
+      <span className="flex items-center">
+        <CopyText value={v} label={shorten(v, 8, 8)} />
+        {explorer ? (
+          <a href={explorer} target="_blank" rel="noreferrer" aria-label="Explorer" className="px-1 py-0.5 text-zinc-500 transition-colors hover:text-white">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <path d="M7 17L17 7M8 7h9v9" />
+            </svg>
+          </a>
+        ) : null}
+      </span>
     </div>
   );
 }

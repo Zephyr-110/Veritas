@@ -1,34 +1,42 @@
-# Veritas
+# Veritas client
 
-Binary event markets on Solana. The UI talks to the program through an RPC node; there is no HTTP backend.
+Next.js 15 UI for the on-chain program. The browser talks to Solana over RPC.
+The only HTTP route is the optional Devnet faucet (`POST /api/faucet`).
 
-Live Devnet program: `CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER`
+Protocol rules live in the [root README](../README.md). This file is how to run the UI.
+
+| | |
+| :--- | :--- |
+| Program (devnet) | [`CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER`](https://explorer.solana.com/address/CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER?cluster=devnet) |
+| Collateral (devnet USDT) | [`CtiAxpKmXtK2bupa59GN6GPYXQiPPYUfSqnY1pgMD7QG`](https://explorer.solana.com/address/CtiAxpKmXtK2bupa59GN6GPYXQiPPYUfSqnY1pgMD7QG?cluster=devnet) |
 
 ## Run
 
 ```bash
 cd app
 npm install
+cp .env.example .env.local   # if you do not already have one
 npm run dev
 ```
 
 Open http://localhost:3000
 
-1. Phantom: Settings → Developer Mode → network **Devnet**.
+1. Phantom (or any Solana wallet): Developer Mode → network **Devnet**.
 2. Header should show `devnet`. If it still says `localnet`, open Settings → Reset → Save, then restart `npm run dev`.
-3. The list is empty until you create a market.
-4. The wallet that creates a market becomes both LP and oracle. **That wallet cannot trade.** Use a second Devnet account to buy Yes / No.
-5. The creator needs collateral tokens. Airdrop from the CLI wallet:
+3. Get Devnet SOL from the official Solana faucet (transaction fees).
+4. Connect the wallet and claim 100 test USDT on **Help** (once per day). The trade desk also offers the claim when the collateral balance is zero.
+5. Open a live market, or create one. Creating a market makes you the LP / house, not an oracle. That wallet **can** trade. After expiry, anyone may resolve or void.
 
-```bash
-cd /mnt/c/Users/30149/prediction_market
-bash scripts/airdrop-meme.sh
-```
+Suggested walkthrough: create a short-dated market → buy YES or NO → after expiry, anyone posts the first Pyth print to settle → redeem on the same market page. Claims stay open for 30 days after finalization; then the creator may close the market and sweep leftovers.
 
-Default recipient `2XTPuFTtsDZbCSks6c6fnxa8pzFcBUdwMZK8ds7kmqU7`: 100,000 tokens + 0.5 SOL.
-Mint: `CtiAxpKmXtK2bupa59GN6GPYXQiPPYUfSqnY1pgMD7QG`. Import it in Phantom if it does not show up.
+## Settlement (what the UI expects)
 
-Suggested walkthrough: wallet A creates a market (expiry 2–5 minutes) → wallet B buys Yes → after expiry wallet A resolves → wallet B redeems.
+- After expiry, `resolve_market` is permissionless. The program accepts the first Pyth print with `publish_time >= end_ts`.
+- Print within 10 seconds of expiry → the market resolves. Winners redeem 1:1.
+- Print later than 10 seconds → `StaleBurn`. Both tokens redeem at 1/2.
+- No successful resolve within 48 hours → anyone may `void_market` (`WindowBurn`). Same 1/2 redemption.
+- Charts are Coinbase candles for reference only. They never settle a market.
+- On Devnet, Pyth prints less often than mainnet, so a displayed price can be minutes old. The age next to a print is that print's own age.
 
 ## Localnet
 
@@ -53,12 +61,13 @@ node app/scripts/seed-local.js <walletA> <walletB>
 
 The script prints a mint. Put that mint in Settings. Validator resets wipe the mint; run the script again.
 
+CLI airdrop of the Devnet collateral mint is optional (`bash scripts/airdrop-meme.sh` from the repo root). The in-app faucet is the usual path.
+
 ## Notes
 
-- Cannot reach the node: validator is down, or Phantom / Settings RPC is not `8899` on localnet.
+- Cannot reach the node: RPC is down, or Phantom / Settings is not on the cluster you think.
 - Create fails with missing mint: Settings collateral mint is wrong.
-- Create fails with insufficient balance: wallet A was not funded.
-- Can create but cannot trade: you are still on the oracle wallet.
+- Create fails with insufficient balance: claim test USDT on Help, or fund the wallet.
 - Transaction lands but the page does not update: wait for `confirmed`, or refresh.
 
 Rebuild the IDL only after program instruction changes: `cd app && npm run copy-idl`.

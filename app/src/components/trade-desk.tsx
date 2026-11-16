@@ -13,6 +13,7 @@ import { useNow } from "@/hooks/use-now";
 import type { Side } from "@/lib/types";
 import { useT } from "@/i18n/provider";
 import { Button, Card, Field, Kv, PopNum, SegTabs, TextInput, useTx } from "./ui";
+import { FaucetClaimButton } from "./faucet-claim";
 
 const PRESETS = ["1", "2", "5", "10"];
 const SEG_NEUTRAL = "linear-gradient(to bottom, rgba(255,255,255,0.14), rgba(255,255,255,0.07))";
@@ -98,7 +99,6 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
 
   return (
     <Card className="desk flex flex-col gap-4">
-      <div className="text-base font-medium text-white">{t("trade.title")}</div>
       <SegTabs
         value={tab}
         onChange={setTab}
@@ -122,7 +122,7 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
           price: thresholdToHuman(market.threshold, market.exponent),
         })}
       </p>
-      <Field label={t("trade.youPay")} hint={t("trade.protect", { pct: (slippage / 100).toFixed(1) })}>
+      <Field label={t("trade.youPay")}>
         <TextInput inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="font-mono tabular-nums" />
       </Field>
       <div className="-mt-2 text-right text-xs text-zinc-500">
@@ -133,15 +133,20 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
               : `${toUi(sellBalance, market.decimals, 2)} ${otherLabel}`,
         })}
       </div>
+      {tab === "bet" && position.collateral === 0n ? (
+        <div className="-mt-2 flex justify-end">
+          <FaucetClaimButton className="h-8 px-3 text-xs" />
+        </div>
+      ) : null}
       <div className="cluster-2">
         {PRESETS.map((p) => (
-          <button key={p} type="button" className="rounded-full border border-zinc-800 px-3 py-1 text-xs text-zinc-400 transition hover:bg-white/[0.06] active:scale-95" onClick={() => setAmount(p)}>
+          <button key={p} type="button" className="rounded-none border border-white/5 px-3 py-1 text-xs text-zinc-400 transition hover:bg-white/[0.06] active:scale-95" onClick={() => setAmount(p)}>
             {p}
           </button>
         ))}
         <button
           type="button"
-          className="rounded-full border border-zinc-800 px-3 py-1 text-xs text-zinc-400 transition hover:bg-white/[0.06] active:scale-95"
+          className="rounded-none border border-white/5 px-3 py-1 text-xs text-zinc-400 transition hover:bg-white/[0.06] active:scale-95"
           onClick={() => setAmount(toUi(tab === "bet" ? position.collateral : sellBalance, market.decimals, 6))}
         >
           {t("common.max")}
@@ -160,14 +165,19 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
           <p className="text-xs leading-5 text-amber-300/90">{t("trade.impactWarn", { pct: Math.round(impactPct) })}</p>
         ) : null}
       </div>
-      <input
-        type="range"
-        min={50}
-        max={500}
-        step={50}
-        value={slippage}
-        onChange={(e) => setSlippage(Number(e.target.value))}
-      />
+      <div className="flex items-center gap-3">
+        <span className="shrink-0 text-xs text-zinc-500">{t("trade.slippage")}</span>
+        <input
+          type="range"
+          className="min-w-0 flex-1"
+          min={50}
+          max={500}
+          step={50}
+          value={slippage}
+          onChange={(e) => setSlippage(Number(e.target.value))}
+        />
+        <span className="num w-10 shrink-0 text-right text-xs text-zinc-300">{(slippage / 100).toFixed(1)}%</span>
+      </div>
       <Button type="button" busy={busy} disabled={busy || !!disabledReason} onClick={() => void submit()}>
         {disabledReason ?? (tab === "bet" ? (side === "yes" ? t("trade.buyYes") : t("trade.buyNo")) : t("trade.switch"))}
       </Button>

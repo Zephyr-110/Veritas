@@ -24,6 +24,27 @@ function fmtTime(unix: number): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+/** Merge consecutive candles so the plot never squeezes more than ~90
+    candles across its width: at 250+ one-minute candles each body is
+    ~1px wide and the chart reads as dots. OHLC semantics are preserved —
+    first open, highest high, lowest low, last close, bucket start time. */
+function aggregateCandles(candles: Candle[], maxCount = 60): Candle[] {
+  if (candles.length <= maxCount) return candles;
+  const size = Math.ceil(candles.length / maxCount);
+  const out: Candle[] = [];
+  for (let i = 0; i < candles.length; i += size) {
+    const bucket = candles.slice(i, i + size);
+    out.push({
+      time: bucket[0].time,
+      open: bucket[0].open,
+      high: Math.max(...bucket.map((c) => c.high)),
+      low: Math.min(...bucket.map((c) => c.low)),
+      close: bucket[bucket.length - 1].close,
+    });
+  }
+  return out;
+}
+
 export function PriceChartCard({
   pair,
   symbol,
@@ -47,7 +68,7 @@ export function PriceChartCard({
       try {
         const data = await fetchCandles(pair, expiry, Math.floor(Date.now() / 1000));
         if (alive) {
-          setCandles(data);
+          setCandles(aggregateCandles(data));
           setFailed(false);
         }
       } catch {
@@ -78,8 +99,14 @@ export function PriceChartCard({
       lo = Math.min(lo, c.low);
       hi = Math.max(hi, c.high);
     }
-    lo = Math.min(lo, thresholdValue);
-    hi = Math.max(hi, thresholdValue);
+    // The threshold may pull the domain toward itself by at most a quarter of the
+    // data span. A far-away target (e.g. price 3,900 vs target 4,000) used
+    // to stretch the domain ~3x and squash every candle body to ~1px; now
+    // the target line clamps to the plot edge instead, which still reads
+    // truthfully: the target is beyond the visible range, on that side.
+    const dataSpan = hi - lo || 1;
+    if (thresholdValue > hi) hi = Math.min(thresholdValue, hi + dataSpan * 0.25);
+    if (thresholdValue < lo) lo = Math.max(thresholdValue, lo - dataSpan * 0.25);
     const span = hi - lo || 1;
     lo -= span * 0.07;
     hi += span * 0.07;
@@ -90,7 +117,12 @@ export function PriceChartCard({
     const gran = candles.length > 1 ? Math.max(60, candles[1].time - candles[0].time) : 60;
     const t1 = candles[candles.length - 1].time + gran;
     const xTime = (unix: number) => padL + ((unix - t0) / (t1 - t0)) * plotW;
-    const thrY = y(thresholdValue);
+    const thrY = Math.max(padT, Math.min(padT + plotH, y(thresholdValue)));
+    // If the target line sits near the top of the plot, the tag goes below
+    // the line instead of above it, where it would collide with the expiry
+    // tag riding the top edge.
+    const thrTagY = thrY - 6 < padT + 12 ? thrY + 16 : thrY - 6;
+    const expX = Math.max(padL + 20, Math.min(padL + plotW - 20, xTime(expiry)));
     const last = candles[candles.length - 1];
     const lastColor = last.close >= thresholdValue ? UP : DOWN;
     const ticks = [0, 1, 2, 3].map((i) => t0 + ((t1 - t0) * (i + 0.5)) / 4);
@@ -121,7 +153,7 @@ export function PriceChartCard({
                 x={cx - bodyW / 2}
                 y={Math.min(yOpen, yClose)}
                 width={bodyW}
-                height={Math.max(1, Math.abs(yClose - yOpen))}
+                height={Math.max(2, Math.abs(yClose - yOpen))}
                 fill={color}
                 opacity={0.9}
               />
@@ -140,7 +172,7 @@ export function PriceChartCard({
         />
         <text
           x={padL + plotW - 4}
-          y={thrY - 6}
+          y={thrTagY}
           fontSize={10.5}
           fill="#e4e4e7"
           textAnchor="end"
@@ -167,7 +199,13 @@ export function PriceChartCard({
               stroke="rgba(255,255,255,0.4)"
               strokeDasharray="3 4"
             />
-            <text x={xTime(expiry)} y={padT - 4} fontSize={10} fill="#a1a1aa" textAnchor="middle">
+            <text
+              x={expX - 6 - 34 < padL ? expX + 6 : expX - 6}
+              y={padT - 4}
+              fontSize={10}
+              fill="#a1a1aa"
+              textAnchor={expX - 6 - 34 < padL ? "start" : "end"}
+            >
               {t("chart.expiryTag")}
             </text>
           </g>
@@ -275,7 +313,7 @@ export function LiquidityCard({ market }: { market: MarketView }) {
       <div className="stack-2">
         <div className="flex items-baseline justify-between gap-2">
           <div className="text-[13px] text-zinc-400">{t("liq.impact")}</div>
-          <div className="num text-[13px] text-zinc-200">
+          <div className="num whitespace-nowrap text-[13px] text-zinc-200">
             {active
               ? t("liq.impactReadout", {
                   amount: `${active.amount < 1 ? active.amount.toFixed(2) : active.amount.toFixed(1)} U`,

@@ -6,6 +6,7 @@ import { Providers } from "@/components/providers";
 import { Ambience } from "@/components/ambience";
 import en from "@/locales/en.json";
 import "./globals.css";
+import "./fonts.css";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -38,7 +39,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "try{var t=localStorage.getItem('veritas-theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t}}catch(e){}",
+              "try{var t=localStorage.getItem('veritas-theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t}if(location.pathname==='/'){document.documentElement.dataset.brand='hidden'}}catch(e){}",
           }}
         />
       </head>

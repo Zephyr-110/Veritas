@@ -6,6 +6,7 @@ import { useFeeds } from "@/hooks/use-feeds";
 import { useT } from "@/i18n/provider";
 import { cx } from "./ui";
 import { PricePanelSkeleton } from "./skeletons";
+import { PriceAge } from "./price-age";
 
 function PriceValue({ value }: { value: number }) {
   const [display, setDisplay] = useState(0);
@@ -69,7 +70,7 @@ export function PricePanel() {
           <span className="live-dot h-1.5 w-1.5 rounded-full bg-accent" />
           {t("home.prices")}
         </span>
-        <span className="text-xs text-zinc-600">{t("home.pricesSrc")}</span>
+        <span className="text-xs text-zinc-400">{t("home.pricesSrc")}</span>
       </div>
       <div className="mt-1">
         {visible.map((feed) => {
@@ -77,7 +78,10 @@ export function PricePanel() {
           return (
             <div key={feed.key} className="home-prices-row">
               <span className="home-prices-pair">{t(feed.labelKey)}</span>
-              <PriceValue value={q.price as number} />
+              <span className="flex items-baseline gap-2">
+                <PriceValue value={q.price as number} />
+                <PriceAge publishTime={q.publishTime} />
+              </span>
             </div>
           );
         })}

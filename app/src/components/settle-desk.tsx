@@ -69,16 +69,16 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
       {showResolve ? (
         <Card className="stack-4">
           <div>
-            <div className="text-base font-medium text-white">{t("settle.resolveTitle")}</div>
+            <div className="text-base font-medium text-white">{phase.afterWindow ? t("settle.cancelRefund") : t("settle.resolveTitle")}</div>
             <p className="mt-1 text-sm text-zinc-500">
               {t("settle.resolveBody", { hours: resolveHours(), delay: MAX_SETTLE_DELAY })}
             </p>
           </div>
           <div className="cluster-2">
-            <ResolveButton market={market} />
+            <ResolveButton market={market} disabled={phase.afterWindow} />
             <Button
               type="button"
-              tone="secondary"
+              tone={phase.afterWindow ? undefined : "secondary"}
               busy={busy}
               disabled={busy || !phase.afterWindow || !publicKey || !program}
               onClick={() => publicKey && program && run(t("tx.cancelMarket"), () => ixVoidMarket(program, market, publicKey))}
@@ -86,13 +86,16 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
               {t("settle.cancelRefund")}
             </Button>
           </div>
+          {phase.afterWindow ? (
+            <p className="text-xs leading-5 text-amber-300/90">{t("settle.windowClosed")}</p>
+          ) : null}
         </Card>
       ) : null}
     </div>
   );
 }
 
-function ResolveButton({ market }: { market: MarketView }) {
+function ResolveButton({ market, disabled = false }: { market: MarketView; disabled?: boolean }) {
   const program = useProgram();
   const { connection } = useConnection();
   const wallet = useAnchorWallet();
@@ -119,7 +122,7 @@ function ResolveButton({ market }: { market: MarketView }) {
   };
 
   return (
-    <Button type="button" busy={busy} disabled={busy || !wallet || !program} onClick={() => void onClick()}>
+    <Button type="button" busy={busy} disabled={busy || disabled || !wallet || !program} onClick={() => void onClick()}>
       {t("settle.submitResolve")}
     </Button>
   );
@@ -143,7 +146,7 @@ function VoidClaim({ market, position }: { market: MarketView; position: UserPos
   }, [amount, market.decimals]);
 
   return (
-    <div className="w-full stack-3 rounded-2xl border border-zinc-800 p-4">
+    <div className="w-full stack-3 rounded-md bg-white/[0.02] p-4">
       <SegTabs
         value={side}
         onChange={setSide}

@@ -178,7 +178,7 @@ function ToastViewport({
       {toasts.map((item) => (
         <div
           key={item.id}
-          className={`toast-in pointer-events-auto rounded-2xl border px-4 py-3 text-left shadow-glow backdrop-blur ${
+          className={`toast-in pointer-events-auto rounded-xl border px-4 py-3 text-left shadow-glow backdrop-blur ${
             item.kind === "ok"
               ? "border-yes/40 bg-panel text-yes"
               : item.kind === "err"

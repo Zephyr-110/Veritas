@@ -73,18 +73,20 @@
     "why2Title": "Nothing to dispute",
     "why2": "Settlement is determined by the first Pyth price printed after expiry. The contract accepts that print only, regardless of who submits it.",
     "why3Title": "Liquidity that stays to settlement",
-    "why3": "Exposure is released gradually as expiry approaches and can be claimed at any time. Every fee goes to the makers in the pool.",
+    "why3": "Exposure is released gradually as expiry approaches and can be claimed at any time. Every fee is collected in the pool; distribution to the makers present opens in a later phase.",
     "live": "Live this round",
     "emptyLive": "No markets this round.",
     "next": "Next round",
     "nextBody": "Rounds open on the hour. The question is set by the price at the open.",
     "finished": "Finished",
     "emptyFinished": "No finished markets yet.",
+    "viewAllFinished": "View all finished markets",
+    "statement": "Every market starts at fifty-fifty.",
     "how": "How it Works",
     "how1": "Pick a market. Buy YES or NO.",
     "how2": "Wait for expiry. Prices move as people trade.",
     "how3": "The first print decides which side redeems — 1 USDT per token.",
-    "howFeesLead": "Fees are 0.3% in and 0.3% out, paid entirely to the makers in the pool. The protocol keeps nothing. Full rules on the ",
+    "howFeesLead": "Fees are 0.3% in and 0.3% out, collected in the pool. The protocol keeps nothing. Maker distribution opens in a later phase. Full rules on the ",
     "howHelp": "Help page",
     "howFeesTail": ".",
     "footerNote": "Devnet demo — not real funds"
@@ -123,12 +125,14 @@
     "rulesMore": "Full Rules",
     "emptyCta": "Create a market",
     "spotAbove": "Spot {spot} · {pct}% above target",
-    "spotBelow": "Spot {spot} · {pct}% below target"
+    "spotBelow": "Spot {spot} · {pct}% below target",
+    "actionSettle": "Settle",
+    "actionVoid": "Void"
   },
   "kind": {
     "live": "Live",
     "awaiting": "Pending Settlement",
-    "voidable": "Window closed",
+    "voidable": "Voidable",
     "yesWon": "YES redeems 1:1",
     "noWon": "NO redeems 1:1",
     "voided": "Voided",
@@ -170,6 +174,7 @@
     "needQuestionBody": "Enter the contract text.",
     "tooLongTitle": "Text too long",
     "tooLongBody": "Shorten the contract text.",
+    "byteCount": "{bytes} / {max} bytes",
     "laterTitle": "Expiry must be in the future",
     "laterBody": "Pick a later time.",
     "needPoolTitle": "Seed too small",
@@ -204,7 +209,8 @@
     "inPool": "Vault",
     "deadline": "Expiry",
     "liquidity": "Liquidity",
-    "depth": "Pool depth",
+    "depth": "Collateral in vault",
+    "vaultNote": "Reserves are the YES / NO token counts the pool holds; the vault holds the USDT collateral behind the market. Different units — the figures do not add up directly.",
     "livePrice": "Spot Price",
     "trade": "Trade",
     "lp": "Liquidity",
@@ -233,7 +239,8 @@
     "loading": "Loading market",
     "history": "Contract",
     "yesReserve": "YES reserve",
-    "noReserve": "NO reserve"
+    "noReserve": "NO reserve",
+    "feedNote": "Pyth price feed · used for settlement"
   },
   "trade": {
     "title": "Trade",
@@ -249,7 +256,8 @@
     "confirm": "Buy",
     "impactWarn": "Shallow pool: this order's average price is about {pct}% above the current price — expect significant price impact.",
     "swapHint": "Swaps are paid with the side tokens you hold, not with USDT.",
-    "gloss": "{side}: redeems 1:1 if the first print after expiry is {op} {price}"
+    "gloss": "{side}: redeems 1:1 if the first print after expiry is {op} {price}",
+    "slippage": "Slippage"
   },
   "tradeDisable": {
     "connect": "Connect a wallet to trade",
@@ -273,7 +281,7 @@
     "withdrawSubmit": "Withdraw liquidity",
     "held": "YES / NO inventory",
     "inPool": "Vault",
-    "feeNote": "Fees: 0.3% in + 0.3% out, paid entirely to the makers present.",
+    "feeNote": "Fees: 0.3% in + 0.3% out, collected in the pool; maker distribution opens in a later phase.",
     "riskNote": "Risk warning: providing liquidity is not risk-free — adverse selection can cause losses (see the risk note on the Help page)."
   },
   "lpDisable": {
@@ -284,6 +292,11 @@
     "noCollateral": "Insufficient {symbol}",
     "noShares": "Insufficient LP shares",
     "cannotYet": "Cannot withdraw"
+  },
+  "quotes": {
+    "ageSec": "{n}s ago",
+    "ageMin": "{n}m ago",
+    "ageHour": "{n}h ago"
   },
   "band": {
     "timeLeft": "Time left",
@@ -324,7 +337,7 @@
     "cashOut": "Merge {amount}",
     "collectAmount": "Redeem {amount}",
     "resolveTitle": "Submit settlement",
-    "resolveBody": "Post the first Pyth print after expiry, then resolve. Keeper may already have done this. Delay over {delay}s voids the market. Window: {hours}h.",
+    "resolveBody": "Settle this market by posting the first Pyth print after expiry — the keeper may already have done it. If that print was published more than {delay}s after expiry, the market is voided instead of settled and every token redeems at 0.5. If nobody settles within {hours}h of expiry, voiding is the only option left.",
     "submitResolve": "Submit settlement",
     "cancelRefund": "Void market",
     "refundYes": "Redeem YES",
@@ -332,7 +345,8 @@
     "sharesToRefund": "Shares",
     "evenHint": "Even size on void",
     "needsPrint": "No first print after expiry is available yet. Wait, then retry.",
-    "evidenceTitle": "Settlement record"
+    "evidenceTitle": "Settlement record",
+    "windowClosed": "The 48-hour settlement window has closed and resolve is no longer accepted. Void the market — every token redeems at 0.5."
   },
   "tx": {
     "view": "View transaction",
@@ -367,12 +381,16 @@
     "positions": "Inventory",
     "pending": "Pending",
     "redemptions": "Redemptions",
-    "connect": "Connect a wallet to load inventory.",
+    "connect": "Connect a wallet to see your positions, LP shares and redemptions.",
+    "claimOnHelp": "Claim them on the Help page",
     "emptyPositions": "No inventory.",
     "emptyPending": "No pending LP inventory.",
     "emptyRedeem": "No redemption signatures in the recent history window.",
     "redeemTx": "Redemption",
     "lpPending": "LP pending",
+    "actionClaim": "Claim",
+    "unclaimedBanner": "You have unclaimed funds in {count} finalized markets — about {amount}. Claim within 30 days of finalization; after that, the creator can close the market and sweep what is left.",
+    "unclaimedLp": "LP shares in finalized markets also need to be withdrawn.",
     "loading": "Loading portfolio",
     "market": "Market",
     "yes": "YES",
@@ -393,16 +411,21 @@
     "v1": "No listing review, no gatekeeper. Seed a market with a little over 1 USDT of collateral and it is live.",
     "v2Title": "Trustless settlement by Pyth",
     "v2": "Which side redeems is decided by the first price Pyth prints after expiry — a rule anyone can verify on-chain, not a person you have to trust.",
-    "v3Title": "Makers keep 100% of the fees",
-    "v3": "Every trade pays 0.3% on the way in and 0.3% on the way out. The protocol takes none of it — all of it goes to the makers who were in the pool.",
+    "v3Title": "Every fee stays in the pool",
+    "v3": "Every trade pays 0.3% on the way in and 0.3% on the way out. The protocol takes none of it — all of it is collected in the pool, marked for the makers who were present when it accrued. Distribution opens in a later phase.",
     "riskTitle": "Read this before making markets",
-    "risk": "Making markets is not free money. When the price moves, better-informed traders trade against you first — that adverse-selection loss (LVR) is the real cost of providing liquidity, and fees only partly offset it. Veritas shrinks the risk rather than erasing it: a maker's exposure winds down automatically as expiry approaches. And if settlement data fails to arrive in time, the market is voided and every token redeems at 0.5 USDT, instead of anyone being paid out on a stale price.",
+    "risk": "Making markets is not free money. When the price moves, better-informed traders trade against you first — that adverse-selection loss (LVR) is the real cost of providing liquidity, and fees only partly offset it. Veritas shrinks the risk rather than erasing it: a maker's exposure winds down automatically as expiry approaches. And the settlement rules have hard edges: if the first print after expiry lands more than 10 seconds late, or nobody settles within 48 hours of expiry, the market is voided and every token redeems at 0.5 USDT — nobody gets paid out on a stale price.",
     "cta": "Start trading",
     "deepTitle": "How it works, in depth",
+    "dataTitle": "Where the data comes from",
+    "d1": "Prices on this site are Pyth prints read from on-chain price accounts — the same source that settles the markets. The small age next to each price is the age of that print itself.",
+    "d2": "Settlement uses the first Pyth print published after expiry. It is posted on-chain as a signed update and verified by the program.",
+    "d3": "Charts use Coinbase candles for reference only. They are never used for settlement.",
+    "d4": "This deployment runs on Solana devnet, where Pyth posts prints less frequently than on mainnet — so a price's age can reach minutes here.",
     "a1Title": "pm-AMM: liquidity that releases over time",
     "a1": "Veritas prices markets with a pm-AMM curve: the YES price comes from the balance between the two reserve sides, not from an order book. The pool's effective depth is not constant — it decays with the square root of the time remaining, so as expiry approaches, reserves are steadily released back to makers as claimable balances instead of staying locked in the pool. A maker can claim what was released, merge it back into full sets, and re-add it — recycling the same capital instead of topping up with new money. The practical effect: the closer a market gets to settlement, the less a maker has at risk, which is exactly when standing on the wrong side of the final price hurts most.",
     "a2Title": "Settlement: only the first print counts",
-    "a2": "Once a market expires, anyone can settle it by posting the market's Pyth price update. The contract accepts one reading and one only: the first print timestamped at or after expiry, proven on-chain by checking that the previous print still fell before expiry. Nobody can shop for a friendlier later price. Two fallback rules keep it honest: if that first print lands more than 10 seconds after expiry, the data is treated as too stale to trust and the market is voided rather than settled; and if nobody settles within 48 hours, anyone can void it. A voided market is a clean refund — Yes and No both redeem at 0.5 USDT per token.",
+    "a2": "Once a market expires, anyone can settle it by posting the market's Pyth price update. The contract accepts one reading and one only: the first print timestamped at or after expiry, proven on-chain by checking that the previous print still fell before expiry. Nobody can shop for a friendlier later price. Two fallback rules keep it honest: if that first print lands more than 10 seconds after expiry, the data is treated as too stale to trust and the market is voided rather than settled; and if nobody settles within 48 hours, anyone can void it. A voided market is a clean refund — Yes and No both redeem at 0.5 USDT per token. Once a market is final, settled or voided, claims stay open for 30 days; after that the market's creator can close it and sweep whatever was never claimed.",
     "buildersTitle": "For builders",
     "github": "Source code on GitHub",
     "program": "Devnet program",
@@ -484,5 +507,9 @@
     "program": "Program",
     "github": "GitHub",
     "disclaimer": "Devnet demo. Not real funds."
+  },
+  "desk": {
+    "trade": "Trade",
+    "liquidity": "Liquidity"
   }
 }

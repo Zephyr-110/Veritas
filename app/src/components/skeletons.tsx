@@ -79,7 +79,7 @@ export function MarketTableSkeleton({ rows = 8 }: { rows?: number }) {
             <Sk className="h-4 w-14 rounded-full" />
           </div>
           <div className="c-trade">
-            <Sk className="ml-auto h-7 w-12 rounded-2xl" />
+            <Sk className="ml-auto h-7 w-12 rounded-lg" />
           </div>
         </div>
       ))}
@@ -100,8 +100,8 @@ export function HomeSkeleton() {
           <Sk className="mt-4 h-[18px] w-full max-w-lg" />
           <Sk className="mt-2 h-[18px] w-80 max-w-full" />
           <div className="mt-8 flex gap-3">
-            <Sk className="h-10 w-28 rounded-2xl" />
-            <Sk className="h-10 w-24 rounded-2xl" />
+            <Sk className="h-10 w-28 rounded-lg" />
+            <Sk className="h-10 w-24 rounded-lg" />
           </div>
         </div>
         <PricePanelSkeleton />
@@ -162,7 +162,7 @@ export function MarketDetailSkeleton() {
             <Sk className="h-11 w-full" />
             <Sk className="h-11 w-full" />
             <Sk className="h-11 w-full" />
-            <Sk className="h-10 w-full rounded-2xl" />
+            <Sk className="h-10 w-full rounded-lg" />
           </div>
         </div>
       </div>
@@ -200,7 +200,7 @@ export function CreateSkeleton() {
           <Sk className="h-11 w-full" />
           <Sk className="h-11 w-full" />
           <Sk className="h-11 w-full" />
-          <Sk className="h-12 w-full rounded-2xl" />
+          <Sk className="h-12 w-full rounded-xl" />
         </div>
       </div>
       <FeatureCardSkeleton />
