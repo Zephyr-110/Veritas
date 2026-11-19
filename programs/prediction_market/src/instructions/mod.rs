@@ -8,6 +8,7 @@ pub mod resolve_market;
 pub mod get_collateral;
 pub mod void_market;
 pub mod burn_accounts;
+pub mod archive_price;
 
 pub use create_market::*;
 pub use add_liquidity::*;
@@ -19,3 +20,4 @@ pub use resolve_market::*;
 pub use get_collateral::*;
 pub use void_market::*;
 pub use burn_accounts::*;
+pub use archive_price::*;

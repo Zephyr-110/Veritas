@@ -13,3 +13,10 @@ pub enum MarketOutcome {
     Yes,
     No,
 }
+
+#[derive(AnchorDeserialize, AnchorSerialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]
+pub enum ArchiveStatus {
+    Finish,
+    Fail,
+    Incomplete,
+}

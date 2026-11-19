@@ -140,3 +140,17 @@ impl LpPosition {
 impl LpPosition {
     pub const LEN: usize = 32 + 16 + 16 + 16 + 1;
 }
+
+#[account]
+#[derive(InitSpace)]
+pub struct Archive {
+    pub feed_id: [u8; 32],
+    pub price: i64,
+    pub conf: u64,
+    pub exponent: i32,
+    pub publish_time: i64,
+    pub prev_publish_time: i64,
+    pub ema_price: i64,
+    pub ema_conf: u64,
+    pub archive_status: ArchiveStatus,
+}

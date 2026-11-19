@@ -52,4 +52,10 @@ pub enum ErrorCode {
     NoArriveFinishTS,
     #[msg("Market is still open.")]
     MarketIsOpen,
+    #[msg("Price account is not the Pyth push feed for this market.")]
+    DataNotFromPyth,
+    #[msg("Pyth feed id does not match this market.")]
+    FeedIdException,
+    #[msg("Price account is not owned by the Pyth receiver.")]
+    PythOwnerException,
 }

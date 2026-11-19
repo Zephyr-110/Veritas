@@ -60,4 +60,8 @@ pub mod prediction_market {
     pub fn burn_account(ctx: Context<BurnAccount>) -> Result<()> {
         instructions::burn_account(ctx)
     }
+    
+    pub fn archive_price(ctx: Context<ArchivePrice>) -> Result<()> {
+        instructions::archive_price(ctx)
+    }
 }

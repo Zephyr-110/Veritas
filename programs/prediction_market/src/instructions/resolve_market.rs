@@ -1,4 +1,4 @@
-use crate::{MAX_SETTLE_DELAY, RESOLVE_WINDOW};
+use crate::{Archive, MAX_SETTLE_DELAY, RESOLVE_WINDOW};
 use anchor_lang::Accounts;
 use anchor_lang::context::Context;
 use anchor_lang::prelude::*;
@@ -22,6 +22,12 @@ pub struct ResolveMarket<'info> {
         bump = market.bump,
     )]
     pub market: Account<'info, Market>,
+
+    #[account(
+        seeds = [b"archive", market.key().as_ref()],
+        bump
+    )]
+    pub archive: Account<'info, Archive>,
 
     pub price_update: Box<Account<'info, PriceUpdateV2>>,
 
