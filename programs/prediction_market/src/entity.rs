@@ -140,3 +140,25 @@ impl LpPosition {
 impl LpPosition {
     pub const LEN: usize = 32 + 16 + 16 + 16 + 1;
 }
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
+pub struct EpochRound {
+    pub epoch: u32,
+    pub round: u8,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
+pub struct Snapshot {
+    pub at: EpochRound,
+    pub counter: u32,
+    pub price: i128,
+    pub ts: i64,
+}
+
+#[account]
+#[derive(Default, InitSpace)]
+pub struct MarketSnapshot {
+    #[max_len(16)]
+    pub entries: Vec<Snapshot>,
+    pub bump: u8,
+}
