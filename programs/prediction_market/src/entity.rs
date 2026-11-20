@@ -30,9 +30,9 @@ pub struct Market {
     pub total_lp_shares: i128,
     pub end_ts: i64,
 
-    pub feed_id: [u8; 32], // Pyth 数据源编号
+    pub ocr2_state: Pubkey, // 该市场绑定的 Chainlink feed state账户
     pub threshold: i64, // 阈值
-    pub exponent: i32, // 这个数据源的小数位指数
+    pub decimals: u8, // 价格精度
     pub settle_above: bool, // true 就是大于阈值，判 Yes 赢， 反之 No赢
 
     pub settled_price: i64, // 结算用掉的读数

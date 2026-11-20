@@ -158,7 +158,6 @@ pub fn apply_accrual(market: &mut Market, result: &AccrualResult) {
     market.set_cum_yes_per_share_fixed(result.new_cum_yes_per_share);
     market.set_cum_no_per_share_fixed(result.new_cum_no_per_share);
     market.last_accrual_ts = result.new_last_accrual_ts;
-
 }
 
 // ============================================================================
@@ -205,10 +204,10 @@ pub fn compute_lp_pending(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::pm_math;
-    use anchor_lang::prelude::Pubkey;
+    use super::*;
     use crate::state::{MarketOutcome, MarketStatus};
+    use anchor_lang::prelude::Pubkey;
 
     fn make_market(l_zero: f64, price: f64, end_ts: i64, now: i64, shares: f64) -> Market {
         let l_zero_fixed = I80F48::from_num(l_zero);
@@ -237,9 +236,9 @@ mod tests {
             reserve_no: 0,
             total_lp_shares: 0,
             end_ts,
-            feed_id: [0u8; 32],
+            ocr2_state: Pubkey::default(),
             threshold: 0,
-            exponent: 0,
+            decimals: 0,
             settle_above: true,
             settled_price: 0,
             settled_publish_time: 0,
@@ -318,8 +317,8 @@ mod tests {
             I80F48::from_num(0.5),
             pm_math::l_effective(market.l_zero_fixed(), end - start).unwrap(),
         )
-            .unwrap()
-            .to_num();
+        .unwrap()
+        .to_num();
 
         let mut total_yes: f64 = 0.0;
         let mut total_no: f64 = 0.0;
@@ -363,8 +362,8 @@ mod tests {
                 result.new_reserve_no,
                 l_eff_new,
             )
-                .unwrap()
-                .to_num();
+            .unwrap()
+            .to_num();
 
             assert!(
                 (p_new - p).abs() < 0.001,

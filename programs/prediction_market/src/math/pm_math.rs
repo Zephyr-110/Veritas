@@ -7,8 +7,8 @@
 use anchor_lang::prelude::*;
 use fixed::types::I80F48;
 
-use crate::error::ErrorCode as PmAmmError;
 use super::lut;
+use crate::error::ErrorCode as PmAmmError;
 
 // ============================================================================
 // Constants
@@ -1197,7 +1197,7 @@ mod tests {
             SwapSide::Yes,
             SwapSide::Usdc,
         )
-            .unwrap();
+        .unwrap();
         let back: f64 = r2.output.to_num();
         let loss = (back - 10.0).abs() / 10.0;
         assert!(loss < 0.001, "USDC->YES->USDC round-trip loss: {loss:.6}");
@@ -1216,7 +1216,7 @@ mod tests {
             SwapSide::No,
             SwapSide::Usdc,
         )
-            .unwrap();
+        .unwrap();
         let back: f64 = r2.output.to_num();
         let loss = (back - 10.0).abs() / 10.0;
         assert!(loss < 0.001, "USDC->NO->USDC round-trip loss: {loss:.6}");
@@ -1235,7 +1235,7 @@ mod tests {
             SwapSide::No,
             SwapSide::Yes,
         )
-            .unwrap();
+        .unwrap();
         let back: f64 = r2.output.to_num();
         let loss = (back - 10.0).abs() / 10.0;
         assert!(loss < 0.001, "YES->NO->YES round-trip loss: {loss:.6}");

@@ -2,11 +2,12 @@ use crate::{MAX_SETTLE_DELAY, RESOLVE_WINDOW};
 use anchor_lang::Accounts;
 use anchor_lang::context::Context;
 use anchor_lang::prelude::*;
-use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;
 use crate::{Market, MarketOutcome};
 use crate::state::MarketStatus;
 use crate::error::ErrorCode;
-use crate::math::{apply_accrual, compute_accrual};
+use crate::math::{apply_accrual, compute_accrual, verify_report};
+use crate::constants::*;
+use crate::math::ocr2::read_r_max;
 
 #[derive(Accounts)]
 pub struct ResolveMarket<'info> {
@@ -17,56 +18,78 @@ pub struct ResolveMarket<'info> {
         mut,
         seeds = [b"market", market.id.as_ref()],
         constraint = market.status == MarketStatus::Open @ ErrorCode::MarketNotOpen,
+        constraint = find_feed(&market.ocr2_state).is_some() @ ErrorCode::WrongOracleState,
         constraint = (clock.unix_timestamp as u64) >= market.expiry @ ErrorCode::MarketNotExpired,
         constraint = (clock.unix_timestamp as u64) <= market.expiry + RESOLVE_WINDOW @ ErrorCode::MarketNotInWindow,
         bump = market.bump,
     )]
     pub market: Account<'info, Market>,
 
-    pub price_update: Box<Account<'info, PriceUpdateV2>>,
+    /// CHECK:
+    #[account(
+        owner = CHAINLINK_OCR2_PROGRAM_ID,
+        address = market.ocr2_state @ ErrorCode::WrongOracleState,
+    )]
+    pub ocr2_state: UncheckedAccount<'info>,
 
     pub clock: Sysvar<'info, Clock>,
 }
 
-pub fn resolve_market(ctx: Context<ResolveMarket>) -> Result<()> {
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct ResolveMarketParam {
+    pub raw_pre: Vec<u8>,
+    pub raw_post: Vec<u8>,
+}
+
+pub fn resolve_market(ctx: Context<ResolveMarket>, param: ResolveMarketParam) -> Result<()> {
     let market = &mut ctx.accounts.market;
 
     let now = ctx.accounts.clock.unix_timestamp;
     let accrual = compute_accrual(market, now)?;
     apply_accrual(market, &accrual);
 
-    let price = ctx.accounts.price_update
-        .get_price_no_older_than(
-            &ctx.accounts.clock, i64::MAX as u64, &market.feed_id
-        )?;
-    let prev_publish_time = ctx.accounts.price_update.price_message.prev_publish_time;
+    let state_data = ctx.accounts.ocr2_state.try_borrow_data()?;
 
-    require!(price.publish_time >= market.end_ts
-    && prev_publish_time < market.end_ts,
-    ErrorCode::NotFirstAfterExpiry);
-    require!(price.exponent == market.exponent, ErrorCode::ExponentMismatch);
+    let pre = verify_report(&param.raw_pre, &state_data)
+        .map_err(|e| error!(ErrorCode::from(e)))?;
+    let post = verify_report(&param.raw_post, &state_data)
+        .map_err(|e| error!(ErrorCode::from(e)))?;
+    let r_max = read_r_max(&state_data)
+        .map_err(|e| error!(ErrorCode::from(e)))?;
+    drop(state_data);
 
-    market.finish_ts = ctx.accounts.clock.unix_timestamp as u64;
-    // 超 10 秒直接销毁盘子
-    if price.publish_time > market.end_ts + MAX_SETTLE_DELAY {
+    require!(
+        (pre.round == r_max && post.round == 1 && pre.epoch.checked_add(1) == Some(post.epoch))
+        || (pre.round < r_max && Some(post.round) == pre.round.checked_add(1) && pre.epoch == post.epoch),
+        ErrorCode::NotFirstAfterExpiry
+    );
+
+    let pre_ts = i64::from(pre.observations_timestamp);
+    let post_ts = i64::from(post.observations_timestamp);
+    require!(
+        pre_ts < market.end_ts && post_ts >= market.end_ts,
+        ErrorCode::NotFirstAfterExpiry
+    );
+    let settle_price = i64::try_from(post.median).map_err(|_| error!(ErrorCode::InvalidPrice))?;
+
+    if post_ts > market.end_ts + MAX_SETTLE_DELAY {
         market.status = MarketStatus::StaleBurn;
-
-        market.settled_price = price.price;
-        market.settled_publish_time = price.publish_time;
-
+        market.finish_ts = now as u64;
         msg!("market {:?} voided ", market.id);
         return Ok(())
     }
 
     let yes_wins = if market.settle_above {
-        price.price >= market.threshold
+        settle_price >= market.threshold
     } else {
-        price.price < market.threshold
+        settle_price < market.threshold
     };
 
+
     market.winner = if yes_wins { Some(MarketOutcome::Yes) } else { Some(MarketOutcome::No) };
-    market.settled_price = price.price;
-    market.settled_publish_time = price.publish_time;
+    market.finish_ts = now as u64;
+    market.settled_price = settle_price;
+    market.settled_publish_time = post_ts;
     market.status = MarketStatus::Resolved;
 
     msg!("market {:?} resolved, winner {:?} ", market.id, market.winner);

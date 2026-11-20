@@ -5,10 +5,10 @@ use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 use crate::entity::{LpPosition, Market};
 use crate::error::ErrorCode;
 use crate::math::*;
+use crate::constants::*;
 
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::*;
-use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;
 use crate::RESOLVE_WINDOW;
 
 #[derive(Accounts)]
@@ -27,7 +27,9 @@ pub struct CreateMarket<'info> {
     )]
     pub market: Box<Account<'info, Market>>, // the market
 
-    pub price_update: Box<Account<'info, PriceUpdateV2>>,
+    /// CHECK:
+    #[account(owner = CHAINLINK_OCR2_PROGRAM_ID)]
+    pub ocr2_state: UncheckedAccount<'info>,
 
     #[account(
         init,
@@ -119,6 +121,10 @@ pub struct CreateMarketParams {
 }
 
 pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) -> Result<()> {
+    let decimals = find_feed(&ctx.accounts.ocr2_state.key())
+        .ok_or(error!(ErrorCode::WrongOracleState))?
+        .decimals;
+
     // The sum of the expiration time and the adjudication window must not exceed Max.
     require!(param.expiry.checked_add(RESOLVE_WINDOW).is_some()
         && param.expiry > (ctx.accounts.clock.unix_timestamp as u64),
@@ -142,10 +148,10 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
 
     market.end_ts = param.expiry as i64;
     market.last_accrual_ts = ctx.accounts.clock.unix_timestamp;
-    market.fee_bps = crate::SERVICE_FEE as u16;
+    market.fee_bps = SERVICE_FEE as u16;
 
-    market.feed_id = ctx.accounts.price_update.price_message.feed_id;
-    market.exponent = ctx.accounts.price_update.price_message.exponent;
+    market.ocr2_state = ctx.accounts.ocr2_state.key();
+    market.decimals = decimals;
     market.threshold = param.threshold;
     market.settle_above = param.settle_above;
     market.settled_price = 0;

@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use crate::math::Ocr2Error;
 
 #[error_code]
 pub enum ErrorCode {
@@ -36,7 +37,7 @@ pub enum ErrorCode {
     InvalidDuration,
     #[msg("Budget is invalid.")]
     InvalidBudget,
-    #[msg("Price is not the first Pyth update after expiry.")]
+    #[msg("Reports are not two adjacent oracle rounds straddling expiry.")]
     NotFirstAfterExpiry,
     #[msg("Pyth exponent does not match this market.")]
     ExponentMismatch,
@@ -52,4 +53,31 @@ pub enum ErrorCode {
     NoArriveFinishTS,
     #[msg("Market is still open.")]
     MarketIsOpen,
+    #[msg("Oracle report or state data is malformed.")]
+    InvalidOracleInput,
+    #[msg("Oracle report was not signed under the feed's current config.")]
+    OracleDigestMismatch,
+    #[msg("Oracle report has the wrong number of signatures.")]
+    WrongNumberOfSignatures,
+    #[msg("Oracle report signature is invalid.")]
+    InvalidOracleSignature,
+    #[msg("Oracle report is signed by a node outside the feed's oracle set.")]
+    UnauthorizedOracleSigner,
+    #[msg("Oracle report is signed twice by the same node.")]
+    DuplicateOracleSigner,
+    #[msg("Oracle state account is not an allowed feed or does not match this market.")]
+    WrongOracleState,
+}
+
+impl From<Ocr2Error> for ErrorCode {
+    fn from(e: Ocr2Error) -> Self {
+        match e {
+            Ocr2Error::InvalidInput => ErrorCode::InvalidOracleInput,
+            Ocr2Error::DigestMismatch => ErrorCode::OracleDigestMismatch,
+            Ocr2Error::WrongNumberOfSignatures => ErrorCode::WrongNumberOfSignatures,
+            Ocr2Error::InvalidSignature => ErrorCode::InvalidOracleSignature,
+            Ocr2Error::UnauthorizedSigner => ErrorCode::UnauthorizedOracleSigner,
+            Ocr2Error::DuplicateSigner => ErrorCode::DuplicateOracleSigner,
+        }
+    }
 }
