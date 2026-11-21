@@ -1,187 +1,182 @@
 # Veritas Markets
 
-A non-custodial binary prediction market on Solana. Prices come from a
-[pm-AMM](https://www.paradigm.xyz/2024/11/pm-amms) curve, settlement comes
-from Chainlink OCR2, and every complete YES/NO set is backed
-1:1 by collateral in the market vault.
+A non-custodial binary prediction market on Solana. Pricing follows a dynamic [pm-AMM](https://www.paradigm.xyz/2024/11/pm-amms) invariant, settlement is verified directly on-chain against signed **Chainlink OCR2** oracle reports (with a permissionless expiry snapshot backstop), and every circulating YES/NO complete set is backed 1:1 by collateral in the market vault.
 
-The on-chain program lives in `programs/prediction_market`. The client lives
-in `app/` and talks to the program directly — no off-chain matching engine.
+No off-chain matching engine, no admin resolver, and no trusted relayer — the browser client (`app/`) talks directly to Solana RPC.
 
-| | |
+| Component | Details |
 | :--- | :--- |
-| Program (devnet) | [`CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER`](https://explorer.solana.com/address/CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER?cluster=devnet) |
-| Collateral (devnet USDT) | [`CtiAxpKmXtK2bupa59GN6GPYXQiPPYUfSqnY1pgMD7QG`](https://explorer.solana.com/address/CtiAxpKmXtK2bupa59GN6GPYXQiPPYUfSqnY1pgMD7QG?cluster=devnet) |
-| Stack | Anchor 1.2, Solana, Chainlink OCR2, Next.js 15 |
+| **Program ID (Devnet)** | [`CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER`](https://explorer.solana.com/address/CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER?cluster=devnet) |
+| **Collateral Mint (Devnet USDT)** | [`CtiAxpKmXtK2bupa59GN6GPYXQiPPYUfSqnY1pgMD7QG`](https://explorer.solana.com/address/CtiAxpKmXtK2bupa59GN6GPYXQiPPYUfSqnY1pgMD7QG?cluster=devnet) |
+| **Chainlink OCR2 Program** | [`cjg3oHmg9uuPsP8D6g29NWvhySJkdYdAo9D25PRbKXJ`](https://explorer.solana.com/address/cjg3oHmg9uuPsP8D6g29NWvhySJkdYdAo9D25PRbKXJ?cluster=devnet) |
+| **Chainlink Store Program** | [`HEvSKofvBgfaexv23kMabbYqxasxU3mQ4ibBMEmJWHny`](https://explorer.solana.com/address/HEvSKofvBgfaexv23kMabbYqxasxU3mQ4ibBMEmJWHny?cluster=devnet) |
+| **Tech Stack** | Rust 1.89 · Anchor · Solana · Chainlink OCR2 · Next.js 15 · Vitest · LiteSVM |
 
 ---
 
-## How a market works
+## Core Design
 
-Each market is a YES/NO question with a Chainlink OCR2 feed, a threshold, a direction
-(`settle_above`), and an expiry.
+### 1. Complete-Set Backing
+Depositing 1 unit of collateral mints 1 YES and 1 NO token. Burning 1 YES and 1 NO returns 1 unit of collateral. The vault balance always equals the exact complete-set liability in circulation (`vault == yes_supply == no_supply` while open).
 
-**Complete sets.** Depositing 1 unit of collateral mints 1 YES and 1 NO.
-Burning 1 YES and 1 NO returns 1 collateral. The vault always holds exactly
-as many units as there are complete sets in circulation.
+### 2. Time-Decaying pm-AMM
+Instead of a static constant-product curve, the pool uses the pm-AMM invariant (Moallemi & Robinson) with time-decaying effective liquidity:
 
-**Pricing.** The pool is a pm-AMM (Moallemi & Robinson), not a constant
-product. Effective liquidity is \(L_{\text{eff}} = L_0 \sqrt{T - t}\). As
-expiry approaches, depth shrinks and released tokens accrue to LPs. Spot
-YES price is recovered from the two reserves and \(L_{\text{eff}}\). Swaps
-pay a 30 bps fee that stays in the pool.
+$$L_{\text{eff}} = L_0 \sqrt{T - t}$$
 
-**Settlement.** After expiry, anyone may submit two Chainlink OCR2 reports for the market's bound feed. The reports must be adjacent rounds, or a non-adjacent pair certified by `take_snapshot`, and they must straddle expiry: the earlier timestamp is before `end_ts`, and the later one is at or after it.
+As expiry $T$ approaches, effective pool depth shrinks smoothly and released inventory accrues to LPs via per-share cumulative checkpoints (`cum_yes_per_share`, `cum_no_per_share`). Swaps charge a **30 bps (`0.3%`)** fee that remains inside the pool.
 
-- Later print within 10 seconds of expiry: the market resolves. YES wins if that print is on the configured side of the threshold (`>=` when `settle_above`, otherwise `<`). Winners redeem 1:1. The program stores that print.
-- Later print more than 10 seconds after expiry: `StaleBurn`. The print is not stored. Both tokens redeem at `floor(amount / 2)`.
-- No successful resolve within 48 hours: anyone may `void_market` (`WindowBurn`). Same 1/2 redemption.
+### 3. Trustless Chainlink OCR2 Settlement & Snapshot Backstop
+Every market binds to an allowlisted Chainlink OCR2 `State` account (`decimals == 8`), a target `threshold`, a comparison direction (`settle_above`), and an expiry (`end_ts`).
 
-**Claim window.** Traders and LPs have 30 days after the market leaves
-`Open` to redeem or withdraw. After that the creator may `burn_account`:
-leftover vault collateral goes to the house, remaining pool tokens are
-burned, and the market / vault / pool accounts close. The two mint accounts
-are left as empty shells.
+After expiry, anyone can submit two raw Chainlink OCR2 `transmit` payloads (`pre` and `post`) to `resolve_market`:
+- **On-chain authenticity**: Verifies `secp256k1` oracle signatures ($f + 1$ distinct signers in the on-chain sorted oracle roster) and matches `latest_config_digest`.
+- **Straddling & continuity**: Proves `pre.observations_timestamp < end_ts <= post.observations_timestamp`, and requires `pre` and `post` to be either:
+  1. **Adjacent OCR2 rounds** (`round + 1` in the same epoch, or `(e, r_max) -> (e + 1, 1)` where `r_max` is parsed from `offchain_config`), **or**
+  2. **Snapshot-certified**: Certified by two consecutive entries (`next.counter == prev.counter + 1`) recorded in the market's `MarketSnapshot` PDA via `take_snapshot` when Chainlink rounds skip across expiry.
+- **Outcomes**:
+  - `post` lands within **10 seconds** of expiry (`post.ts <= end_ts + 10`) → **`Resolved`**: winning side redeems 1:1; `settled_price` and `settled_publish_time` are stored on-chain.
+  - `post` lands more than **10 seconds** late → **`StaleBurn`**: late price is discarded; both YES and NO redeem at $\lfloor \text{amount} / 2 \rfloor$.
+  - No resolution within **48 hours** of expiry → anyone can call `void_market` → **`WindowBurn`**: same $\lfloor \text{amount} / 2 \rfloor$ redemption.
 
-```
-create_market
-     │
-     ▼
-   Open  ── bet / swap / add or remove liquidity / merge
-     │
-     │  expiry
-     ▼
-  48h window ── resolve_market ──► Resolved          (winner 1:1)
-     │                         └─► StaleBurn         (late print, 1/2)
-     │
-     └── void_market ────────────► WindowBurn        (timeout, 1/2)
-                                        │
-                                        │  30-day claim window
-                                        ▼
-                                   burn_account      (creator only)
+### 4. Claim Window & Account Cleanup
+Traders and LPs have **30 days** (`CLAIM_WINDOW`) after `finish_ts` to redeem tokens or withdraw LP shares. Once the claim window expires, the market creator can call `burn_account` to sweep remaining vault collateral, burn pool remnants, and close the `Market`, `MarketSnapshot`, vault, and pool accounts.
+
+```text
+create_market (creates Market + MarketSnapshot PDAs, binds OCR2 State)
+      │
+      ▼
+    Open ──── user_bet_on / swap / add_liquidity / get_liquidity / merge_token
+      │
+      ├── [end_ts - 10s, end_ts + 10s] ──► take_snapshot (records up to 16 feed landings)
+      │
+      │  expiry (end_ts)
+      ▼
+  48h Resolve Window
+      ├── resolve_market ──► Resolved   (post <= end_ts + 10s; winner redeems 1:1)
+      │                  └─► StaleBurn  (post >  end_ts + 10s; both sides redeem 1/2)
+      │
+      └── void_market ─────► WindowBurn (after 48h timeout; both sides redeem 1/2)
+                                │
+                                │  30-day claim window (finish_ts + CLAIM_WINDOW)
+                                ▼
+                           burn_account (creator closes Market & Snapshot, sweeps dust)
 ```
 
 ---
 
 ## Instructions
 
-| Instruction | Who | What |
+| Instruction | Access | Description |
 | :--- | :--- | :--- |
-| `create_market` | Creator | Open a market, bind an allowlisted Chainlink OCR2 state, seed the pool. |
-| `user_bet_on` | Anyone | Deposit collateral, mint a pair, swap the unwanted side. |
-| `swap` | Anyone | Trade YES ↔ NO against the pool. |
-| `add_liquidity` | Anyone | Deposit a complete set, receive LP shares. |
-| `get_liquidity` | LP | Withdraw a share of pool + accrued tokens. A full exit closes the `LpPosition` PDA. |
-| `merge_token` | Anyone | Burn 1 YES + 1 NO for 1 collateral while the market is open. |
-| `resolve_market` | Anyone | Two OCR2 reports straddling expiry. Resolves or stale-voids. |
-| `void_market` | Anyone | After the 48h window, if still `Open`. |
-| `get_collateral` | Anyone | Redeem: 1 winner token → 1 collateral; voided market → 2 tokens → 1 collateral. |
-| `burn_account` | Creator | After the 30-day claim window: sweep leftover collateral, burn pool remnants, close PDAs. |
-
-Resolve and void are permissionless. `burn_account` is creator-only because
-the leftover collateral and account rent go to the house.
+| `create_market` | Anyone | Open a market, bind an allowlisted OCR2 `State`, allocate `MarketSnapshot`, and seed initial LP liquidity (`> 1` collateral). |
+| `user_bet_on` | Anyone | Deposit collateral, mint a complete YES/NO pair, and swap the unwanted side into the target outcome. |
+| `swap` | Anyone | Trade YES ↔ NO directly against the pm-AMM pool. |
+| `add_liquidity` | Anyone | Deposit collateral as a complete set and receive pro-rata LP shares. |
+| `get_liquidity` | LP | Withdraw pro-rata pool reserves plus accrued pending YES/NO balances; full exit closes `LpPosition`. |
+| `merge_token` | Anyone | Burn equal YES + NO amounts to redeem collateral 1:1 while the market is `Open`. |
+| `take_snapshot` | Anyone | Record the feed's `(epoch, round, counter, price, ts)` into `MarketSnapshot` within `±10s` of `end_ts` (max 16 entries, monotonic `counter`). |
+| `resolve_market` | Anyone | Verify two straddling OCR2 `transmit` reports (adjacent rounds or snapshot-certified) to resolve or `StaleBurn`. |
+| `void_market` | Anyone | Transition an unresolved `Open` market to `WindowBurn` after the 48h resolve window closes. |
+| `get_collateral` | Anyone | Redeem winning tokens 1:1 in `Resolved`, or either token at `floor(amount / 2)` in `StaleBurn` / `WindowBurn`. |
+| `burn_account` | Creator | After the 30-day claim window, sweep leftover collateral, burn pool tokens, and close `Market`, `MarketSnapshot`, vault, and pools. |
 
 ---
 
-## On-chain constants
+## On-Chain Constants & Allowlisted Feeds
 
-| Name | Value | Meaning |
+### Constants
+
+| Constant | Value | Meaning |
 | :--- | :--- | :--- |
-| `SERVICE_FEE` | 30 | Swap fee in bps. |
-| `RESOLVE_WINDOW` | 172,800 s | 48 hours after expiry to resolve. |
-| `MAX_SETTLE_DELAY` | 10 s | First print later than this voids as `StaleBurn`. |
-| `CLAIM_WINDOW` | 2,592,000 s | 30 days after `finish_ts` before the house can close. |
+| `SERVICE_FEE` | `30` bps | Swap fee (`0.3%`) retained in the pool for LPs. |
+| `RESOLVE_WINDOW` | `172,800` s | 48-hour post-expiry window for `resolve_market`. |
+| `MAX_SETTLE_DELAY` | `10` s | Maximum delay after `end_ts` before a report triggers `StaleBurn`. |
+| `SNAPSHOT_WINDOW` | `±10` s | Open window `(end_ts - 10, end_ts + 10)` for `take_snapshot`. |
+| `SNAPSHOT_MAX_ENTRIES` | `16` | Maximum number of snapshot entries stored per market. |
+| `CLAIM_WINDOW` | `2,592,000` s | 30-day redemption window after `finish_ts` before `burn_account`. |
+| Minimum Seed | `1,000,001` units | Strict `> 1` unit minimum collateral (assuming 6 decimals). |
 
-`finish_ts` is the clock time when the market leaves `Open` (resolve or
-void). The claim deadline is `finish_ts + CLAIM_WINDOW`.
+### Allowlisted Chainlink Devnet Feeds (`ALLOWED_FEEDS`)
 
-Minimum seed collateral is 1,000,001 base units.
-
----
-
-## Program layout
-
-```
-programs/prediction_market/src/
-  lib.rs                 program entrypoints
-  constants.rs           fees and windows
-  entity.rs              Market, LpPosition
-  state.rs               MarketStatus, MarketOutcome
-  error.rs               error codes
-  instructions/          one file per instruction
-  math/                  pm-AMM + LP accrual (I80F48)
-```
-
-PDAs (seeds):
-
-- `["market", market_id]`
-- `["yes_mint" | "no_mint" | "yes_pool" | "no_pool" | "collateral_vault", market]`
-- `["lp_position", market, owner]`
+| Pair | Decimals | OCR2 State (`ocr2_state`) | Store Transmissions (`feed`) |
+| :--- | :---: | :--- | :--- |
+| **BTC/USD** | 8 | `HCKJKQ8xFfqm5BxTA6LaUCWYXNShYXF4eAwC7NhBYXkj` | `6PxBx93S8x3tno1TsFZwT5VqP8drrRCbCXygEXYNkFJe` |
+| **ETH/USD** | 8 | `7zDTDDXiMqwbEEE17ZuFE4A6K5uBQo15tG1gkgdKZQB2` | `669U43LNHx7LsVj95uYksnhXUfWKDsdzVqev3V4Jpw3P` |
+| **SOL/USD** | 8 | `EpFp9mhi9cvZL9Lp59S1mt2twv2dtZGgFUvZEQMZ9Ra8` | `99B2bTijsU6f1GCT73HmdR7HCFFjGMBcPZY6jZ96ynrR` |
+| **LINK/USD** | 8 | `Ghm1a2c2NGPg6pKGG3PP1GLAuJkHm1RKMPqqJwPM7JpJ` | `HXoZZBWv25N4fm2vfSKnHXTeDJ31qaAcWZe3ZKeM6dQv` |
+| **USDC/USD** | 8 | `ENVhPWE3nuvwc5qx2MjSwS41SXr33gFgGaWX4ATA9pyV` | `2EmfL3MqL3YHABudGNmajjCpR13NNEn9Y4LWxbDm6SwR` |
+| **USDT/USD** | 8 | `DcZuU19fXJSEurnuFh4moeYK5hohvgaBD5KmjvHvYEG1` | `8QQSUPtdRTboa4bKyMftVNRfGFsB4Vp9d7r39hGKi53e` |
 
 ---
 
-## Build
+## Repository Layout
 
-Rust 1.89, Solana CLI, and Anchor 1.2 are required.
-
-```bash
-anchor build
+```text
+prediction_market/
+├── programs/prediction_market/
+│   ├── src/
+│   │   ├── lib.rs                 # Anchor program entrypoints (11 instructions)
+│   │   ├── constants.rs           # Windows, fees, and ALLOWED_FEEDS table
+│   │   ├── entity.rs              # Market, LpPosition, MarketSnapshot, Snapshot, EpochRound
+│   │   ├── state.rs               # MarketStatus & MarketOutcome enums
+│   │   ├── error.rs               # Custom Anchor error codes
+│   │   ├── instructions/          # One module per instruction
+│   │   └── math/                  # pm_math, accrual (I80F48), lut, ocr2 (verify_report & read_r_max)
+│   └── tests/                     # LiteSVM integration, econ-security, and captured OCR2 suites
+├── oracle/                        # Python pm-AMM math & protocol simulator reference vectors
+├── app/                           # Next.js 15 frontend client & Vitest suite (see app/README.md)
+├── scripts/                       # Devnet deployment, status, and test-token utilities
+└── .github/workflows/             # CI pipelines (contract-tests.yml & frontend-tests.yml)
 ```
 
-Deploy (devnet example):
+### Program PDAs
 
-```bash
-anchor deploy --provider.cluster devnet
-```
-
-The program id is declared in `programs/prediction_market/src/lib.rs` and
-`Anchor.toml`. LiteSVM tests load `target/deploy/prediction_market.so`,
-which must be built with `cargo build-sbf --arch v0`.
+- `["market", market_id]` — `Market` state account
+- `["snapshot", market]` — `MarketSnapshot` backstop account
+- `["yes_mint", market]` / `["no_mint", market]` — Outcome token mints
+- `["yes_pool", market]` / `["no_pool", market]` — AMM pool token accounts
+- `["collateral_vault", market]` — Market collateral vault
+- `["lp_position", market, owner]` — Per-LP share and checkpoint account
 
 ---
 
-## Test
+## Build & Test
 
-`npm test` and `anchor test` run the LiteSVM net:
+### 1. On-Chain Program & LiteSVM Suite
+
+Requires **Rust 1.89.0**, **Solana CLI (`cargo-build-sbf`)**, **Anchor**, and **Python 3** (for `oracle/protocol_sim.py` cross-checks).
 
 ```bash
+# Build the SBF program binary (required by LiteSVM tests)
+cargo build-sbf --arch v0
+
+# Run the full contract test net (lib math + spec_scenarios + econ_settlement + ocr2_settle)
+npm test
+# equivalent to:
 cargo test -p prediction_market --lib --test spec_scenarios --test econ_settlement --test ocr2_settle -- --test-threads=1
-```
 
-That is math unit tests, on-chain spec and economic-security tests, and captured OCR2 report tests.
-Python (`PYTHON` or PATH) is required for the protocol_sim comparisons.
-Details are in `programs/prediction_market/tests/README.md`.
-
-Math crate only, no `.so`:
-
-```bash
+# Run math unit tests only (no .so build required)
 cargo test --manifest-path programs/prediction_market/Cargo.toml --lib
 ```
 
----
+See [programs/prediction_market/tests/README.md](programs/prediction_market/tests/README.md) and [SCENARIO_REPORT.md](programs/prediction_market/tests/SCENARIO_REPORT.md) for invariants, accounting drift caps, and captured Chainlink fixture details.
 
-## Client
+### 2. Frontend Client & Vitest Suite
 
 ```bash
 cd app
 npm install
-cp .env.example .env.local   # if present
-npm run dev
+cp .env.example .env.local   # optional; defaults target Solana Devnet
+
+npm run dev                  # start Next.js dev server on http://localhost:3000
+npm run typecheck            # TypeScript check (tsc --noEmit)
+npm run test:coverage        # Run all 18 Vitest suites (242 tests) with v8 coverage gates
 ```
 
-Point Phantom (or another Solana wallet) at **devnet**. You need devnet SOL
-and the collateral mint above. Claim test USDT from the Help page (once per day).
-Creating a market makes you the LP, not an oracle; resolve and void are permissionless.
+The client IDL under `app/src/idl/` is generated via `node app/scripts/gen-idl.js`. Further frontend details live in [app/README.md](app/README.md).
 
-The client IDL under `app/src/idl/` is copied from an `anchor build`. After
-program changes, regenerate it before expecting the UI to match.
+### 3. Continuous Integration
 
----
-
-## Status
-
-The on-chain program is the source of truth. Frontend copy and the committed
-IDL may lag a program change. Settlement and economic-security tests live in
-`programs/prediction_market/tests` and run on LiteSVM. Spec and econ sign
-OCR2 reports under the allowlisted BTC state. `ocr2_settle` uses captured
-Chainlink bytes.
+- [`.github/workflows/contract-tests.yml`](.github/workflows/contract-tests.yml) — Builds the SBF binary and executes the full Cargo + LiteSVM test net (`--lib`, `spec_scenarios`, `econ_settlement`, `ocr2_settle`).
+- [`.github/workflows/frontend-tests.yml`](.github/workflows/frontend-tests.yml) — Runs `npm run typecheck` and `npm run test:coverage` with enforced coverage gates.

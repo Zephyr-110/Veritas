@@ -62,11 +62,6 @@ Cargo.lock.bak
 
 # Logs and dumps
 *.log
-.validator_dbg.log
-summary.txt
-printpath.js
-tmp-phantom-*.png
-tmp-*.png
 *.orig
 
 # Local tooling
@@ -84,10 +79,3 @@ tmp-*.png
 # Python
 **/__pycache__/
 *.py[cod]
-
-# Local scratch (do not commit)
-tmp_patch.txt
-h --force-with-lease
-pyth_peek/
-app/scripts/shot.js
-app/scripts/write-pages.js
