@@ -1,0 +1,58 @@
+name: Contract Tests
+
+on:
+  push:
+    paths:
+      - "programs/**"
+      - "oracle/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/contract-tests.yml"
+  pull_request:
+    paths:
+      - "programs/**"
+      - "oracle/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/contract-tests.yml"
+
+jobs:
+  litesvm-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust 1.89.0
+        uses: dtolnay/rust-toolchain@1.89.0
+
+      - name: Install Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache Cargo & Solana toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.local/share/solana
+            target
+          key: ${{ runner.os }}-solana-sbf-${{ hashFiles('Cargo.lock', 'programs/prediction_market/Cargo.toml', 'rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-solana-sbf-
+
+      - name: Install Solana / Agave CLI (cargo-build-sbf)
+        run: |
+          SOLANA_BIN="$HOME/.local/share/solana/install/active_release/bin"
+          if [ ! -x "$SOLANA_BIN/cargo-build-sbf" ]; then
+            sh -c "$(curl -sSfL https://release.anza.xyz/v2.2.14/install)"
+          fi
+          echo "$SOLANA_BIN" >> "$GITHUB_PATH"
+
+      - name: Build SBF program
+        run: cargo build-sbf --arch v0
+
+      - name: Run contract tests
+        run: cargo test -p prediction_market --lib --test spec_scenarios --test econ_settlement --test ocr2_settle -- --test-threads=1

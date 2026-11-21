@@ -2,7 +2,7 @@
 
 A non-custodial binary prediction market on Solana. Prices come from a
 [pm-AMM](https://www.paradigm.xyz/2024/11/pm-amms) curve, settlement comes
-from [Pyth](https://pyth.network/), and every complete YES/NO set is backed
+from Chainlink OCR2, and every complete YES/NO set is backed
 1:1 by collateral in the market vault.
 
 The on-chain program lives in `programs/prediction_market`. The client lives
@@ -12,13 +12,13 @@ in `app/` and talks to the program directly — no off-chain matching engine.
 | :--- | :--- |
 | Program (devnet) | [`CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER`](https://explorer.solana.com/address/CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER?cluster=devnet) |
 | Collateral (devnet USDT) | [`CtiAxpKmXtK2bupa59GN6GPYXQiPPYUfSqnY1pgMD7QG`](https://explorer.solana.com/address/CtiAxpKmXtK2bupa59GN6GPYXQiPPYUfSqnY1pgMD7QG?cluster=devnet) |
-| Stack | Anchor 1.2, Solana, Pyth Receiver, Next.js 15 |
+| Stack | Anchor 1.2, Solana, Chainlink OCR2, Next.js 15 |
 
 ---
 
 ## How a market works
 
-Each market is a YES/NO question with a Pyth feed, a threshold, a direction
+Each market is a YES/NO question with a Chainlink OCR2 feed, a threshold, a direction
 (`settle_above`), and an expiry.
 
 **Complete sets.** Depositing 1 unit of collateral mints 1 YES and 1 NO.
@@ -31,16 +31,11 @@ expiry approaches, depth shrinks and released tokens accrue to LPs. Spot
 YES price is recovered from the two reserves and \(L_{\text{eff}}\). Swaps
 pay a 30 bps fee that stays in the pool.
 
-**Settlement.** After expiry, anyone may submit the first Pyth print whose
-`publish_time` is at or after `end_ts` and whose previous print is before
-it.
+**Settlement.** After expiry, anyone may submit two Chainlink OCR2 reports for the market's bound feed. The reports must be adjacent rounds, or a non-adjacent pair certified by `take_snapshot`, and they must straddle expiry: the earlier timestamp is before `end_ts`, and the later one is at or after it.
 
-- Print within 10 seconds of expiry → the market resolves. YES wins if the
-  print is on the configured side of the threshold (`>=` when
-  `settle_above`, otherwise `<`). Winners redeem 1:1.
-- Print later than 10 seconds → `StaleBurn`. Both tokens redeem at 1/2.
-- No successful resolve within 48 hours → anyone may `void_market`
-  (`WindowBurn`). Same 1/2 redemption.
+- Later print within 10 seconds of expiry: the market resolves. YES wins if that print is on the configured side of the threshold (`>=` when `settle_above`, otherwise `<`). Winners redeem 1:1. The program stores that print.
+- Later print more than 10 seconds after expiry: `StaleBurn`. The print is not stored. Both tokens redeem at `floor(amount / 2)`.
+- No successful resolve within 48 hours: anyone may `void_market` (`WindowBurn`). Same 1/2 redemption.
 
 **Claim window.** Traders and LPs have 30 days after the market leaves
 `Open` to redeem or withdraw. After that the creator may `burn_account`:
@@ -72,13 +67,13 @@ create_market
 
 | Instruction | Who | What |
 | :--- | :--- | :--- |
-| `create_market` | Creator | Open a market, bind `feed_id` / `exponent` from a Pyth `PriceUpdateV2`, seed the pool. |
+| `create_market` | Creator | Open a market, bind an allowlisted Chainlink OCR2 state, seed the pool. |
 | `user_bet_on` | Anyone | Deposit collateral, mint a pair, swap the unwanted side. |
 | `swap` | Anyone | Trade YES ↔ NO against the pool. |
 | `add_liquidity` | Anyone | Deposit a complete set, receive LP shares. |
 | `get_liquidity` | LP | Withdraw a share of pool + accrued tokens. A full exit closes the `LpPosition` PDA. |
 | `merge_token` | Anyone | Burn 1 YES + 1 NO for 1 collateral while the market is open. |
-| `resolve_market` | Anyone | First Pyth print after expiry. Resolves or stale-voids. |
+| `resolve_market` | Anyone | Two OCR2 reports straddling expiry. Resolves or stale-voids. |
 | `void_market` | Anyone | After the 48h window, if still `Open`. |
 | `get_collateral` | Anyone | Redeem: 1 winner token → 1 collateral; voided market → 2 tokens → 1 collateral. |
 | `burn_account` | Creator | After the 30-day claim window: sweep leftover collateral, burn pool remnants, close PDAs. |
@@ -150,10 +145,10 @@ which must be built with `cargo build-sbf --arch v0`.
 `npm test` and `anchor test` run the LiteSVM net:
 
 ```bash
-cargo test -p prediction_market --lib --test spec_scenarios --test econ_settlement -- --test-threads=1
+cargo test -p prediction_market --lib --test spec_scenarios --test econ_settlement --test ocr2_settle -- --test-threads=1
 ```
 
-That is math unit tests plus on-chain spec and economic-security tests.
+That is math unit tests, on-chain spec and economic-security tests, and captured OCR2 report tests.
 Python (`PYTHON` or PATH) is required for the protocol_sim comparisons.
 Details are in `programs/prediction_market/tests/README.md`.
 
@@ -187,5 +182,6 @@ program changes, regenerate it before expecting the UI to match.
 
 The on-chain program is the source of truth. Frontend copy and the committed
 IDL may lag a program change. Settlement and economic-security tests live in
-`programs/prediction_market/tests` and run on LiteSVM, not a live Pyth
-receiver.
+`programs/prediction_market/tests` and run on LiteSVM. Spec and econ sign
+OCR2 reports under the allowlisted BTC state. `ocr2_settle` uses captured
+Chainlink bytes.

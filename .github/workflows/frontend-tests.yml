@@ -1,0 +1,45 @@
+name: Frontend Tests
+
+on:
+  push:
+    paths:
+      - "app/**"
+      - ".github/workflows/frontend-tests.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - ".github/workflows/frontend-tests.yml"
+
+jobs:
+  vitest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit & component tests
+        run: npm run test:coverage
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: app/coverage/lcov.info
+          if-no-files-found: ignore
