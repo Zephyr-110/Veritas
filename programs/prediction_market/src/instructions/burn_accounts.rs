@@ -3,7 +3,7 @@ use anchor_lang::context::Context;
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 use anchor_spl::token_2022::{transfer_checked, TransferChecked, burn, Burn, close_account, CloseAccount};
-use crate::{Market};
+use crate::{Market, MarketSnapshot};
 use crate::error::ErrorCode;
 use crate::constants::*;
 use crate::state::*;
@@ -24,6 +24,13 @@ pub struct BurnAccount<'info> {
         bump = market.bump,
     )]
     pub market: Account<'info, Market>,
+
+    #[account(
+        mut,
+        seeds = [b"snapshot", market.key().as_ref()],
+        bump
+    )]
+    pub snapshot: Account<'info, MarketSnapshot>,
 
     #[account(
         mut,
@@ -77,8 +84,6 @@ pub struct BurnAccount<'info> {
 
     #[account(address = market.collateral_mint)]
     pub collateral_mint: Box<InterfaceAccount<'info, Mint>>, // collateral mint
-
-    pub system_program: Program<'info, System>,
 
     pub token_program: Interface<'info, TokenInterface>,
 
@@ -174,6 +179,9 @@ pub fn burn_account(ctx: Context<BurnAccount>) -> Result<()> {
 
     // ======================== 销毁 Market ========================
     ctx.accounts.market.close(ctx.accounts.signer.to_account_info())?;
+
+    // ======================== 销毁 Snapshot ========================
+    ctx.accounts.snapshot.close(ctx.accounts.signer.to_account_info())?;
 
     Ok(())
 }

@@ -33,20 +33,10 @@ pub enum ErrorCode {
     InvalidLiquidity,
     #[msg("Fixed-point math overflow.")]
     MathOverflow,
-    #[msg("Duration is invalid.")]
-    InvalidDuration,
-    #[msg("Budget is invalid.")]
-    InvalidBudget,
     #[msg("Reports are not two adjacent oracle rounds straddling expiry.")]
     NotFirstAfterExpiry,
-    #[msg("Pyth exponent does not match this market.")]
-    ExponentMismatch,
     #[msg("Market is not in the required time window.")]
     MarketNotInWindow,
-    #[msg("Redeemable tokens still exist.")]
-    TokensOutstanding,
-    #[msg("No residual collateral in the vault.")]
-    NoResidual,
     #[msg("Signer is not the market creator.")]
     NoCreator,
     #[msg("Claim window has not ended yet.")]
@@ -67,18 +57,20 @@ pub enum ErrorCode {
     DuplicateOracleSigner,
     #[msg("Oracle state account is not an allowed feed or does not match this market.")]
     WrongOracleState,
-    #[msg("")]
+    #[msg("Feed account does not match this market's price feed.")]
     BadFeedAccount,
-    #[msg("")]
+    #[msg("Price feed is not in the allowed feed list.")]
     FeedNotAllowed,
-    #[msg("")]
+    #[msg("Snapshot already holds sixteen entries.")]
     SnapshotFull,
-    #[msg("")]
+    #[msg("Snapshot can only be taken within ten seconds of expiry.")]
     SnapshotOutOfWindow,
-    #[msg("")]
+    #[msg("Snapshot landing counter must move forward.")]
     SnapshotStale,
-    #[msg("Unable to complete checkout")]
+    #[msg("Reports are not adjacent rounds and are not certified by the market snapshot.")]
     UnableCompleteCheckout,
+    #[msg("Feed decimals must be 8.")]
+    UnsupportedDecimals,
 }
 
 impl From<Ocr2Error> for ErrorCode {

@@ -2,7 +2,7 @@ use anchor_lang::{Accounts, AnchorDeserialize, AnchorSerialize};
 use anchor_lang::prelude::{Account, Interface, InterfaceAccount, Program, Signer, System};
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
-use crate::entity::{LpPosition, Market};
+use crate::entity::{LpPosition, Market, MarketSnapshot};
 use crate::error::ErrorCode;
 use crate::math::*;
 use crate::constants::*;
@@ -30,6 +30,15 @@ pub struct CreateMarket<'info> {
     /// CHECK:
     #[account(owner = CHAINLINK_OCR2_PROGRAM_ID)]
     pub ocr2_state: UncheckedAccount<'info>,
+
+    #[account(
+        init,
+        payer = creator,
+        space = 8 + MarketSnapshot::INIT_SPACE,
+        seeds = [b"snapshot", market.key().as_ref()],
+        bump
+    )]
+    pub snapshot: Box<Account<'info, MarketSnapshot>>,
 
     #[account(
         init,
@@ -124,6 +133,7 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
     let decimals = find_feed(&ctx.accounts.ocr2_state.key())
         .ok_or(error!(ErrorCode::WrongOracleState))?
         .decimals;
+    require!(decimals == 8, ErrorCode::UnsupportedDecimals);
 
     // The sum of the expiration time and the adjudication window must not exceed Max.
     require!(param.expiry.checked_add(RESOLVE_WINDOW).is_some()
@@ -232,6 +242,9 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
     position.set_shares_fixed(fixed::types::I80F48::from_num(param.collateral_amount));
     position.set_checkpoint_yes_fixed(fixed::types::I80F48::ZERO);
     position.set_checkpoint_no_fixed(fixed::types::I80F48::ZERO);
+
+    let snapshot = &mut ctx.accounts.snapshot;
+    snapshot.bump = ctx.bumps.snapshot;
 
     Ok(())
 }

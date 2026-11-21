@@ -14,9 +14,7 @@ pub struct TakeSnapshot<'info> {
     pub market: Account<'info, Market>,
 
     #[account(
-        init_if_needed,
-        payer = caller,
-        space = 8 + MarketSnapshot::INIT_SPACE,
+        mut,
         seeds = [b"snapshot", market.key().as_ref()],
         bump
     )]
