@@ -1,4 +1,4 @@
-use crate::{MAX_SETTLE_DELAY, RESOLVE_WINDOW};
+use crate::{MarketSnapshot, MAX_SETTLE_DELAY, RESOLVE_WINDOW};
 use anchor_lang::Accounts;
 use anchor_lang::context::Context;
 use anchor_lang::prelude::*;
@@ -25,6 +25,12 @@ pub struct ResolveMarket<'info> {
     )]
     pub market: Account<'info, Market>,
 
+    #[account(
+        seeds = [b"snapshot", market.key().as_ref()],
+        bump
+    )]
+    pub snapshot: Option<Account<'info, MarketSnapshot>>,
+
     /// CHECK:
     #[account(
         owner = CHAINLINK_OCR2_PROGRAM_ID,
@@ -42,6 +48,7 @@ pub struct ResolveMarketParam {
 }
 
 pub fn resolve_market(ctx: Context<ResolveMarket>, param: ResolveMarketParam) -> Result<()> {
+    let snapshot = &mut ctx.accounts.snapshot;
     let market = &mut ctx.accounts.market;
 
     let now = ctx.accounts.clock.unix_timestamp;
@@ -58,12 +65,17 @@ pub fn resolve_market(ctx: Context<ResolveMarket>, param: ResolveMarketParam) ->
         .map_err(|e| error!(ErrorCode::from(e)))?;
     drop(state_data);
 
-    require!(
-        (pre.round == r_max && post.round == 1 && pre.epoch.checked_add(1) == Some(post.epoch))
-        || (pre.round < r_max && Some(post.round) == pre.round.checked_add(1) && pre.epoch == post.epoch),
-        ErrorCode::NotFirstAfterExpiry
-    );
+    // ===================== 组织第二道防线 =====================
+    // 如果夹逼不满足，则直接按照计数器账户判断 post 是否合法，若不然则回滚
+    let squeeze = (pre.round == r_max && post.round == 1 && pre.epoch.checked_add(1) == Some(post.epoch))
+        || (pre.round < r_max && Some(post.round) == pre.round.checked_add(1) && pre.epoch == post.epoch);
+    let certified = match snapshot {
+        Some(s) => s.snapshot_matches(&pre, &post),
+        None => false,
+    };
+    require!(squeeze || certified, ErrorCode::UnableCompleteCheckout);
 
+    // ===================== 如果没问题就可以赋值和结算了 =====================
     let pre_ts = i64::from(pre.observations_timestamp);
     let post_ts = i64::from(post.observations_timestamp);
     require!(

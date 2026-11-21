@@ -1,7 +1,10 @@
 use anchor_lang::*;
+use anchor_lang::error::Error;
 use anchor_lang::prelude::Pubkey;
 use crate::state::*;
 use fixed::types::I80F48;
+use crate::error::ErrorCode;
+use crate::math::VerifiedReport;
 
 #[account]
 #[derive(InitSpace)]
@@ -161,4 +164,21 @@ pub struct MarketSnapshot {
     #[max_len(16)]
     pub entries: Vec<Snapshot>,
     pub bump: u8,
+}
+
+impl MarketSnapshot {
+    pub fn snapshot_matches(&self, pre: &VerifiedReport, post: &VerifiedReport) -> bool {
+        for (i, x) in self.entries.iter().enumerate() {
+            if x.at.epoch != pre.epoch || x.at.round != pre.round {
+                continue;
+            }
+            if let Some(next) = self.entries.get(i + 1) {
+                return next.counter == x.counter + 1
+                    && next.at.round == post.round
+                    && next.at.epoch == post.epoch;
+            }
+            return false;
+        }
+        false
+    }
 }

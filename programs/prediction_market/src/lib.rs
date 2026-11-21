@@ -60,4 +60,8 @@ pub mod prediction_market {
     pub fn burn_account(ctx: Context<BurnAccount>) -> Result<()> {
         instructions::burn_account(ctx)
     }
+
+    pub fn take_snapshot(ctx: Context<TakeSnapshot>) -> Result<()> {
+        instructions::take_snapshot(ctx)
+    }
 }

@@ -67,6 +67,18 @@ pub enum ErrorCode {
     DuplicateOracleSigner,
     #[msg("Oracle state account is not an allowed feed or does not match this market.")]
     WrongOracleState,
+    #[msg("")]
+    BadFeedAccount,
+    #[msg("")]
+    FeedNotAllowed,
+    #[msg("")]
+    SnapshotFull,
+    #[msg("")]
+    SnapshotOutOfWindow,
+    #[msg("")]
+    SnapshotStale,
+    #[msg("Unable to complete checkout")]
+    UnableCompleteCheckout,
 }
 
 impl From<Ocr2Error> for ErrorCode {
