@@ -7,7 +7,7 @@ const STORAGE_KEY = "veritas.locale";
 const LOCALES: Locale[] = ["en", "zh"];
 
 type Dict = Record<string, unknown>;
-type Vars = Record<string, string | number>;
+export type Vars = Record<string, string | number>;
 
 function flatten(obj: Dict, prefix = ""): Record<string, string> {
   const out: Record<string, string> = {};
@@ -24,7 +24,12 @@ function flatten(obj: Dict, prefix = ""): Record<string, string> {
   return out;
 }
 
-function assertParity(left: Record<string, string>, right: Record<string, string>, leftName: string, rightName: string) {
+function assertParity(
+  left: Record<string, string>,
+  right: Record<string, string>,
+  leftName: string,
+  rightName: string
+) {
   const missingRight = Object.keys(left).filter((key) => !(key in right));
   const missingLeft = Object.keys(right).filter((key) => !(key in left));
   if (missingRight.length || missingLeft.length) {
@@ -53,12 +58,17 @@ function applyDocumentLang(locale: Locale) {
   document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
 }
 
-export function getLocale(): Locale {
-  return current;
+function interpolate(template: string, key: string, localeName: Locale, vars?: Vars): string {
+  return template.replace(/\{([a-zA-Z]\w*)\}/g, (_, name: string) => {
+    if (!vars || vars[name] == null) {
+      throw new Error(`Missing interpolation: ${name} in ${key} (${localeName})`);
+    }
+    return String(vars[name]);
+  });
 }
 
-export function dateLocale(): string {
-  return current === "zh" ? "zh-CN" : "en-US";
+export function getLocale(): Locale {
+  return current;
 }
 
 export function hasKey(key: string): boolean {
@@ -98,9 +108,22 @@ export function hydrateLocale() {
 export function t(key: string, vars?: Vars): string {
   const template = tables[current][key];
   if (template == null) throw new Error(`Missing translation: ${key} (${current})`);
-  return template.replace(/\{([a-zA-Z]\w*)\}/g, (_, name: string) => {
-    if (!vars || vars[name] == null) throw new Error(`Missing interpolation: ${name} in ${key}`);
-    return String(vars[name]);
-  });
+  return interpolate(template, key, current, vars);
 }
 
+export function tPair(
+  key: string,
+  vars?: Vars
+): { en: string; zh: string; active: string; locale: Locale } {
+  const enTpl = tables.en[key];
+  const zhTpl = tables.zh[key];
+  if (enTpl == null || zhTpl == null) throw new Error(`Missing translation: ${key}`);
+  const en = interpolate(enTpl, key, "en", vars);
+  const zh = interpolate(zhTpl, key, "zh", vars);
+  return {
+    en,
+    zh,
+    active: current === "zh" ? zh : en,
+    locale: current,
+  };
+}

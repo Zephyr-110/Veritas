@@ -45,19 +45,6 @@ export function unpackAmount(
   }
 }
 
-export function unpackSupply(
-  address: PublicKey,
-  info: AccountInfo<Buffer> | null,
-  tokenProgram: PublicKey
-): bigint {
-  if (!info) return 0n;
-  try {
-    return unpackMint(address, info, tokenProgram).supply;
-  } catch {
-    return 0n;
-  }
-}
-
 export function unpackDecimals(
   address: PublicKey,
   info: AccountInfo<Buffer> | null,

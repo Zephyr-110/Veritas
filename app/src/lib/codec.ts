@@ -1,7 +1,11 @@
 import { Buffer } from "buffer";
 import { PublicKey } from "@solana/web3.js";
-import { LP_POSITION_DISCRIMINATOR, MARKET_DISCRIMINATOR } from "./constants";
-import { parseSide, parseStatus } from "./format";
+import {
+  LP_POSITION_DISCRIMINATOR,
+  MARKET_ACCOUNT_SIZE,
+  MARKET_DISCRIMINATOR,
+  MARKET_SNAPSHOT_DISCRIMINATOR,
+} from "./constants";
 import type { MarketStatusName, Side } from "./types";
 
 const I80F48_SCALE = 2n ** 48n;
@@ -15,9 +19,10 @@ export type DecodedMarket = {
   noMint: PublicKey;
   status: MarketStatusName;
   collateralMint: PublicKey;
-  winner: Side;
+  winner: Side | null;
   marketCollateralBump: number;
   prediction: number[];
+  finishTs: bigint;
   lZero: bigint;
   lastAccrualTs: bigint;
   cumYesPerShare: bigint;
@@ -27,9 +32,9 @@ export type DecodedMarket = {
   reserveNo: bigint;
   totalLpShares: bigint;
   endTs: bigint;
-  feedId: number[];
+  ocr2State: PublicKey;
   threshold: bigint;
-  exponent: number;
+  priceDecimals: number;
   settleAbove: boolean;
   settledPrice: bigint;
   settledPublishTime: bigint;
@@ -40,6 +45,19 @@ export type DecodedLpPosition = {
   shares: bigint;
   checkpointYes: bigint;
   checkpointNo: bigint;
+  bump: number;
+};
+
+export type DecodedSnapshotEntry = {
+  epoch: number;
+  round: number;
+  counter: number;
+  price: bigint;
+  ts: bigint;
+};
+
+export type DecodedMarketSnapshot = {
+  entries: DecodedSnapshotEntry[];
   bump: number;
 };
 
@@ -63,8 +81,8 @@ class Cursor {
   u16(): number {
     return this.take(2).readUInt16LE(0);
   }
-  i32(): number {
-    return this.take(4).readInt32LE(0);
+  u32(): number {
+    return this.take(4).readUInt32LE(0);
   }
   u64(): bigint {
     return this.take(8).readBigUInt64LE(0);
@@ -92,49 +110,89 @@ function sameDisc(actual: Buffer, expected: readonly number[]): boolean {
 }
 
 function statusFromU8(value: number): MarketStatusName {
-  if (value === 0) return "upcoming";
-  if (value === 1) return "open";
-  if (value === 2) return "resolved";
-  if (value === 3) return "burn";
-  return parseStatus(value);
+  if (value === 0) return "open";
+  if (value === 1) return "resolved";
+  if (value === 2) return "windowBurn";
+  if (value === 3) return "staleBurn";
+  throw new Error("errors.decode");
 }
 
 function sideFromU8(value: number): Side {
   if (value === 0) return "yes";
   if (value === 1) return "no";
-  return parseSide(value);
+  throw new Error("errors.decode");
+}
+
+function optionSide(c: Cursor): Side | null {
+  const tag = c.u8();
+  if (tag === 0) return null;
+  if (tag === 1) return sideFromU8(c.u8());
+  throw new Error("errors.decode");
 }
 
 export function decodeMarket(data: Buffer): DecodedMarket {
-  if (!sameDisc(data, MARKET_DISCRIMINATOR)) throw new Error("errors.decode");
+  if (data.length !== MARKET_ACCOUNT_SIZE || !sameDisc(data, MARKET_DISCRIMINATOR)) {
+    throw new Error("errors.decode");
+  }
   const c = new Cursor(data, 8);
+  const expiry = c.u64();
+  const creator = c.pubkey();
+  const id = c.bytes(16);
+  const bump = c.u8();
+  const yesMint = c.pubkey();
+  const noMint = c.pubkey();
+  const status = statusFromU8(c.u8());
+  const collateralMint = c.pubkey();
+  const winner = optionSide(c);
+  const marketCollateralBump = c.u8();
+  const prediction = c.bytes(64);
+  const finishTs = c.u64();
+  const lZero = c.i128();
+  const lastAccrualTs = c.i64();
+  const cumYesPerShare = c.i128();
+  const cumNoPerShare = c.i128();
+  const feeBps = c.u16();
+  const reserveYes = c.i128();
+  const reserveNo = c.i128();
+  const totalLpShares = c.i128();
+  const endTs = c.i64();
+  const ocr2State = c.pubkey();
+  const threshold = c.i64();
+  const priceDecimals = c.u8();
+  const settleAbove = c.bool();
+  const settledPrice = c.i64();
+  const settledPublishTime = c.i64();
+
+  if (priceDecimals !== 8) throw new Error("errors.unsupportedDecimals");
+
   return {
-    expiry: c.u64(),
-    creator: c.pubkey(),
-    id: c.bytes(16),
-    bump: c.u8(),
-    yesMint: c.pubkey(),
-    noMint: c.pubkey(),
-    status: statusFromU8(c.u8()),
-    collateralMint: c.pubkey(),
-    winner: sideFromU8(c.u8()),
-    marketCollateralBump: c.u8(),
-    prediction: c.bytes(64),
-    lZero: c.i128(),
-    lastAccrualTs: c.i64(),
-    cumYesPerShare: c.i128(),
-    cumNoPerShare: c.i128(),
-    feeBps: c.u16(),
-    reserveYes: c.i128(),
-    reserveNo: c.i128(),
-    totalLpShares: c.i128(),
-    endTs: c.i64(),
-    feedId: c.bytes(32),
-    threshold: c.i64(),
-    exponent: c.i32(),
-    settleAbove: c.bool(),
-    settledPrice: c.i64(),
-    settledPublishTime: c.i64(),
+    expiry,
+    creator,
+    id,
+    bump,
+    yesMint,
+    noMint,
+    status,
+    collateralMint,
+    winner,
+    marketCollateralBump,
+    prediction,
+    finishTs,
+    lZero,
+    lastAccrualTs,
+    cumYesPerShare,
+    cumNoPerShare,
+    feeBps,
+    reserveYes,
+    reserveNo,
+    totalLpShares,
+    endTs,
+    ocr2State,
+    threshold,
+    priceDecimals,
+    settleAbove,
+    settledPrice,
+    settledPublishTime,
   };
 }
 
@@ -150,6 +208,43 @@ export function decodeLpPosition(data: Buffer): DecodedLpPosition {
   };
 }
 
+export function decodeMarketSnapshot(data: Buffer): DecodedMarketSnapshot {
+  if (!sameDisc(data, MARKET_SNAPSHOT_DISCRIMINATOR)) throw new Error("errors.decode");
+  const c = new Cursor(data, 8);
+  const len = c.u32();
+  if (len > 16) throw new Error("errors.decode");
+  const entries: DecodedSnapshotEntry[] = [];
+  for (let i = 0; i < len; i += 1) {
+    const epoch = c.u32();
+    const round = c.u8();
+    const counter = c.u32();
+    const price = c.i128();
+    const ts = c.i64();
+    entries.push({ epoch, round, counter, price, ts });
+  }
+  const bump = c.u8();
+  return { entries, bump };
+}
+
+export function snapshotMatches(
+  snapshot: DecodedMarketSnapshot,
+  pre: { epoch: number; round: number },
+  post: { epoch: number; round: number }
+): boolean {
+  for (let i = 0; i < snapshot.entries.length; i += 1) {
+    const x = snapshot.entries[i];
+    if (x.epoch !== pre.epoch || x.round !== pre.round) continue;
+    const next = snapshot.entries[i + 1];
+    if (!next) return false;
+    return (
+      next.counter === x.counter + 1 &&
+      next.round === post.round &&
+      next.epoch === post.epoch
+    );
+  }
+  return false;
+}
+
 export function i80f48ToNumber(bits: bigint): number {
   return Number(bits) / Number(I80F48_SCALE);
 }
@@ -157,10 +252,6 @@ export function i80f48ToNumber(bits: bigint): number {
 export function i80f48ToAmount(bits: bigint): bigint {
   if (bits >= 0n) return bits / I80F48_SCALE;
   return -((-bits) / I80F48_SCALE);
-}
-
-export function amountToI80f48(amount: bigint): bigint {
-  return amount * I80F48_SCALE;
 }
 
 export function computePending(
@@ -175,42 +266,4 @@ export function computePending(
   const dy = Math.max(0, i80f48ToNumber(cumYes - checkpointYes) * shares);
   const dn = Math.max(0, i80f48ToNumber(cumNo - checkpointNo) * shares);
   return { yes: BigInt(Math.floor(dy)), no: BigInt(Math.floor(dn)) };
-}
-
-export type PythPrint = {
-  feedId: Uint8Array;
-  price: bigint;
-  conf: bigint;
-  exponent: number;
-  publishTime: bigint;
-  prevPublishTime: bigint;
-};
-
-export function decodePythPrint(data: Buffer, expectedFeed?: Uint8Array): PythPrint | null {
-  if (data.length < 80) return null;
-  const needle = expectedFeed ? Buffer.from(expectedFeed) : null;
-  let offset = -1;
-  if (needle) {
-    offset = data.indexOf(needle);
-  }
-  if (offset < 0) {
-    // PriceUpdateV2: disc(8) + write_authority(32) + verification
-    let cursor = 8 + 32;
-    if (data.length <= cursor) return null;
-    const level = data[cursor];
-    cursor += level === 0 ? 2 : 1;
-    offset = cursor;
-  }
-  if (offset < 0 || offset + 76 > data.length) return null;
-  const feedId = data.subarray(offset, offset + 32);
-  const price = data.readBigInt64LE(offset + 32);
-  const conf = data.readBigUInt64LE(offset + 40);
-  const exponent = data.readInt32LE(offset + 48);
-  const publishTime = data.readBigInt64LE(offset + 52);
-  const prevPublishTime = data.readBigInt64LE(offset + 60);
-  return { feedId, price, conf, exponent, publishTime, prevPublishTime };
-}
-
-export function pythToNumber(price: bigint, exponent: number): number {
-  return Number(price) * 10 ** exponent;
 }

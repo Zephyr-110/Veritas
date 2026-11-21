@@ -2,7 +2,7 @@
  * Program IDL in camelCase format in order to be used in JS/TS.
  *
  * Note that this is only a type helper and is not the actual IDL. The original
- * IDL can be found at `target/idl/prediction_market.json`.
+ * IDL can be found at `app/src/idl/prediction_market.json`.
  */
 export type PredictionMarket = {
   "address": "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER",
@@ -403,7 +403,8 @@ export type PredictionMarket = {
           "name": "tokenProgram"
         },
         {
-          "name": "systemProgram"
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -412,6 +413,221 @@ export type PredictionMarket = {
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "burnAccount",
+      "discriminator": [
+        150,
+        61,
+        51,
+        97,
+        24,
+        5,
+        29,
+        238
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.id",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "snapshot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  110,
+                  97,
+                  112,
+                  115,
+                  104,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "yesPool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  121,
+                  101,
+                  115,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "noPool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "yesMint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  121,
+                  101,
+                  115,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "noMint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "collateralAta",
+          "writable": true
+        },
+        {
+          "name": "collateralVault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  108,
+                  108,
+                  97,
+                  116,
+                  101,
+                  114,
+                  97,
+                  108,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "collateralMint"
+        },
+        {
+          "name": "tokenProgram"
+        },
+        {
+          "name": "clock",
+          "address": "SysvarC1ock11111111111111111111111111111111"
+        }
+      ],
+      "args": []
     },
     {
       "name": "createMarket",
@@ -450,6 +666,34 @@ export type PredictionMarket = {
               {
                 "kind": "arg",
                 "path": "param.marketId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ocr2State"
+        },
+        {
+          "name": "snapshot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  110,
+                  97,
+                  112,
+                  115,
+                  104,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
               }
             ]
           }
@@ -688,7 +932,8 @@ export type PredictionMarket = {
           "name": "tokenProgram"
         },
         {
-          "name": "systemProgram"
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -1030,7 +1275,7 @@ export type PredictionMarket = {
           }
         },
         {
-          "name": "businessmanYesAta",
+          "name": "makerYesAta",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1087,7 +1332,7 @@ export type PredictionMarket = {
           }
         },
         {
-          "name": "businessmanNoAta",
+          "name": "makerNoAta",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1203,7 +1448,8 @@ export type PredictionMarket = {
           "name": "tokenProgram"
         },
         {
-          "name": "systemProgram"
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -1511,14 +1757,48 @@ export type PredictionMarket = {
           }
         },
         {
-          "name": "priceUpdate"
+          "name": "snapshot",
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  110,
+                  97,
+                  112,
+                  115,
+                  104,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ocr2State"
         },
         {
           "name": "clock",
           "address": "SysvarC1ock11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "param",
+          "type": {
+            "defined": {
+              "name": "ResolveMarketParam"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "swap",
@@ -1790,6 +2070,69 @@ export type PredictionMarket = {
           }
         }
       ]
+    },
+    {
+      "name": "takeSnapshot",
+      "discriminator": [
+        183,
+        210,
+        251,
+        68,
+        140,
+        132,
+        191,
+        140
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "snapshot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  110,
+                  97,
+                  112,
+                  115,
+                  104,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ocr2State"
+        },
+        {
+          "name": "feed"
+        },
+        {
+          "name": "clock",
+          "address": "SysvarC1ock11111111111111111111111111111111"
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
     },
     {
       "name": "userBetOn",
@@ -2096,7 +2439,8 @@ export type PredictionMarket = {
           "name": "tokenProgram"
         },
         {
-          "name": "systemProgram"
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -2186,6 +2530,19 @@ export type PredictionMarket = {
         198,
         154
       ]
+    },
+    {
+      "name": "MarketSnapshot",
+      "discriminator": [
+        107,
+        32,
+        221,
+        188,
+        130,
+        114,
+        104,
+        28
+      ]
     }
   ],
   "errors": [
@@ -2212,7 +2569,7 @@ export type PredictionMarket = {
     {
       "code": 6004,
       "name": "MarketNotExpired",
-      "msg": "Market is outside the settlement window."
+      "msg": "Market has not expired yet."
     },
     {
       "code": 6005,
@@ -2277,12 +2634,97 @@ export type PredictionMarket = {
     {
       "code": 6017,
       "name": "NotFirstAfterExpiry",
-      "msg": "Price is not the first Pyth update after expiry."
+      "msg": "Reports are not two adjacent oracle rounds straddling expiry."
     },
     {
       "code": 6018,
-      "name": "ExponentMismatch",
-      "msg": "Pyth exponent does not match this market."
+      "name": "MarketNotInWindow",
+      "msg": "Market is not in the required time window."
+    },
+    {
+      "code": 6019,
+      "name": "NoCreator",
+      "msg": "Signer is not the market creator."
+    },
+    {
+      "code": 6020,
+      "name": "NoArriveFinishTS",
+      "msg": "Claim window has not ended yet."
+    },
+    {
+      "code": 6021,
+      "name": "MarketIsOpen",
+      "msg": "Market is still open."
+    },
+    {
+      "code": 6022,
+      "name": "InvalidOracleInput",
+      "msg": "Oracle report or state data is malformed."
+    },
+    {
+      "code": 6023,
+      "name": "OracleDigestMismatch",
+      "msg": "Oracle report was not signed under the feed's current config."
+    },
+    {
+      "code": 6024,
+      "name": "WrongNumberOfSignatures",
+      "msg": "Oracle report has the wrong number of signatures."
+    },
+    {
+      "code": 6025,
+      "name": "InvalidOracleSignature",
+      "msg": "Oracle report signature is invalid."
+    },
+    {
+      "code": 6026,
+      "name": "UnauthorizedOracleSigner",
+      "msg": "Oracle report is signed by a node outside the feed's oracle set."
+    },
+    {
+      "code": 6027,
+      "name": "DuplicateOracleSigner",
+      "msg": "Oracle report is signed twice by the same node."
+    },
+    {
+      "code": 6028,
+      "name": "WrongOracleState",
+      "msg": "Oracle state account is not an allowed feed or does not match this market."
+    },
+    {
+      "code": 6029,
+      "name": "BadFeedAccount",
+      "msg": "Feed account does not match this market's price feed."
+    },
+    {
+      "code": 6030,
+      "name": "FeedNotAllowed",
+      "msg": "Price feed is not in the allowed feed list."
+    },
+    {
+      "code": 6031,
+      "name": "SnapshotFull",
+      "msg": "Snapshot already holds sixteen entries."
+    },
+    {
+      "code": 6032,
+      "name": "SnapshotOutOfWindow",
+      "msg": "Snapshot can only be taken within ten seconds of expiry."
+    },
+    {
+      "code": 6033,
+      "name": "SnapshotStale",
+      "msg": "Snapshot landing counter must move forward."
+    },
+    {
+      "code": 6034,
+      "name": "UnableCompleteCheckout",
+      "msg": "Reports are not adjacent rounds and are not certified by the market snapshot."
+    },
+    {
+      "code": 6035,
+      "name": "UnsupportedDecimals",
+      "msg": "Feed decimals must be 8."
     }
   ],
   "types": [
@@ -2318,25 +2760,28 @@ export type PredictionMarket = {
             "type": "u64"
           },
           {
-            "name": "feedId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
             "name": "threshold",
             "type": "i64"
           },
           {
-            "name": "exponent",
-            "type": "i32"
-          },
-          {
             "name": "settleAbove",
             "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EpochRound",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "epoch",
+            "type": "u32"
+          },
+          {
+            "name": "round",
+            "type": "u8"
           }
         ]
       }
@@ -2418,8 +2863,10 @@ export type PredictionMarket = {
           {
             "name": "winner",
             "type": {
-              "defined": {
-                "name": "MarketOutcome"
+              "option": {
+                "defined": {
+                  "name": "MarketOutcome"
+                }
               }
             }
           },
@@ -2435,6 +2882,10 @@ export type PredictionMarket = {
                 64
               ]
             }
+          },
+          {
+            "name": "finishTs",
+            "type": "u64"
           },
           {
             "name": "lZero",
@@ -2473,21 +2924,16 @@ export type PredictionMarket = {
             "type": "i64"
           },
           {
-            "name": "feedId",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            "name": "ocr2State",
+            "type": "pubkey"
           },
           {
             "name": "threshold",
             "type": "i64"
           },
           {
-            "name": "exponent",
-            "type": "i32"
+            "name": "decimals",
+            "type": "u8"
           },
           {
             "name": "settleAbove",
@@ -2519,13 +2965,32 @@ export type PredictionMarket = {
       }
     },
     {
+      "name": "MarketSnapshot",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "entries",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "Snapshot"
+                }
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "MarketStatus",
       "type": {
         "kind": "enum",
         "variants": [
-          {
-            "name": "Upcoming"
-          },
           {
             "name": "Open"
           },
@@ -2533,7 +2998,54 @@ export type PredictionMarket = {
             "name": "Resolved"
           },
           {
-            "name": "Burn"
+            "name": "WindowBurn"
+          },
+          {
+            "name": "StaleBurn"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ResolveMarketParam",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "rawPre",
+            "type": "bytes"
+          },
+          {
+            "name": "rawPost",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Snapshot",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "at",
+            "type": {
+              "defined": {
+                "name": "EpochRound"
+              }
+            }
+          },
+          {
+            "name": "counter",
+            "type": "u32"
+          },
+          {
+            "name": "price",
+            "type": "i128"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
           }
         ]
       }
@@ -2588,6 +3100,11 @@ export type PredictionMarket = {
     }
   ],
   "constants": [
+    {
+      "name": "CLAIM_WINDOW",
+      "type": "u64",
+      "value": "2592000"
+    },
     {
       "name": "MAX_SETTLE_DELAY",
       "type": "i64",

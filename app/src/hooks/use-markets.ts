@@ -33,14 +33,19 @@ export function useMarkets() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nonce, queryClient, connection.rpcEndpoint, programId]);
 
+  const errorCode = !program
+    ? "errors.badAddress"
+    : query.error
+      ? parseTxError(query.error)
+      : null;
+
   return {
     markets: query.data ?? [],
     loading: program ? query.isPending : false,
-    error: !program
-      ? "errors.badAddress"
-      : query.error
-        ? parseTxError(query.error)
-        : null,
+    refreshing: program ? query.isFetching && !query.isPending : false,
+    updatedAt: query.dataUpdatedAt || null,
+    isStaleError: Boolean(query.error && query.data),
+    error: errorCode,
     reload: async () => {
       await query.refetch();
     },

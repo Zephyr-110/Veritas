@@ -50,10 +50,6 @@ export function sideToChain(side: Side): { yes: Record<string, never> } | { no: 
   return side === "yes" ? { yes: {} } : { no: {} };
 }
 
-export function asBigInt(value: { toString(): string } | number | bigint | string): bigint {
-  return BigInt(value.toString());
-}
-
 export function shorten(value: string, left = 4, right = 4): string {
   if (value.length <= left + right + 1) return value;
   return `${value.slice(0, left)}…${value.slice(-right)}`;
@@ -82,11 +78,6 @@ export function fromUi(text: string, decimals: number): bigint {
 export function formatCents(price: number): string {
   if (!Number.isFinite(price)) return "—";
   return `${(price * 100).toFixed(1)}¢`;
-}
-
-export function formatPct(price: number): string {
-  if (!Number.isFinite(price)) return "—";
-  return `${Math.round(price * 100)}%`;
 }
 
 export function formatYesNo(yesPrice: number): string {
@@ -136,16 +127,8 @@ export function explorerAccount(address: string, cluster: string): string | null
   return `https://solscan.io/account/${address}${q}`;
 }
 
-export function hexOf(bytes: number[] | Uint8Array): string {
-  return Buffer.from(bytes).toString("hex");
-}
-
 export function bytesFromHex(hex: string): number[] {
   const clean = hex.trim().replace(/^0x/i, "");
   if (!/^[0-9a-fA-F]+$/.test(clean) || clean.length % 2 !== 0) throw new Error("errors.decode");
   return Array.from(Buffer.from(clean, "hex"));
-}
-
-export function formatRawI64(value: bigint | number): string {
-  return value.toString();
 }

@@ -10,8 +10,9 @@ const PAIRS: Record<string, string> = {
   btc: "BTC-USD",
   eth: "ETH-USD",
   sol: "SOL-USD",
-  doge: "DOGE-USD",
-  xau: "PAXG-USD",
+  link: "LINK-USD",
+  usdc: "USDC-USD",
+  usdt: "USDT-USD",
 };
 
 export function chartPair(feedKey?: string | null): string | null {
@@ -21,9 +22,8 @@ export function chartPair(feedKey?: string | null): string | null {
 
 /**
  * Candles come from Coinbase's public API through our own /chart relay
- * (same pattern as the /rpc relay: no CORS or geo surprises, and the
- * source is labelled in the UI). Reference行情 only — settlement always
- * uses the Pyth print. Window is chosen around the market's expiry.
+ * (no CORS or geo surprises, and the source is labelled in the UI).
+ * Reference prices only — settlement always uses signed Chainlink OCR2 reports.
  */
 export async function fetchCandles(pair: string, expiry: number, now: number): Promise<Candle[]> {
   const ended = now > expiry;

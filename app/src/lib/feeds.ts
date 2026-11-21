@@ -1,63 +1,80 @@
-import { PYTH_PUSH_ORACLE, PYTH_SHARD } from "./constants";
-import { findPushPriceFeed } from "./pdas";
-import { bytesFromHex } from "./format";
-import type { FeedKey } from "./types";
 import { PublicKey } from "@solana/web3.js";
+import type { FeedKey } from "./types";
 
 export type FeedPreset = {
   key: FeedKey;
-  labelKey: "feeds.btc" | "feeds.eth" | "feeds.sol" | "feeds.doge" | "feeds.xau";
+  labelKey: "feeds.btc" | "feeds.eth" | "feeds.sol" | "feeds.link" | "feeds.usdc" | "feeds.usdt";
   symbol: string;
-  hex: string;
-  exponent: number;
+  feed: string;
+  state: string;
+  decimals: number;
   defaultHuman: string;
   market: boolean;
 };
 
+/**
+ * Exact Chainlink devnet whitelist matching `ALLOWED_FEEDS` in
+ * `programs/prediction_market/src/constants.rs`.
+ */
 export const FEEDS: FeedPreset[] = [
   {
     key: "btc",
     labelKey: "feeds.btc",
     symbol: "BTC/USD",
-    hex: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
-    exponent: -8,
-    defaultHuman: "100000",
+    feed: "6PxBx93S8x3tno1TsFZwT5VqP8drrRCbCXygEXYNkFJe",
+    state: "HCKJKQ8xFfqm5BxTA6LaUCWYXNShYXF4eAwC7NhBYXkj",
+    decimals: 8,
+    defaultHuman: "60000",
     market: true,
   },
   {
     key: "eth",
     labelKey: "feeds.eth",
     symbol: "ETH/USD",
-    hex: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
-    exponent: -8,
-    defaultHuman: "3000",
-    market: false,
+    feed: "669U43LNHx7LsVj95uYksnhXUfWKDsdzVqev3V4Jpw3P",
+    state: "7zDTDDXiMqwbEEE17ZuFE4A6K5uBQo15tG1gkgdKZQB2",
+    decimals: 8,
+    defaultHuman: "2000",
+    market: true,
   },
   {
     key: "sol",
     labelKey: "feeds.sol",
     symbol: "SOL/USD",
-    hex: "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d",
-    exponent: -8,
-    defaultHuman: "200",
+    feed: "99B2bTijsU6f1GCT73HmdR7HCFFjGMBcPZY6jZ96ynrR",
+    state: "EpFp9mhi9cvZL9Lp59S1mt2twv2dtZGgFUvZEQMZ9Ra8",
+    decimals: 8,
+    defaultHuman: "100",
     market: true,
   },
   {
-    key: "doge",
-    labelKey: "feeds.doge",
-    symbol: "DOGE/USD",
-    hex: "dcef50dd0a4cd2dcc17e45df1676dcb336a11a61c69df7a0299b0150c672d25c",
-    exponent: -8,
-    defaultHuman: "0.2",
-    market: false,
+    key: "link",
+    labelKey: "feeds.link",
+    symbol: "LINK/USD",
+    feed: "HXoZZBWv25N4fm2vfSKnHXTeDJ31qaAcWZe3ZKeM6dQv",
+    state: "Ghm1a2c2NGPg6pKGG3PP1GLAuJkHm1RKMPqqJwPM7JpJ",
+    decimals: 8,
+    defaultHuman: "10",
+    market: true,
   },
   {
-    key: "xau",
-    labelKey: "feeds.xau",
-    symbol: "XAU/USD",
-    hex: "765d2ba50737720fda44d313598912d0bd42cd1da5ce2489bfaa23784067b3fc",
-    exponent: -8,
-    defaultHuman: "4000",
+    key: "usdc",
+    labelKey: "feeds.usdc",
+    symbol: "USDC/USD",
+    feed: "2EmfL3MqL3YHABudGNmajjCpR13NNEn9Y4LWxbDm6SwR",
+    state: "ENVhPWE3nuvwc5qx2MjSwS41SXr33gFgGaWX4ATA9pyV",
+    decimals: 8,
+    defaultHuman: "1.00",
+    market: true,
+  },
+  {
+    key: "usdt",
+    labelKey: "feeds.usdt",
+    symbol: "USDT/USD",
+    feed: "8QQSUPtdRTboa4bKyMftVNRfGFsB4Vp9d7r39hGKi53e",
+    state: "DcZuU19fXJSEurnuFh4moeYK5hohvgaBD5KmjvHvYEG1",
+    decimals: 8,
+    defaultHuman: "1.00",
     market: true,
   },
 ];
@@ -68,40 +85,37 @@ export function feedByKey(key: FeedKey): FeedPreset {
   return found;
 }
 
-export function feedByHex(hex: string): FeedPreset | null {
-  const clean = hex.replace(/^0x/i, "").toLowerCase();
-  return FEEDS.find((f) => f.hex === clean) ?? null;
+export function feedByState(state: PublicKey | string): FeedPreset | null {
+  const addr = typeof state === "string" ? state.trim() : state.toBase58();
+  return FEEDS.find((f) => f.state === addr) ?? null;
 }
 
-export function feedIdBytes(preset: FeedPreset): number[] {
-  return bytesFromHex(preset.hex);
-}
-
-export function pushOracleAccount(preset: FeedPreset, program = new PublicKey(PYTH_PUSH_ORACLE)): PublicKey {
-  return findPushPriceFeed(program, PYTH_SHARD, Uint8Array.from(feedIdBytes(preset)));
-}
-
-export function humanToThreshold(human: string, exponent: number): bigint {
+export function humanToThreshold(human: string, decimals = 8): bigint {
   const trimmed = human.trim();
   if (!/^\d+(\.\d+)?$/.test(trimmed)) throw new Error("errors.invalidAmount");
-  const scale = exponent < 0 ? -exponent : 0;
+  const scale = Math.max(0, decimals);
   const [whole, frac = ""] = trimmed.split(".");
-  if (exponent > 0) {
-    return BigInt(whole) / 10n ** BigInt(exponent);
-  }
   const fracPadded = (frac + "0".repeat(scale)).slice(0, scale);
   return BigInt(whole + fracPadded);
 }
 
-export function thresholdToHuman(threshold: bigint, exponent: number, digits = 2): string {
-  const value = Number(threshold) * 10 ** exponent;
+export function thresholdToHuman(threshold: bigint, decimals = 8, digits?: number): string {
+  const value = Number(threshold) / 10 ** decimals;
   if (!Number.isFinite(value)) return threshold.toString();
-  return value.toLocaleString("en-US", { maximumFractionDigits: digits });
+  const abs = Math.abs(value);
+  const maxFrac = digits ?? (abs >= 10 ? 2 : abs >= 0.5 ? 4 : 6);
+  return value.toLocaleString("en-US", { maximumFractionDigits: maxFrac });
 }
 
-export function formatPythPrice(price: number | null, digits = 2): string {
+export function formatFeedPrice(price: number | null, digits?: number): string {
   if (price == null || !Number.isFinite(price)) return "—";
-  if (price >= 1000) return price.toLocaleString("en-US", { maximumFractionDigits: digits });
-  if (price >= 1) return price.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  const abs = Math.abs(price);
+  if (digits != null) {
+    return price.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  }
+  if (abs >= 1000) return price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (abs >= 10) return price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (abs >= 2) return price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  if (abs >= 0.5) return price.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
   return price.toLocaleString("en-US", { maximumFractionDigits: 6 });
 }

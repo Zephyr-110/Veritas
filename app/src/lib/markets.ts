@@ -2,14 +2,28 @@ import { Program, utils } from "@coral-xyz/anchor";
 import { Buffer } from "buffer";
 import { Connection, PublicKey } from "@solana/web3.js";
 import type { PredictionMarket } from "@/idl/prediction_market";
-import { computePending, decodeLpPosition, decodeMarket, i80f48ToAmount, type DecodedMarket } from "./codec";
-import { MARKET_DISCRIMINATOR, RESOLVE_WINDOW } from "./constants";
+import {
+  computePending,
+  decodeLpPosition,
+  decodeMarket,
+  decodeMarketSnapshot,
+  i80f48ToAmount,
+  type DecodedMarket,
+  type DecodedMarketSnapshot,
+} from "./codec";
+import {
+  CLAIM_WINDOW,
+  MARKET_ACCOUNT_SIZE,
+  MARKET_DISCRIMINATOR,
+  RESOLVE_WINDOW,
+  SNAPSHOT_WINDOW,
+} from "./constants";
+import { feedByState } from "./feeds";
 import { decodePrediction } from "./format";
-import { feedByHex } from "./feeds";
 import { findLpPosition, findMarketPdas } from "./pdas";
 import { impliedYesPrice, reserveAmount } from "./quote";
 import { ataOf, getMultiple, tokenProgramOf, unpackAmount, unpackDecimals } from "./tokens";
-import type { MarketPdas, MarketStatusName, Side } from "./types";
+import type { FeedKey, MarketPdas, MarketStatusName, Side } from "./types";
 
 const TOKENKNG = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 
@@ -23,9 +37,10 @@ export type MarketView = {
   yesMint: PublicKey;
   noMint: PublicKey;
   status: MarketStatusName;
-  winner: Side;
+  winner: Side | null;
   expiry: number;
   endTs: number;
+  finishTs: number;
   bump: number;
   yesPool: bigint;
   noPool: bigint;
@@ -37,11 +52,11 @@ export type MarketView = {
   reserveYes: bigint;
   reserveNo: bigint;
   totalLpShares: bigint;
-  feedId: number[];
-  feedHex: string;
+  ocr2State: PublicKey;
+  feedKey: FeedKey | null;
   feedSymbol: string;
+  priceDecimals: number;
   threshold: bigint;
-  exponent: number;
   settleAbove: boolean;
   settledPrice: bigint;
   settledPublishTime: number;
@@ -69,15 +84,34 @@ export const EMPTY_POSITION: UserPosition = {
   pendingNo: 0n,
 };
 
-export function marketPhase(market: { status: MarketStatusName; expiry: number }, now = Math.floor(Date.now() / 1000)) {
+export function isVoidedStatus(status: MarketStatusName): boolean {
+  return status === "windowBurn" || status === "staleBurn";
+}
+
+export function isFinalizedStatus(status: MarketStatusName): boolean {
+  return status === "resolved" || isVoidedStatus(status);
+}
+
+export function marketPhase(
+  market: { status: MarketStatusName; expiry: number; endTs?: number; finishTs?: number },
+  now = Math.floor(Date.now() / 1000)
+) {
+  const endTs = market.endTs ?? market.expiry;
   const expired = now >= market.expiry;
   const inWindow = expired && now <= market.expiry + RESOLVE_WINDOW;
   const afterWindow = now > market.expiry + RESOLVE_WINDOW;
+  const inSnapshotWindow =
+    market.status === "open" && now > endTs - SNAPSHOT_WINDOW && now < endTs + SNAPSHOT_WINDOW;
+  const finishTs = market.finishTs ?? 0;
+  const canBurn =
+    isFinalizedStatus(market.status) && finishTs > 0 && now > finishTs + CLAIM_WINDOW;
   return {
     live: market.status === "open" && !expired,
     expired,
     inWindow,
     afterWindow,
+    inSnapshotWindow,
+    canBurn,
   };
 }
 
@@ -97,8 +131,7 @@ function buildView(
   const reserveYes = reserveAmount(account.reserveYes);
   const reserveNo = reserveAmount(account.reserveNo);
   const yesPrice = impliedYesPrice(reserveYes, reserveNo);
-  const hex = Buffer.from(account.feedId).toString("hex");
-  const preset = feedByHex(hex);
+  const preset = feedByState(account.ocr2State);
   return {
     address,
     pdas,
@@ -112,6 +145,7 @@ function buildView(
     winner: account.winner,
     expiry: Number(account.expiry),
     endTs: Number(account.endTs),
+    finishTs: Number(account.finishTs),
     bump: account.bump,
     yesPool: extras.yesPool,
     noPool: extras.noPool,
@@ -123,11 +157,11 @@ function buildView(
     reserveYes,
     reserveNo,
     totalLpShares: i80f48ToAmount(account.totalLpShares),
-    feedId: account.feedId,
-    feedHex: hex,
-    feedSymbol: preset?.symbol ?? hex.slice(0, 8),
+    ocr2State: account.ocr2State,
+    feedKey: preset?.key ?? null,
+    feedSymbol: preset?.symbol ?? account.ocr2State.toBase58().slice(0, 8),
+    priceDecimals: account.priceDecimals,
     threshold: account.threshold,
-    exponent: account.exponent,
     settleAbove: account.settleAbove,
     settledPrice: account.settledPrice,
     settledPublishTime: Number(account.settledPublishTime),
@@ -145,12 +179,15 @@ export async function fetchMarkets(
   const disc = Buffer.from(MARKET_DISCRIMINATOR);
   const rows = await connection.getProgramAccounts(program.programId, {
     commitment: "confirmed",
-    filters: [{ memcmp: { offset: 0, bytes: utils.bytes.bs58.encode(disc) } }],
+    filters: [
+      { dataSize: MARKET_ACCOUNT_SIZE },
+      { memcmp: { offset: 0, bytes: utils.bytes.bs58.encode(disc) } },
+    ],
   });
   const decoded: { address: PublicKey; account: DecodedMarket }[] = [];
   for (const row of rows) {
     try {
-      decoded.push({ address: row.pubkey, account: decodeMarket(row.account.data) });
+      decoded.push({ address: row.pubkey, account: decodeMarket(Buffer.from(row.account.data)) });
     } catch {
       // skip legacy or undecodable layouts
     }
@@ -196,7 +233,7 @@ export async function fetchMarket(
 ): Promise<MarketView> {
   const info = await connection.getAccountInfo(address, "confirmed");
   if (!info) throw new Error("errors.accountMissing");
-  const account = decodeMarket(info.data);
+  const account = decodeMarket(Buffer.from(info.data));
   const pdas = findMarketPdas(program.programId, account.id);
   const keys = [pdas.yesPool, pdas.noPool, pdas.collateralVault, account.collateralMint];
   const infos = await getMultiple(connection, keys);
@@ -210,6 +247,19 @@ export async function fetchMarket(
     decimals: unpackDecimals(account.collateralMint, collateralInfo, tokenProgram),
     tokenProgram,
   });
+}
+
+export async function fetchMarketSnapshot(
+  connection: Connection,
+  snapshotPda: PublicKey
+): Promise<DecodedMarketSnapshot | null> {
+  const info = await connection.getAccountInfo(snapshotPda, "confirmed");
+  if (!info) return null;
+  try {
+    return decodeMarketSnapshot(Buffer.from(info.data));
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchPosition(
@@ -233,7 +283,7 @@ export async function fetchPosition(
   const lpInfo = infos[3];
   if (lpInfo) {
     try {
-      const pos = decodeLpPosition(lpInfo.data);
+      const pos = decodeLpPosition(Buffer.from(lpInfo.data));
       lpShares = i80f48ToAmount(pos.shares);
       const pending = computePending(
         pos.shares,
@@ -257,5 +307,3 @@ export async function fetchPosition(
     pendingNo,
   };
 }
-
-

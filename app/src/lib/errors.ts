@@ -5,7 +5,7 @@ const ERRORS: Record<number, string> = {
   6001: "errors.cannotRedeem",
   6002: "errors.cannotMerge",
   6003: "errors.expired",
-  6004: "errors.outsideWindow",
+  6004: "errors.notExpired",
   6005: "errors.invalidAmount",
   6006: "errors.notEnoughTokens",
   6007: "errors.emptyPool",
@@ -19,7 +19,24 @@ const ERRORS: Record<number, string> = {
   6015: "errors.invalidDuration",
   6016: "errors.invalidBudget",
   6017: "errors.notFirstPrint",
-  6018: "errors.exponentMismatch",
+  6018: "errors.outsideWindow",
+  6019: "errors.noCreator",
+  6020: "errors.noArriveFinishTs",
+  6021: "errors.marketIsOpen",
+  6022: "errors.invalidOracleInput",
+  6023: "errors.oracleDigestMismatch",
+  6024: "errors.wrongNumberOfSignatures",
+  6025: "errors.invalidOracleSignature",
+  6026: "errors.unauthorizedOracleSigner",
+  6027: "errors.duplicateOracleSigner",
+  6028: "errors.wrongOracleState",
+  6029: "errors.badFeedAccount",
+  6030: "errors.feedNotAllowed",
+  6031: "errors.snapshotFull",
+  6032: "errors.snapshotOutOfWindow",
+  6033: "errors.snapshotStale",
+  6034: "errors.unableCompleteCheckout",
+  6035: "errors.unsupportedDecimals",
 };
 
 function pickLogs(err: unknown): string {
@@ -36,7 +53,7 @@ function pickLogs(err: unknown): string {
 export function parseTxError(err: unknown): string {
   const text = pickLogs(err);
 
-  const named = text.match(/Error Code: ([A-Za-z]+)\. Error Number: (\d+)/);
+  const named = text.match(/Error Code: ([A-Za-z0-9_]+)\. Error Number: (\d+)/);
   if (named) {
     const code = Number(named[2]);
     return ERRORS[code] ?? "errors.txFailed";
@@ -66,8 +83,8 @@ export function parseTxError(err: unknown): string {
   if (/Connect a wallet first|WalletNotConnected|WalletNotReady|WalletNotSelected/i.test(text)) return "errors.connectWallet";
   if (/No instructions to send/i.test(text)) return "errors.noIxs";
   if (/Collateral mint not found/i.test(text)) return "errors.mintNotFound";
-  if (/errors\.[a-zA-Z]+/.test(text)) {
-    const key = text.match(/errors\.[a-zA-Z]+/)?.[0];
+  if (/errors\.[a-zA-Z0-9]+/.test(text)) {
+    const key = text.match(/errors\.[a-zA-Z0-9]+/)?.[0];
     if (key && hasKey(key)) return key;
   }
 

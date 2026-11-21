@@ -1,21 +1,25 @@
 import { COLLATERAL_SYMBOL, RESOLVE_WINDOW } from "./constants";
 import { countdown, formatStamp, toUi } from "./format";
-import { marketPhase, type MarketView, type UserPosition } from "./markets";
-import { feedByHex, thresholdToHuman } from "./feeds";
+import { isVoidedStatus, marketPhase, type MarketView, type UserPosition } from "./markets";
+import { feedByState, thresholdToHuman } from "./feeds";
 import { getLocale, t } from "@/i18n/store";
 
-export type MarketKind = "live" | "awaiting" | "voidable" | "resolved" | "voided" | "upcoming";
+export type MarketKind =
+  | "live"
+  | "awaiting"
+  | "voidable"
+  | "resolved"
+  | "staleVoid"
+  | "windowVoid";
 
-const AUTO_TITLE = /^(.+?) (>=|<) ([\d,]+) @ /;
+const AUTO_TITLE = /^(.+?) (>=|<) ([\d,.]+) @ /;
 
 /** Auto-generated spec titles ("BTC/USD >= 73,479 @ ...") read as questions;
     a creator's custom title is returned untouched. */
 export function questionTitle(market: MarketView): string {
   if (!AUTO_TITLE.test(market.title)) return market.title;
-  const symbol = feedByHex(market.feedHex)?.symbol ?? market.title.split(" ")[0];
-  const human = thresholdToHuman(market.threshold, market.exponent);
-  // One site-wide timestamp shape: titles embed the same formatStamp string
-  // (YYYY-MM-DD HH:mm) used for deadlines, stamps and the settled time.
+  const symbol = feedByState(market.ocr2State)?.symbol ?? market.title.split(" ")[0];
+  const human = thresholdToHuman(market.threshold, market.priceDecimals);
   const stamp = formatStamp(market.expiry);
   if (getLocale() === "zh") {
     return symbol + " " + stamp + " " + (market.settleAbove ? "能站上" : "会跌破") + " " + human + " 吗？";
@@ -46,29 +50,43 @@ export function clusterLabel(cluster: string): string {
 
 export function marketKind(market: MarketView, now: number): MarketKind {
   if (market.status === "resolved") return "resolved";
-  if (market.status === "burn") return "voided";
-  if (market.status === "upcoming") return "upcoming";
+  if (market.status === "staleBurn") return "staleVoid";
+  if (market.status === "windowBurn") return "windowVoid";
   const phase = marketPhase(market, now);
   if (phase.live) return "live";
   if (phase.afterWindow) return "voidable";
   return "awaiting";
 }
 
-export function kindLabel(kind: MarketKind, market: MarketView): string {
+export function kindLabelKey(
+  kind: MarketKind,
+  market: MarketView
+):
+  | "kind.live"
+  | "kind.awaiting"
+  | "kind.voidable"
+  | "kind.yesWon"
+  | "kind.noWon"
+  | "kind.staleVoid"
+  | "kind.windowVoid" {
   switch (kind) {
     case "live":
-      return t("kind.live");
+      return "kind.live";
     case "awaiting":
-      return t("kind.awaiting");
+      return "kind.awaiting";
     case "voidable":
-      return t("kind.voidable");
+      return "kind.voidable";
     case "resolved":
-      return market.winner === "yes" ? t("kind.yesWon") : t("kind.noWon");
-    case "voided":
-      return t("kind.voided");
-    case "upcoming":
-      return t("kind.upcoming");
+      return market.winner === "yes" ? "kind.yesWon" : "kind.noWon";
+    case "staleVoid":
+      return "kind.staleVoid";
+    case "windowVoid":
+      return "kind.windowVoid";
   }
+}
+
+export function kindLabel(kind: MarketKind, market: MarketView): string {
+  return t(kindLabelKey(kind, market));
 }
 
 export function kindTone(
@@ -84,10 +102,9 @@ export function kindTone(
       return "ink";
     case "resolved":
       return market?.winner === "no" ? "no" : "yes";
-    case "voided":
+    case "staleVoid":
+    case "windowVoid":
       return "no";
-    case "upcoming":
-      return "mute";
   }
 }
 
@@ -95,7 +112,6 @@ export function timeCopy(market: MarketView, now: number): string {
   const kind = marketKind(market, now);
   if (kind === "live") return countdown(market.expiry, now);
   if (kind === "awaiting") return t("time.closed", { when: formatWhen(market.expiry) });
-  if (kind === "voidable") return formatWhen(market.expiry);
   return formatWhen(market.expiry);
 }
 
@@ -109,6 +125,9 @@ export function resolveHours(): number {
 
 export function listSection(kind: MarketKind): "live" | "next" | "ended" {
   if (kind === "live") return "live";
-  if (kind === "upcoming") return "next";
   return "ended";
+}
+
+export function isMarketVoided(market: { status: MarketView["status"] }): boolean {
+  return isVoidedStatus(market.status);
 }

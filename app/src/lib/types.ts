@@ -1,13 +1,14 @@
 import { PublicKey } from "@solana/web3.js";
 
 export type Side = "yes" | "no";
-export type MarketStatusName = "upcoming" | "open" | "resolved" | "burn";
+export type MarketStatusName = "open" | "resolved" | "windowBurn" | "staleBurn";
 export type ClusterName = "localnet" | "devnet" | "testnet" | "mainnet-beta";
-export type FeedKey = "btc" | "eth" | "sol" | "doge" | "xau";
+export type FeedKey = "btc" | "eth" | "sol" | "link" | "usdc" | "usdt";
 
 export type MarketPdas = {
   market: PublicKey;
   marketBump: number;
+  snapshot: PublicKey;
   yesMint: PublicKey;
   noMint: PublicKey;
   collateralVault: PublicKey;
@@ -35,8 +36,8 @@ export type ToastItem = {
 export type FeedQuote = {
   key: FeedKey;
   price: number | null;
-  expo: number | null;
+  decimals: number;
   publishTime: number | null;
-  conf: number | null;
+  counter: number | null;
   available: boolean;
 };

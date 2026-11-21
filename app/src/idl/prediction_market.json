@@ -397,7 +397,8 @@
           "name": "token_program"
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -406,6 +407,221 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "burn_account",
+      "discriminator": [
+        150,
+        61,
+        51,
+        97,
+        24,
+        5,
+        29,
+        238
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.id",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "snapshot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  110,
+                  97,
+                  112,
+                  115,
+                  104,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "yes_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  121,
+                  101,
+                  115,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "no_pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  95,
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "yes_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  121,
+                  101,
+                  115,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "no_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  111,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "collateral_ata",
+          "writable": true
+        },
+        {
+          "name": "collateral_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  108,
+                  108,
+                  97,
+                  116,
+                  101,
+                  114,
+                  97,
+                  108,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "collateral_mint"
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "clock",
+          "address": "SysvarC1ock11111111111111111111111111111111"
+        }
+      ],
+      "args": []
     },
     {
       "name": "create_market",
@@ -444,6 +660,34 @@
               {
                 "kind": "arg",
                 "path": "param.market_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ocr2_state"
+        },
+        {
+          "name": "snapshot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  110,
+                  97,
+                  112,
+                  115,
+                  104,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
               }
             ]
           }
@@ -682,7 +926,8 @@
           "name": "token_program"
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -1024,7 +1269,7 @@
           }
         },
         {
-          "name": "businessman_yes_ata",
+          "name": "maker_yes_ata",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1081,7 +1326,7 @@
           }
         },
         {
-          "name": "businessman_no_ata",
+          "name": "maker_no_ata",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1197,7 +1442,8 @@
           "name": "token_program"
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -1505,14 +1751,48 @@
           }
         },
         {
-          "name": "price_update"
+          "name": "snapshot",
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  110,
+                  97,
+                  112,
+                  115,
+                  104,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ocr2_state"
         },
         {
           "name": "clock",
           "address": "SysvarC1ock11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "param",
+          "type": {
+            "defined": {
+              "name": "ResolveMarketParam"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "swap",
@@ -1784,6 +2064,69 @@
           }
         }
       ]
+    },
+    {
+      "name": "take_snapshot",
+      "discriminator": [
+        183,
+        210,
+        251,
+        68,
+        140,
+        132,
+        191,
+        140
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "snapshot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  110,
+                  97,
+                  112,
+                  115,
+                  104,
+                  111,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ocr2_state"
+        },
+        {
+          "name": "feed"
+        },
+        {
+          "name": "clock",
+          "address": "SysvarC1ock11111111111111111111111111111111"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
     },
     {
       "name": "user_bet_on",
@@ -2090,7 +2433,8 @@
           "name": "token_program"
         },
         {
-          "name": "system_program"
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -2180,6 +2524,19 @@
         198,
         154
       ]
+    },
+    {
+      "name": "MarketSnapshot",
+      "discriminator": [
+        107,
+        32,
+        221,
+        188,
+        130,
+        114,
+        104,
+        28
+      ]
     }
   ],
   "errors": [
@@ -2206,7 +2563,7 @@
     {
       "code": 6004,
       "name": "MarketNotExpired",
-      "msg": "Market is outside the settlement window."
+      "msg": "Market has not expired yet."
     },
     {
       "code": 6005,
@@ -2271,12 +2628,97 @@
     {
       "code": 6017,
       "name": "NotFirstAfterExpiry",
-      "msg": "Price is not the first Pyth update after expiry."
+      "msg": "Reports are not two adjacent oracle rounds straddling expiry."
     },
     {
       "code": 6018,
-      "name": "ExponentMismatch",
-      "msg": "Pyth exponent does not match this market."
+      "name": "MarketNotInWindow",
+      "msg": "Market is not in the required time window."
+    },
+    {
+      "code": 6019,
+      "name": "NoCreator",
+      "msg": "Signer is not the market creator."
+    },
+    {
+      "code": 6020,
+      "name": "NoArriveFinishTS",
+      "msg": "Claim window has not ended yet."
+    },
+    {
+      "code": 6021,
+      "name": "MarketIsOpen",
+      "msg": "Market is still open."
+    },
+    {
+      "code": 6022,
+      "name": "InvalidOracleInput",
+      "msg": "Oracle report or state data is malformed."
+    },
+    {
+      "code": 6023,
+      "name": "OracleDigestMismatch",
+      "msg": "Oracle report was not signed under the feed's current config."
+    },
+    {
+      "code": 6024,
+      "name": "WrongNumberOfSignatures",
+      "msg": "Oracle report has the wrong number of signatures."
+    },
+    {
+      "code": 6025,
+      "name": "InvalidOracleSignature",
+      "msg": "Oracle report signature is invalid."
+    },
+    {
+      "code": 6026,
+      "name": "UnauthorizedOracleSigner",
+      "msg": "Oracle report is signed by a node outside the feed's oracle set."
+    },
+    {
+      "code": 6027,
+      "name": "DuplicateOracleSigner",
+      "msg": "Oracle report is signed twice by the same node."
+    },
+    {
+      "code": 6028,
+      "name": "WrongOracleState",
+      "msg": "Oracle state account is not an allowed feed or does not match this market."
+    },
+    {
+      "code": 6029,
+      "name": "BadFeedAccount",
+      "msg": "Feed account does not match this market's price feed."
+    },
+    {
+      "code": 6030,
+      "name": "FeedNotAllowed",
+      "msg": "Price feed is not in the allowed feed list."
+    },
+    {
+      "code": 6031,
+      "name": "SnapshotFull",
+      "msg": "Snapshot already holds sixteen entries."
+    },
+    {
+      "code": 6032,
+      "name": "SnapshotOutOfWindow",
+      "msg": "Snapshot can only be taken within ten seconds of expiry."
+    },
+    {
+      "code": 6033,
+      "name": "SnapshotStale",
+      "msg": "Snapshot landing counter must move forward."
+    },
+    {
+      "code": 6034,
+      "name": "UnableCompleteCheckout",
+      "msg": "Reports are not adjacent rounds and are not certified by the market snapshot."
+    },
+    {
+      "code": 6035,
+      "name": "UnsupportedDecimals",
+      "msg": "Feed decimals must be 8."
     }
   ],
   "types": [
@@ -2312,25 +2754,28 @@
             "type": "u64"
           },
           {
-            "name": "feed_id",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
             "name": "threshold",
             "type": "i64"
           },
           {
-            "name": "exponent",
-            "type": "i32"
-          },
-          {
             "name": "settle_above",
             "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EpochRound",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "epoch",
+            "type": "u32"
+          },
+          {
+            "name": "round",
+            "type": "u8"
           }
         ]
       }
@@ -2412,8 +2857,10 @@
           {
             "name": "winner",
             "type": {
-              "defined": {
-                "name": "MarketOutcome"
+              "option": {
+                "defined": {
+                  "name": "MarketOutcome"
+                }
               }
             }
           },
@@ -2429,6 +2876,10 @@
                 64
               ]
             }
+          },
+          {
+            "name": "finish_ts",
+            "type": "u64"
           },
           {
             "name": "l_zero",
@@ -2467,21 +2918,16 @@
             "type": "i64"
           },
           {
-            "name": "feed_id",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
+            "name": "ocr2_state",
+            "type": "pubkey"
           },
           {
             "name": "threshold",
             "type": "i64"
           },
           {
-            "name": "exponent",
-            "type": "i32"
+            "name": "decimals",
+            "type": "u8"
           },
           {
             "name": "settle_above",
@@ -2513,13 +2959,32 @@
       }
     },
     {
+      "name": "MarketSnapshot",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "entries",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "Snapshot"
+                }
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "MarketStatus",
       "type": {
         "kind": "enum",
         "variants": [
-          {
-            "name": "Upcoming"
-          },
           {
             "name": "Open"
           },
@@ -2527,7 +2992,54 @@
             "name": "Resolved"
           },
           {
-            "name": "Burn"
+            "name": "WindowBurn"
+          },
+          {
+            "name": "StaleBurn"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ResolveMarketParam",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raw_pre",
+            "type": "bytes"
+          },
+          {
+            "name": "raw_post",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Snapshot",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "at",
+            "type": {
+              "defined": {
+                "name": "EpochRound"
+              }
+            }
+          },
+          {
+            "name": "counter",
+            "type": "u32"
+          },
+          {
+            "name": "price",
+            "type": "i128"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
           }
         ]
       }
@@ -2582,6 +3094,11 @@
     }
   ],
   "constants": [
+    {
+      "name": "CLAIM_WINDOW",
+      "type": "u64",
+      "value": "2592000"
+    },
     {
       "name": "MAX_SETTLE_DELAY",
       "type": "i64",

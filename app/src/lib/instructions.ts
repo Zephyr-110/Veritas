@@ -1,7 +1,6 @@
+import { Buffer } from "buffer";
 import { Program } from "@coral-xyz/anchor";
-import {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
+import { ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import {
   ComputeBudgetProgram,
   PublicKey,
@@ -27,13 +26,12 @@ export async function ixCreateMarket(
   args: {
     creator: PublicKey;
     collateralMint: PublicKey;
+    ocr2State: PublicKey;
     marketId: number[];
     prediction: number[];
     expiry: number;
     collateralAmount: bigint;
-    feedId: number[];
     threshold: bigint;
-    exponent: number;
     settleAbove: boolean;
     tokenProgram: PublicKey;
   }
@@ -47,14 +45,14 @@ export async function ixCreateMarket(
       marketId: args.marketId,
       prediction: args.prediction,
       collateralAmount: toBn(args.collateralAmount),
-      feedId: args.feedId,
       threshold: toBn(args.threshold),
-      exponent: args.exponent,
       settleAbove: args.settleAbove,
     })
     .accountsPartial({
       creator: args.creator,
       market: pdas.market,
+      ocr2State: args.ocr2State,
+      snapshot: pdas.snapshot,
       lpPosition,
       collateralMint: args.collateralMint,
       yesMint: pdas.yesMint,
@@ -198,8 +196,8 @@ export async function ixGetLiquidity(
       lpPosition,
       yesMint: market.pdas.yesMint,
       noMint: market.pdas.noMint,
-      businessmanYesAta: ataOf(market.pdas.yesMint, user, tp),
-      businessmanNoAta: ataOf(market.pdas.noMint, user, tp),
+      makerYesAta: ataOf(market.pdas.yesMint, user, tp),
+      makerNoAta: ataOf(market.pdas.noMint, user, tp),
       yesPool: market.pdas.yesPool,
       noPool: market.pdas.noPool,
       clock: SYSVAR_CLOCK_PUBKEY,
@@ -251,18 +249,43 @@ export async function ixResolveMarket(
   program: Program<PredictionMarket>,
   market: MarketView,
   signer: PublicKey,
-  priceUpdate: PublicKey
+  args: { rawPre: Buffer; rawPost: Buffer; hasSnapshot: boolean }
 ): Promise<TransactionInstruction[]> {
   const ix = await program.methods
-    .resolveMarket()
+    .resolveMarket({
+      rawPre: args.rawPre,
+      rawPost: args.rawPost,
+    })
     .accountsPartial({
       signer,
       market: market.address,
-      priceUpdate,
+      snapshot: args.hasSnapshot ? market.pdas.snapshot : null,
+      ocr2State: market.ocr2State,
       clock: SYSVAR_CLOCK_PUBKEY,
     })
     .instruction();
-  return [cuIx(800_000), ix];
+  return [cuIx(1_000_000), ix];
+}
+
+export async function ixTakeSnapshot(
+  program: Program<PredictionMarket>,
+  market: MarketView,
+  caller: PublicKey,
+  feed: PublicKey
+): Promise<TransactionInstruction[]> {
+  const ix = await program.methods
+    .takeSnapshot()
+    .accountsPartial({
+      caller,
+      market: market.address,
+      snapshot: market.pdas.snapshot,
+      ocr2State: market.ocr2State,
+      feed,
+      clock: SYSVAR_CLOCK_PUBKEY,
+      systemProgram: SystemProgram.programId,
+    })
+    .instruction();
+  return [cuIx(200_000), ix];
 }
 
 export async function ixVoidMarket(
@@ -306,6 +329,36 @@ export async function ixGetCollateral(
     cuIx(),
     ensureAtaIx(user, market.collateralMint, tp, user),
     ensureAtaIx(user, tokenMint, tp, user),
+    ix,
+  ];
+}
+
+export async function ixBurnAccount(
+  program: Program<PredictionMarket>,
+  market: MarketView,
+  signer: PublicKey
+): Promise<TransactionInstruction[]> {
+  const tp = market.tokenProgram;
+  const ix = await program.methods
+    .burnAccount()
+    .accountsPartial({
+      signer,
+      market: market.address,
+      snapshot: market.pdas.snapshot,
+      yesPool: market.pdas.yesPool,
+      noPool: market.pdas.noPool,
+      yesMint: market.pdas.yesMint,
+      noMint: market.pdas.noMint,
+      collateralAta: ataOf(market.collateralMint, signer, tp),
+      collateralVault: market.pdas.collateralVault,
+      collateralMint: market.collateralMint,
+      tokenProgram: tp,
+      clock: SYSVAR_CLOCK_PUBKEY,
+    })
+    .instruction();
+  return [
+    cuIx(400_000),
+    ensureAtaIx(signer, market.collateralMint, tp, signer),
     ix,
   ];
 }

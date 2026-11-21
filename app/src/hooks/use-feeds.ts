@@ -2,61 +2,101 @@
 
 import { useEffect, useReducer } from "react";
 import { useConnection } from "@solana/wallet-adapter-react";
-import { emptyQuotes, fetchFeedQuotes, subscribeFeedQuotes } from "@/lib/pyth";
+import type { Connection } from "@solana/web3.js";
+import { emptyQuotes, fetchFeedQuotes, subscribeFeedQuotes } from "@/lib/chainlink";
+import { parseTxError } from "@/lib/errors";
 import type { FeedQuote, FeedKey } from "@/lib/types";
 
-const POLL_MS = 5000;
+const POLL_MS = 6000;
 
-/**
- * Feed quotes live in one module-level store shared by every consumer
- * (header tape, homepage panel, market table, create and detail pages).
- * Previously each useFeeds() call site ran its own subscription + poll
- * and started from empty, so every mount flashed skeletons / "—" until
- * its private first fetch landed, and the same accounts were subscribed
- * five times over. Now the first consumer starts a single pump; later
- * mounts in the same session read the store instantly.
- *
- * Deliberately NOT persisted across reloads: a minutes-old price shown
- * without a staleness label would read as a live price. Standing rule
- * for this site — stale data never renders as if it were current;
- * either it carries a visible "as of" label or it does not render.
- */
-type QuotesState = { quotes: Record<FeedKey, FeedQuote>; ready: boolean };
+type QuotesState = {
+  quotes: Record<FeedKey, FeedQuote>;
+  ready: boolean;
+  error: string | null;
+  lastUpdated: number | null;
+};
 
-let state: QuotesState = { quotes: emptyQuotes(), ready: false };
+let state: QuotesState = {
+  quotes: emptyQuotes(),
+  ready: false,
+  error: null,
+  lastUpdated: null,
+};
 const listeners = new Set<() => void>();
 let pumpEndpoint: string | null = null;
+let activeConnection: Connection | null = null;
 let stopPump: (() => void) | null = null;
 
-function emit(next: Record<FeedKey, FeedQuote>) {
-  state = { quotes: next, ready: true };
+function notify() {
   listeners.forEach((fn) => fn());
 }
 
-function ensurePump(connection: Parameters<typeof subscribeFeedQuotes>[0]) {
+function emitQuotes(next: Record<FeedKey, FeedQuote>) {
+  state = {
+    quotes: next,
+    ready: true,
+    error: null,
+    lastUpdated: Math.floor(Date.now() / 1000),
+  };
+  notify();
+}
+
+function emitError(err: unknown) {
+  state = {
+    ...state,
+    ready: true,
+    error: parseTxError(err),
+  };
+  notify();
+}
+
+async function pollOnce() {
+  if (!activeConnection) return;
+  try {
+    const next = await fetchFeedQuotes(activeConnection);
+    emitQuotes(next);
+  } catch (err) {
+    emitError(err);
+  }
+}
+
+function ensurePump(connection: Connection) {
+  activeConnection = connection;
   if (pumpEndpoint === connection.rpcEndpoint) return;
   stopPump?.();
   pumpEndpoint = connection.rpcEndpoint;
-  const unsub = subscribeFeedQuotes(connection, emit);
+  state = {
+    quotes: emptyQuotes(),
+    ready: false,
+    error: null,
+    lastUpdated: null,
+  };
+
+  const unsub = subscribeFeedQuotes(connection, emitQuotes, emitError);
   const id = window.setInterval(() => {
-    void fetchFeedQuotes(connection).then(emit).catch(() => undefined);
+    if (!document.hidden) void pollOnce();
   }, POLL_MS);
+  const onVis = () => {
+    if (!document.hidden) void pollOnce();
+  };
+  document.addEventListener("visibilitychange", onVis);
+
   stopPump = () => {
     unsub();
     window.clearInterval(id);
+    document.removeEventListener("visibilitychange", onVis);
   };
 }
 
-export function useFeeds(): QuotesState {
+export function useFeeds(): QuotesState & { retry: () => Promise<void> } {
   const { connection } = useConnection();
   const [, bump] = useReducer((n: number) => n + 1, 0);
 
   useEffect(() => {
-    // Drop any warm-start payload an earlier build may have left behind.
     try {
       window.localStorage.removeItem("veritas.quotes.v1");
     } catch {
-      // storage blocked — nothing to clean
+      // storage blocked
     }
     listeners.add(bump);
     ensurePump(connection);
@@ -66,5 +106,8 @@ export function useFeeds(): QuotesState {
     };
   }, [connection, bump]);
 
-  return state;
+  return {
+    ...state,
+    retry: pollOnce,
+  };
 }
