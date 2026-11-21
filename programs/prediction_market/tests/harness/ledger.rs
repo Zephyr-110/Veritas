@@ -12,6 +12,11 @@ pub struct Ledger {
     pub pending_no: f64,
     pub phys_yes: f64,
     pub phys_no: f64,
+    /// Signed pool surplus (+) or deficit (-): phys - (book + pending).
+    pub drift_yes: f64,
+    pub drift_no: f64,
+    pub deficit_yes: f64,
+    pub deficit_no: f64,
     pub err_yes: f64,
     pub err_no: f64,
     pub share_err: f64,
@@ -33,28 +38,108 @@ pub struct Ledger {
 
 impl Ledger {
     pub fn assert_ok(&self) {
-        let cap = self.band.min(8.0);
+        // Closed-loop book-vs-pool error measured at 2.30. A flat 8-token
+        // ceiling let several tokens of drift through. Walks opt out and
+        // set their own caps.
+        let cap = self.band.min(2.5);
         assert!(
             self.err_yes <= cap,
             "{} yes conservation err {} > cap {} (band {})",
-            self.stage, self.err_yes, cap, self.band
+            self.stage,
+            self.err_yes,
+            cap,
+            self.band
         );
         assert!(
             self.err_no <= cap,
             "{} no conservation err {} > cap {} (band {})",
-            self.stage, self.err_no, cap, self.band
+            self.stage,
+            self.err_no,
+            cap,
+            self.band
         );
         assert!(
-            self.share_err <= cap.max(1.0),
-            "{} share err {} > cap {}",
-            self.stage, self.share_err, cap
+            self.deficit_yes <= 1.5,
+            "{} yes deficit {} > 1.5 (phys={} book={} pending={})",
+            self.stage,
+            self.deficit_yes,
+            self.phys_yes,
+            self.book_yes,
+            self.pending_yes
         );
         assert!(
-            self.solvency_err <= cap + 1.0,
-            "{} solvency err {} > cap {}",
-            self.stage, self.solvency_err, cap
+            self.deficit_no <= 1.5,
+            "{} no deficit {} > 1.5 (phys={} book={} pending={})",
+            self.stage,
+            self.deficit_no,
+            self.phys_no,
+            self.book_no,
+            self.pending_no
         );
+        assert!(
+            self.share_err <= 1e-6,
+            "{} share err {} > 1e-6",
+            self.stage, self.share_err
+        );
+        match self.market_status {
+            MarketStatus::Open | MarketStatus::Resolved => {
+                assert!(
+                    self.solvency_err == 0.0,
+                    "{} solvency err {} != 0",
+                    self.stage, self.solvency_err
+                );
+            }
+            MarketStatus::WindowBurn | MarketStatus::StaleBurn => {
+                // floor(amount/2) leaves the odd unit in the vault. That
+                // excess is not a solvency hole; assert_backing checks
+                // vault >= floor liability. Do not reuse the book-vs-pool cap.
+            }
+        }
         self.assert_backing();
+    }
+
+    pub fn assert_walk_ok(&self, max_surplus: f64, max_deficit: f64) {
+        self.assert_backing();
+        assert!(
+            self.share_err <= 1e-6,
+            "{} share err {} > 1e-6",
+            self.stage,
+            self.share_err
+        );
+        assert!(
+            self.drift_yes <= max_surplus,
+            "{} yes surplus drift {} > cap {}",
+            self.stage,
+            self.drift_yes,
+            max_surplus
+        );
+        assert!(
+            self.drift_no <= max_surplus,
+            "{} no surplus drift {} > cap {}",
+            self.stage,
+            self.drift_no,
+            max_surplus
+        );
+        assert!(
+            self.deficit_yes <= max_deficit,
+            "{} yes deficit {} > cap {} (phys={} book={} pending={})",
+            self.stage,
+            self.deficit_yes,
+            max_deficit,
+            self.phys_yes,
+            self.book_yes,
+            self.pending_yes
+        );
+        assert!(
+            self.deficit_no <= max_deficit,
+            "{} no deficit {} > cap {} (phys={} book={} pending={})",
+            self.stage,
+            self.deficit_no,
+            max_deficit,
+            self.phys_no,
+            self.book_no,
+            self.pending_no
+        );
     }
 
     /// Integer solvency. Open is 1:1 complete-set backing. Resolved is
@@ -99,7 +184,9 @@ impl Ledger {
                 assert!(
                     self.vault_u64 >= self.liability_u64,
                     "{} void insolvent: vault {} < floor-liability {}",
-                    self.stage, self.vault_u64, self.liability_u64
+                    self.stage,
+                    self.vault_u64,
+                    self.liability_u64
                 );
             }
         }
@@ -110,17 +197,16 @@ impl Ledger {
         assert!(
             self.err_yes <= cap,
             "{} yes conservation err {} > tight cap {}",
-            self.stage, self.err_yes, cap
+            self.stage,
+            self.err_yes,
+            cap
         );
         assert!(
             self.err_no <= cap,
             "{} no conservation err {} > tight cap {}",
-            self.stage, self.err_no, cap
-        );
-        assert!(
-            self.solvency_err <= cap + 1.0,
-            "{} solvency err {} > tight cap {}",
-            self.stage, self.solvency_err, cap
+            self.stage,
+            self.err_no,
+            cap
         );
     }
 }
@@ -150,15 +236,21 @@ impl Env {
             if let Some(p) = self.read_lp(keys, *owner) {
                 let s = bits_f64(p.shares);
                 share_sum += s;
-                pending_yes += (bits_f64(m.cum_yes_per_share) - bits_f64(p.checkpoint_yes)).max(0.0) * s;
-                pending_no += (bits_f64(m.cum_no_per_share) - bits_f64(p.checkpoint_no)).max(0.0) * s;
+                pending_yes +=
+                    (bits_f64(m.cum_yes_per_share) - bits_f64(p.checkpoint_yes)).max(0.0) * s;
+                pending_no +=
+                    (bits_f64(m.cum_no_per_share) - bits_f64(p.checkpoint_no)).max(0.0) * s;
             }
         }
         let phys_yes = self.token_amount(keys.yes_pool) as f64;
         let phys_no = self.token_amount(keys.no_pool) as f64;
         let band = band(self.ops, phys_yes + phys_no);
-        let err_yes = (book_yes + pending_yes - phys_yes).abs();
-        let err_no = (book_no + pending_no - phys_no).abs();
+        let drift_yes = phys_yes - (book_yes + pending_yes);
+        let drift_no = phys_no - (book_no + pending_no);
+        let deficit_yes = (-drift_yes).max(0.0);
+        let deficit_no = (-drift_no).max(0.0);
+        let err_yes = drift_yes.abs();
+        let err_no = drift_no.abs();
         let share_err = (total_shares - share_sum).abs();
         let vault_u64 = self.token_amount(keys.vault);
         let vault = vault_u64 as f64;
@@ -178,6 +270,10 @@ impl Env {
             pending_no,
             phys_yes,
             phys_no,
+            drift_yes,
+            drift_no,
+            deficit_yes,
+            deficit_no,
             err_yes,
             err_no,
             share_err,
@@ -197,8 +293,8 @@ impl Env {
             liability_u64,
         };
         println!(
-            "LEDGER {stage}: book=({:.6},{:.6}) pending=({:.6},{:.6}) phys=({:.0},{:.0}) err=({:.6},{:.6}) shares_err={:.6} vault={} supply=({},{}) liab={} solvency_err={:.6} band={:.6} status={}",
-            l.book_yes, l.book_no, l.pending_yes, l.pending_no, l.phys_yes, l.phys_no, l.err_yes, l.err_no, l.share_err, l.vault_u64, l.yes_supply_u64, l.no_supply_u64, l.liability_u64, l.solvency_err, l.band, l.status
+            "LEDGER {stage}: book=({:.6},{:.6}) pending=({:.6},{:.6}) phys=({:.0},{:.0}) drift=({:+.6},{:+.6}) deficit=({:.6},{:.6}) shares_err={:.6} vault={} supply=({},{}) liab={} solvency_err={:.6} band={:.6} status={}",
+            l.book_yes, l.book_no, l.pending_yes, l.pending_no, l.phys_yes, l.phys_no, l.drift_yes, l.drift_no, l.deficit_yes, l.deficit_no, l.share_err, l.vault_u64, l.yes_supply_u64, l.no_supply_u64, l.liability_u64, l.solvency_err, l.band, l.status
         );
         l
     }

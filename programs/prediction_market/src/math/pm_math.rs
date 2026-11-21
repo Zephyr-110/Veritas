@@ -1317,15 +1317,34 @@ mod tests {
         let remaining = 86400 * 6; // 6 days remaining
         let l_eff = l_effective(f(10.0), remaining).unwrap();
         let expected_ratio: f64 = 1.0 / (2.0 * remaining as f64);
+        let h = 0.002_f64;
 
         for p in [0.1, 0.2, 0.3, 0.5, 0.7, 0.8, 0.9] {
-            let v: f64 = pool_value(f(p), l_eff).unwrap().to_num();
-            let lvr = v / (2.0 * remaining as f64);
-            let ratio = lvr / v;
+            let v0: f64 = pool_value(f(p), l_eff).unwrap().to_num();
+            let vp: f64 = pool_value(f(p + h), l_eff).unwrap().to_num();
+            let vm: f64 = pool_value(f(p - h), l_eff).unwrap().to_num();
+
+            // First-derivative identity: V'(P) = x*(P) - y*(P)
+            let dv_dp = (vp - vm) / (2.0 * h);
+            let (x, y) = reserves_from_price(f(p), l_eff).unwrap();
+            let expected_dv: f64 = (x - y).to_num();
+            let dv_tol = expected_dv.abs().max(1.0) * 1e-2;
+            assert!(
+                (dv_dp - expected_dv).abs() < dv_tol,
+                "V'({p}) mismatch: num={dv_dp}, x-y={expected_dv}"
+            );
+
+            // Second-derivative concavity and uniform LVR/V = 1 / (2*(T-t))
+            let v_pp = (vp - 2.0 * v0 + vm) / (h * h);
+            assert!(v_pp < 0.0, "V({p}) must be strictly concave, got V''={v_pp}");
+            let u = capital_phi_inv_fixed(f(p)).unwrap();
+            let phi_u: f64 = phi_fixed(u).unwrap().to_num();
+            let lvr_num = -0.5 * v_pp * phi_u * phi_u / (remaining as f64);
+            let ratio = lvr_num / v0;
             let err = (ratio - expected_ratio).abs() / expected_ratio;
             assert!(
-                err < 1e-6,
-                "Property A: LVR/V ratio at P={p}: err={err:.2e}"
+                err < 0.01,
+                "Property A: numerical LVR/V ratio at P={p}: err={err:.4}, ratio={ratio:.6e}, expected={expected_ratio:.6e}"
             );
         }
     }
@@ -1339,7 +1358,7 @@ mod tests {
         let l = f(1000.0);
         let (mut x, mut y) = reserves_from_price(HALF, l).unwrap();
 
-        // Alternate buy/sell YES
+        // Alternate buy/sell YES — all 50 steps must succeed and preserve invariant
         for i in 0..50 {
             let delta = f(5.0 + (i as f64) * 0.5); // varying amounts
             let direction = if i % 2 == 0 {
@@ -1348,22 +1367,22 @@ mod tests {
                 (SwapSide::Yes, SwapSide::No)
             };
 
-            let result = compute_swap_output(x, y, l, delta, direction.0, direction.1);
-            match result {
-                Ok(r) => {
-                    x = r.x_new;
-                    y = r.y_new;
-                    // Check price stays in bounds
-                    let p: f64 = r.price_new.to_num();
-                    assert!(p > 0.0001 && p < 0.9999, "Price out of bounds: {p}");
-                }
-                Err(_) => break, // Price hit boundary
-            }
+            let r = compute_swap_output(x, y, l, delta, direction.0, direction.1)
+                .unwrap_or_else(|e| panic!("swap step {i} failed unexpectedly: {e:?}"));
+            assert!(r.output > ZERO, "step {i} output must be positive");
+            x = r.x_new;
+            y = r.y_new;
+            let p: f64 = r.price_new.to_num();
+            assert!(
+                p > 0.0001 && p < 0.9999,
+                "Price out of bounds at step {i}: {p}"
+            );
+            let inv: f64 = invariant_value(x, y, l).unwrap().to_num();
+            assert!(
+                inv.abs() < 0.05,
+                "Invariant violated at step {i}: {inv:.6e}"
+            );
         }
-
-        // Invariant must hold at the end
-        let inv: f64 = invariant_value(x, y, l).unwrap().to_num();
-        assert!(inv.abs() < 0.1, "Invariant after stress: {inv:.6e}");
     }
 
     // ================================================================
@@ -1403,7 +1422,6 @@ mod tests {
             let (x_ref, y_ref) = reserves_from_price(p, l).unwrap();
 
             // find_x_from_y: given y_ref, find x → should match x_ref
-            let x_found = find_x_from_y(y_ref, l).unwrap();
             let x_ref_f: f64 = x_ref.to_num();
             let x_found = find_x_from_y(y_ref, l).unwrap();
             let diff_x: f64 = (x_found - x_ref).to_num::<f64>().abs();
@@ -1496,5 +1514,77 @@ mod tests {
             .unwrap()
             .to_num();
         assert!(inv.abs() < 0.1, "Invariant after large swap: {inv:.6e}");
+    }
+
+    #[test]
+    fn test_lut_phi_and_cdf_differential() {
+        let mut prev_cdf = -1.0_f64;
+        for i in 0..=240 {
+            let z_f = -6.0 + (i as f64) * 0.05;
+            let z = f(z_f);
+
+            let got_phi: f64 = super::lut::phi_lut(z).to_num();
+            let exact_phi = INV_SQRT_2PI.to_num::<f64>() * (-0.5 * z_f * z_f).exp();
+            assert!(got_phi >= 0.0, "phi_lut({z_f}) negative: {got_phi}");
+            assert!(
+                (got_phi - exact_phi).abs() < 1e-8,
+                "phi_lut({z_f}): got={got_phi:.12}, exact={exact_phi:.12}"
+            );
+
+            let got_cdf: f64 = super::lut::cdf_lut(z).to_num();
+            let ref_cdf: f64 = capital_phi_fixed(z).unwrap().to_num();
+            assert!(
+                (got_cdf - ref_cdf).abs() < 2e-6,
+                "cdf_lut({z_f}): got={got_cdf:.12}, ref={ref_cdf:.12}"
+            );
+            assert!(
+                got_cdf >= prev_cdf,
+                "cdf_lut not monotonic at z={z_f}: {got_cdf} < {prev_cdf}"
+            );
+            prev_cdf = got_cdf;
+
+            let sym_sum = got_cdf + super::lut::cdf_lut(f(-z_f)).to_num::<f64>();
+            assert!(
+                (sym_sum - 1.0).abs() < 1e-8,
+                "cdf_lut symmetry broken at z={z_f}: sum={sym_sum}"
+            );
+        }
+
+        // Clamping beyond [-6, 6]
+        for z_f in [-8.0, -6.0001, -6.0] {
+            assert_eq!(super::lut::cdf_lut(f(z_f)), ZERO, "cdf_lut({z_f})");
+            assert!(super::lut::phi_lut(f(z_f)) >= ZERO);
+        }
+        for z_f in [6.0, 6.0001, 8.0] {
+            assert_eq!(super::lut::cdf_lut(f(z_f)), ONE, "cdf_lut({z_f})");
+            assert!(super::lut::phi_lut(f(z_f)) >= ZERO);
+        }
+    }
+
+    #[test]
+    fn test_mul_q48_differential() {
+        let pairs: &[(f64, f64)] = &[
+            (0.0, 123.456),
+            (1.0, -42.5),
+            (0.5, 0.25),
+            (-0.125, -8.0),
+            (1.23456789, -9.87654321),
+            (1000.0, 0.3989422804014327),
+            (-3.5, 250_000.75),
+            (1e8, 0.3989422804014327),
+            (1e6, 1e6),
+            (-1e7, 2.5),
+        ];
+        for &(af, bf) in pairs {
+            let a = f(af);
+            let b = f(bf);
+            let got = I80F48::from_bits(mul_q48(a.to_bits(), b.to_bits()));
+            let expected = a.checked_mul(b).expect("checked_mul in test");
+            let lsb_diff = (got.to_bits() - expected.to_bits()).abs();
+            assert!(
+                lsb_diff <= 2,
+                "mul_q48({af}, {bf}) lsb_diff={lsb_diff} > 2 (got={got}, expected={expected})"
+            );
+        }
     }
 }

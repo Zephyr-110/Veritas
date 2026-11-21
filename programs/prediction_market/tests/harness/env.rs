@@ -1,9 +1,8 @@
-use anchor_lang::{AccountDeserialize, AccountSerialize};
 use anchor_lang::prelude::Pubkey;
+use anchor_lang::AccountDeserialize;
 use litesvm::types::{FailedTransactionMetadata, TransactionMetadata};
 use litesvm::LiteSVM;
-use prediction_market::{LpPosition, Market};
-use pyth_solana_receiver_sdk::price_update::{PriceFeedMessage, PriceUpdateV2, VerificationLevel};
+use prediction_market::{LpPosition, Market, MarketSnapshot};
 use solana_account::{Account as SolAccount, ReadableAccount};
 use solana_clock::Clock;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
@@ -27,11 +26,17 @@ pub struct Env {
     pub ops: u32,
     pub lps: Vec<Pubkey>,
     pub last_cu: u64,
+    pub pending_reports: Option<(Vec<u8>, Vec<u8>)>,
+    feeds_ready: bool,
     tx_nonce: u64,
 }
 
 impl Env {
     pub fn new(start_ts: i64) -> Self {
+        Self::new_with_decimals(start_ts, DECIMALS)
+    }
+
+    pub fn new_with_decimals(start_ts: i64, decimals: u8) -> Self {
         let mut svm = LiteSVM::new();
         svm.add_program_from_file(addr(PROGRAM_ID), program_so())
             .expect("load program so");
@@ -45,10 +50,12 @@ impl Env {
             ops: 0,
             lps: Vec::new(),
             last_cu: 0,
+            pending_reports: None,
+            feeds_ready: false,
             tx_nonce: 0,
         };
         env.set_clock(start_ts);
-        env.create_mint();
+        env.create_mint(decimals);
         env
     }
 
@@ -62,7 +69,10 @@ impl Env {
     }
 
     pub fn house_actor(&self) -> Actor {
-        let bytes = self.payer.kp.to_bytes(); Actor { kp: Keypair::try_from(&bytes[..]).expect("copy house key") }
+        let bytes = self.payer.kp.to_bytes();
+        Actor {
+            kp: Keypair::try_from(&bytes[..]).expect("copy house key"),
+        }
     }
 
     pub fn set_clock(&mut self, ts: i64) {
@@ -77,7 +87,14 @@ impl Env {
         self.set_clock(ts);
     }
 
-    fn create_mint(&mut self) {
+    fn create_mint(&mut self, decimals: u8) {
+        let mint = self.create_mint_with(TOKEN_PROGRAM, decimals);
+        self.mint = mint;
+        self.ensure_ata(self.house_pk(), mint);
+        self.mint_to(self.house_pk(), 1_000_000_000_000);
+    }
+
+    pub fn create_mint_with(&mut self, token_program: Pubkey, decimals: u8) -> Pubkey {
         let mint_kp = Keypair::new();
         let mint = pk_from_signer(&mint_kp);
         let payer = self.payer.pk();
@@ -87,20 +104,29 @@ impl Env {
             &mint,
             lamports,
             Mint::LEN as u64,
-            &TOKEN_PROGRAM,
+            &token_program,
         );
-        let ix_init = spl_token_interface::instruction::initialize_mint2(
-            &TOKEN_PROGRAM,
-            &mint,
-            &payer,
-            None,
-            DECIMALS,
-        )
-        .unwrap();
+        let ix_init = if token_program == TOKEN_2022_PROGRAM {
+            anchor_spl::token_2022::spl_token_2022::instruction::initialize_mint2(
+                &token_program,
+                &mint,
+                &payer,
+                None,
+                decimals,
+            )
+            .unwrap()
+        } else {
+            spl_token_interface::instruction::initialize_mint2(
+                &token_program,
+                &mint,
+                &payer,
+                None,
+                decimals,
+            )
+            .unwrap()
+        };
         self.send(&[ix_create, ix_init], &[&mint_kp]);
-        self.mint = mint;
-        self.ensure_ata(self.house_pk(), mint);
-        self.mint_to(self.house_pk(), 1_000_000_000_000);
+        mint
     }
 
     pub fn send(&mut self, ixs: &[Instruction], extra: &[&Keypair]) -> TransactionMetadata {
@@ -160,7 +186,11 @@ impl Env {
     }
 
     pub fn ensure_ata(&mut self, owner: Pubkey, mint: Pubkey) {
-        let dest = ata(owner, mint);
+        self.ensure_ata_with(owner, mint, TOKEN_PROGRAM);
+    }
+
+    pub fn ensure_ata_with(&mut self, owner: Pubkey, mint: Pubkey, token_program: Pubkey) {
+        let dest = ata_with(owner, mint, token_program);
         if self.svm.get_account(&addr(dest)).is_some() {
             return;
         }
@@ -168,62 +198,66 @@ impl Env {
             &self.payer.pk(),
             &owner,
             &mint,
-            &TOKEN_PROGRAM,
+            &token_program,
         );
         let _ = self.send(&[ix], &[]);
     }
 
     pub fn mint_to(&mut self, owner: Pubkey, amount: u64) {
-        self.ensure_ata(owner, self.mint);
-        let dest = ata(owner, self.mint);
-        let ix = spl_token_interface::instruction::mint_to(
-            &TOKEN_PROGRAM,
-            &self.mint,
-            &dest,
-            &self.payer.pk(),
-            &[],
-            amount,
-        )
-        .unwrap();
+        self.mint_to_with(owner, self.mint, TOKEN_PROGRAM, amount);
+    }
+
+    pub fn mint_to_with(
+        &mut self,
+        owner: Pubkey,
+        mint: Pubkey,
+        token_program: Pubkey,
+        amount: u64,
+    ) {
+        self.ensure_ata_with(owner, mint, token_program);
+        let dest = ata_with(owner, mint, token_program);
+        let ix = if token_program == TOKEN_2022_PROGRAM {
+            anchor_spl::token_2022::spl_token_2022::instruction::mint_to(
+                &token_program,
+                &mint,
+                &dest,
+                &self.payer.pk(),
+                &[],
+                amount,
+            )
+            .unwrap()
+        } else {
+            spl_token_interface::instruction::mint_to(
+                &token_program,
+                &mint,
+                &dest,
+                &self.payer.pk(),
+                &[],
+                amount,
+            )
+            .unwrap()
+        };
         self.send(&[ix], &[]);
     }
 
     pub fn extra_mint(&mut self) -> Pubkey {
-        let mint_kp = Keypair::new();
-        let mint = pk_from_signer(&mint_kp);
-        let payer = self.payer.pk();
-        let lamports = self.svm.minimum_balance_for_rent_exemption(Mint::LEN);
-        let ix_create = solana_system_interface::instruction::create_account(
-            &payer,
-            &mint,
-            lamports,
-            Mint::LEN as u64,
-            &TOKEN_PROGRAM,
-        );
-        let ix_init = spl_token_interface::instruction::initialize_mint2(
-            &TOKEN_PROGRAM,
-            &mint,
-            &payer,
-            None,
-            DECIMALS,
-        )
-        .unwrap();
-        self.send(&[ix_create, ix_init], &[&mint_kp]);
-        mint
+        self.create_mint_with(TOKEN_PROGRAM, DECIMALS)
     }
 
     pub fn fund_user(&mut self, amount: u64) -> Actor {
         let user = Actor::new();
-        self.svm.airdrop(&user.kp.pubkey(), 1_000_000_000_000).unwrap();
+        self.svm
+            .airdrop(&user.kp.pubkey(), 1_000_000_000_000)
+            .unwrap();
         self.mint_to(user.pk(), amount);
         user
     }
 
     pub fn token_amount(&self, account: Pubkey) -> u64 {
         match self.svm.get_account(&addr(account)) {
-            Some(acc) if acc.data.len() >= TokenAccount::LEN => {
-                TokenAccount::unpack(&acc.data).map(|a| a.amount).unwrap_or(0)
-            }
+            Some(acc) if acc.data.len() >= TokenAccount::LEN => TokenAccount::unpack(&acc.data)
+                .map(|a| a.amount)
+                .unwrap_or(0),
             _ => 0,
         }
     }
@@ -269,108 +303,81 @@ impl Env {
     }
 
     pub fn account_alive(&self, pk: Pubkey) -> bool {
-        self.svm.get_account(&addr(pk)).map(|a| a.lamports > 0).unwrap_or(false)
+        self.svm
+            .get_account(&addr(pk))
+            .map(|a| a.lamports > 0)
+            .unwrap_or(false)
     }
 
-    pub fn inject_pyth(
-        &mut self,
-        price: i64,
-        publish_time: i64,
-        prev_publish_time: i64,
-        exponent: i32,
-        feed_id: [u8; 32],
-    ) -> Pubkey {
-        self.inject_pyth_ex(
-            price,
-            publish_time,
-            prev_publish_time,
-            exponent,
-            feed_id,
-            VerificationLevel::Full,
-            PYTH_RECEIVER,
-        )
+    pub fn ensure_feeds(&mut self) {
+        if self.feeds_ready {
+            return;
+        }
+        super::chainlink::install(self);
+        self.feeds_ready = true;
     }
 
-    pub fn inject_pyth_partial(
-        &mut self,
-        price: i64,
-        publish_time: i64,
-        prev_publish_time: i64,
-        exponent: i32,
-        feed_id: [u8; 32],
-    ) -> Pubkey {
-        self.inject_pyth_ex(
-            price,
-            publish_time,
-            prev_publish_time,
-            exponent,
-            feed_id,
-            VerificationLevel::Partial { num_signatures: 5 },
-            PYTH_RECEIVER,
-        )
+    pub fn install_all_feeds(&mut self) {
+        super::chainlink::install_all_allowed_feeds(self);
+        self.feeds_ready = true;
     }
 
-    pub fn inject_pyth_wrong_owner(
-        &mut self,
-        price: i64,
-        publish_time: i64,
-        prev_publish_time: i64,
-        exponent: i32,
-        feed_id: [u8; 32],
-    ) -> Pubkey {
-        self.inject_pyth_ex(
-            price,
-            publish_time,
-            prev_publish_time,
-            exponent,
-            feed_id,
-            VerificationLevel::Full,
-            SYSTEM_PROGRAM,
-        )
+    /// Queue a synthetic adjacent OCR2 pre/post report pair for `resolve`.
+    pub fn queue_ocr2_reports(&mut self, price: i64, post_ts: i64, pre_ts: i64) {
+        self.ensure_feeds();
+        super::chainlink::queue(self, price, post_ts, pre_ts);
     }
 
-    pub fn inject_pyth_ex(
-        &mut self,
-        price: i64,
-        publish_time: i64,
-        prev_publish_time: i64,
-        exponent: i32,
-        feed_id: [u8; 32],
-        verification_level: VerificationLevel,
-        owner: Pubkey,
-    ) -> Pubkey {
+    /// Queue a synthetic adjacent OCR2 pre/post report pair with an arbitrary i128 median.
+    pub fn queue_ocr2_reports_i128(&mut self, median: i128, post_ts: i64, pre_ts: i64) {
+        self.ensure_feeds();
+        super::chainlink::queue_i128(self, median, post_ts, pre_ts);
+    }
+
+    pub fn tamper_queued_post(&mut self) {
+        let (_, post) = self
+            .pending_reports
+            .as_mut()
+            .expect("queue a report before tampering it");
+        let i = post.len() - 1;
+        post[i] ^= 0x01;
+    }
+
+    pub fn set_account_owner(&mut self, pk: Pubkey, owner: Pubkey) {
+        let mut acc = self.svm.get_account(&addr(pk)).expect("account");
+        acc.owner = addr(owner);
+        self.svm.set_account(addr(pk), acc).expect("set owner");
+    }
+
+    pub fn forge_unlisted_state(&mut self) -> Pubkey {
+        self.ensure_feeds();
         let kp = Keypair::new();
         let pk = pk_from_signer(&kp);
-        let update = PriceUpdateV2 {
-            write_authority: Pubkey::default(),
-            verification_level,
-            price_message: PriceFeedMessage {
-                feed_id,
-                price,
-                conf: 1,
-                exponent,
-                publish_time,
-                prev_publish_time,
-                ema_price: price,
-                ema_conf: 1,
-            },
-            posted_slot: 1,
-        };
-        let mut data = Vec::new();
-        update.try_serialize(&mut data).unwrap();
-        let lamports = self.svm.minimum_balance_for_rent_exemption(data.len());
+        let lamports = self.svm.minimum_balance_for_rent_exemption(1);
         self.svm
             .set_account(
                 addr(pk),
                 SolAccount {
                     lamports,
-                    data,
-                    owner: addr(owner),
+                    data: vec![0],
+                    owner: addr(prediction_market::CHAINLINK_OCR2_PROGRAM_ID),
                     executable: false,
                     rent_epoch: 0,
                 },
             )
-            .unwrap();
+            .expect("forge state");
         pk
+    }
+
+    pub fn snapshot_len(&self, keys: &MarketKeys) -> usize {
+        let acc = self
+            .svm
+            .get_account(&addr(keys.snapshot))
+            .expect("snapshot");
+        let mut data: &[u8] = &acc.data;
+        MarketSnapshot::try_deserialize(&mut data)
+            .expect("decode snapshot")
+            .entries
+            .len()
     }
 }

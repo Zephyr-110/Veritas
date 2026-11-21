@@ -34,7 +34,7 @@ solana-sha256-hasher = { version = "3.1.0", features = ["sha2"] }
 
 [dev-dependencies]
 litesvm = "0.10.0"
-pyth-solana-receiver-sdk = "2" # only the old Pyth test harness still uses it; drop once tests move to OCR2
+k256 = { version = "=0.13.4", features = ["ecdsa"] }
 solana-account = "3.2"
 solana-address = "2"
 solana-clock = "3"

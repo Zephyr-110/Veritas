@@ -7,7 +7,7 @@
     "test": "programs/prediction_market/tests"
   },
   "scripts": {
-    "test": "cargo test -p prediction_market --lib --test spec_scenarios --test econ_settlement -- --test-threads=1"
+    "test": "cargo test -p prediction_market --lib --test spec_scenarios --test econ_settlement --test ocr2_settle -- --test-threads=1"
   },
   "keywords": [],
   "author": "",

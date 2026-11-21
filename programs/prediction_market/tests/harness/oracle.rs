@@ -70,26 +70,52 @@ pub fn find_python_opt() -> Option<PathBuf> {
             push_unique(&mut cands, root.join("bin/python"));
         }
     }
-    for found in from_where(&["python", "python3", "py", "python.exe", "python3.exe", "py.exe"]) {
+    for found in from_where(&[
+        "python",
+        "python3",
+        "py",
+        "python.exe",
+        "python3.exe",
+        "py.exe",
+    ]) {
         push_unique(&mut cands, found);
     }
     if let Ok(path) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path) {
-            for name in ["python.exe", "python3.exe", "py.exe", "python", "python3", "py"] {
+            for name in [
+                "python.exe",
+                "python3.exe",
+                "py.exe",
+                "python",
+                "python3",
+                "py",
+            ] {
                 push_unique(&mut cands, dir.join(name));
             }
         }
     }
-    for p in [
-        r"C:\Users\30149\AppData\Local\Python\pythoncore-3.14-64\python.exe",
-        r"C:\Users\30149\AppData\Local\Programs\Python\Python314\python.exe",
-        r"C:\Users\30149\AppData\Local\Programs\Python\Python313\python.exe",
-        r"C:\Users\30149\AppData\Local\Programs\Python\Python312\python.exe",
-        r"C:\Users\30149\AppData\Local\Programs\Python\Python311\python.exe",
-        r"C:\Users\30149\PyCharmMiscProject\.venv\Scripts\python.exe",
-        "/usr/bin/python3",
-        "/usr/local/bin/python3",
-    ] {
+    if cfg!(windows) {
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            let base = PathBuf::from(local);
+            let mut dirs = Vec::new();
+            for sub in ["Python", "Programs/Python"] {
+                if let Ok(entries) = std::fs::read_dir(base.join(sub)) {
+                    for entry in entries.flatten() {
+                        let p = entry.path();
+                        if p.is_dir() {
+                            dirs.push(p);
+                        }
+                    }
+                }
+            }
+            dirs.sort();
+            dirs.reverse();
+            for dir in dirs {
+                push_unique(&mut cands, dir.join("python.exe"));
+            }
+        }
+    }
+    for p in ["/usr/bin/python3", "/usr/local/bin/python3"] {
         push_unique(&mut cands, PathBuf::from(p));
     }
     push_unique(&mut cands, PathBuf::from("python"));
@@ -137,7 +163,12 @@ pub fn python_sim(req: &Value) -> Value {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap_or_else(|e| panic!("spawn python {py:?}: {e}"));
-    child.stdin.take().unwrap().write_all(req.to_string().as_bytes()).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(req.to_string().as_bytes())
+        .unwrap();
     let out = child.wait_with_output().unwrap();
     if !out.status.success() {
         panic!(
@@ -146,9 +177,8 @@ pub fn python_sim(req: &Value) -> Value {
             String::from_utf8_lossy(&out.stdout)
         );
     }
-    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
-        panic!("python json: {e}\n{}", String::from_utf8_lossy(&out.stdout))
-    })
+    serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|e| panic!("python json: {e}\n{}", String::from_utf8_lossy(&out.stdout)))
 }
 
 pub fn f64_of(v: &Value) -> f64 {
