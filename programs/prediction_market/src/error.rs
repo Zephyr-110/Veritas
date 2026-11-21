@@ -33,6 +33,10 @@ pub enum ErrorCode {
     InvalidLiquidity,
     #[msg("Fixed-point math overflow.")]
     MathOverflow,
+    #[msg("Duration is invalid.")]
+    InvalidDuration,
+    #[msg("Budget is invalid.")]
+    InvalidBudget,
     #[msg("Reports are not two adjacent oracle rounds straddling expiry.")]
     NotFirstAfterExpiry,
     #[msg("Market is not in the required time window.")]
