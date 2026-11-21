@@ -9,18 +9,19 @@
     "copy-idl": "node ./scripts/copy-idl.js",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit --pretty false",
-    "seed": "node ./scripts/seed-local.js"
+    "seed": "node ./scripts/seed-local.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
-    "@pythnetwork/hermes-client": "^3.1.0",
-    "@pythnetwork/pyth-solana-receiver": "^0.17.0",
     "@solana/spl-token": "^0.4.15",
     "@solana/wallet-adapter-base": "^0.9.27",
     "@solana/wallet-adapter-react": "^0.15.39",
     "@solana/wallet-adapter-react-ui": "^0.9.39",
     "@solana/web3.js": "^1.99.0",
-    "@tanstack/react-query": "^5.107.1",
+    "@tanstack/react-query": "^5.90.0",
     "buffer": "^6.0.3",
     "lucide-react": "^1.72.0",
     "next": "^15.5.4",
@@ -28,13 +29,19 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@types/node": "^22.13.10",
+    "@testing-library/jest-dom": "^8.0.0",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.13",
+    "@types/node": "^26.6.6",
     "@types/react": "18.3.31",
     "@types/react-dom": "18.3.7",
+    "@vitest/coverage-v8": "^5.1.1",
     "autoprefixer": "^10.4.21",
+    "jsdom": "^31.0.1",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^5.1.1"
   },
   "overrides": {
     "@types/react": "18.3.31",
