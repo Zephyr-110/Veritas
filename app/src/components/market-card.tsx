@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
-import { money, formatWhen, kindLabel, marketKind } from "@/lib/display";
+import { money, formatWhen, kindLabelKey, marketKind } from "@/lib/display";
 import { formatYesNo } from "@/lib/format";
 import type { MarketView } from "@/lib/markets";
 import { useNow } from "@/hooks/use-now";
 import { useT } from "@/i18n/provider";
 import { LiveCountdown } from "./live";
+import { onSpot, StableText } from "./ui";
 
 export function FeatureCard({
   href,
@@ -16,7 +16,7 @@ export function FeatureCard({
   expiry,
   liquidity,
   threshold,
-  status,
+  statusKey,
 }: {
   href?: string;
   title: string;
@@ -24,18 +24,20 @@ export function FeatureCard({
   expiry?: number;
   liquidity: string;
   threshold?: string;
-  status?: string;
+  statusKey?: string;
 }) {
   const now = useNow(1000);
   const t = useT();
-  const live = expiry != null && expiry > now;
+  const live = expiry != null && now > 0 && expiry > now;
   const body = (
-    <div className="stack-3 p-4">
+    <div className="stack-3 p-5">
       <div className="truncate text-sm font-medium text-white">{title || t("common.untitled")}</div>
       {threshold ? <div className="num text-right text-xs text-zinc-400">{threshold}</div> : null}
       <div className="num text-right text-sm text-zinc-200">{formatYesNo(yesPrice)}</div>
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-xs text-zinc-500">{t("markets.colExpiry")}</span>
+        <span className="text-xs text-zinc-500">
+          <StableText k="markets.colExpiry" />
+        </span>
         {live && expiry != null ? (
           <LiveCountdown expiry={expiry} now={now} className="text-sm text-zinc-200" />
         ) : (
@@ -43,24 +45,33 @@ export function FeatureCard({
         )}
       </div>
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-xs text-zinc-500">{t("markets.colLiq")}</span>
+        <span className="text-xs text-zinc-500">
+          <StableText k="markets.colLiq" />
+        </span>
         <span className="num text-right text-sm text-zinc-200">{liquidity}</span>
       </div>
-      {status ? <div className="text-right text-[11px] text-zinc-500">{status}</div> : null}
+      {statusKey ? (
+        <div className="text-right text-[11px] text-zinc-500">
+          <StableText k={statusKey} align="end" />
+        </div>
+      ) : null}
     </div>
   );
   const cls = "surface block h-full";
   return href ? (
-    <Link href={href} className={cls}>
+    <Link href={href} onMouseMove={onSpot} className={cls}>
       {body}
     </Link>
   ) : (
-    <div className={cls}>{body}</div>
+    <div onMouseMove={onSpot} className={cls}>
+      {body}
+    </div>
   );
 }
 
 export function MarketCard({ market }: { market: MarketView }) {
   const now = useNow(1000);
+  const kind = marketKind(market, now);
   return (
     <FeatureCard
       href={"/markets/" + market.address.toBase58()}
@@ -68,11 +79,7 @@ export function MarketCard({ market }: { market: MarketView }) {
       yesPrice={market.yesPrice}
       expiry={market.expiry}
       liquidity={money(market.vault, market.decimals)}
-      status={kindLabel(marketKind(market, now), market)}
+      statusKey={kindLabelKey(kind, market)}
     />
   );
-}
-
-export function FeatureGrid({ children }: { children: ReactNode }) {
-  return <div className="grid gap-4 md:grid-cols-3">{children}</div>;
 }

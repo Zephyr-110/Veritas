@@ -1,9 +1,10 @@
 "use client";
 
-import { useWallet } from "@solana/wallet-adapter-react";
+import { useAnchorWallet, useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Check, RefreshCw } from "lucide-react";
 import {
   useEffect,
   useRef,
@@ -13,7 +14,6 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
-import { useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import {
   DEFAULT_CLUSTER,
@@ -22,18 +22,18 @@ import {
   DEFAULT_RPC,
   GITHUB_REPO,
 } from "@/lib/constants";
-import { clusterLabel, kindLabel, kindTone, marketKind } from "@/lib/display";
-import { PriceAge } from "./price-age";
-import { explorerAccount, explorerTx, formatYesNo, shorten } from "@/lib/format";
+import { kindLabelKey, kindTone, marketKind } from "@/lib/display";
+import { explorerAccount, explorerTx, shorten } from "@/lib/format";
 import type { MarketView } from "@/lib/markets";
 import { parseTxError } from "@/lib/errors";
 import { sendIxs, mustWallet } from "@/lib/send";
-import { useAnchorWallet } from "@solana/wallet-adapter-react";
 import type { ClusterName } from "@/lib/types";
-import { useI18n, useT } from "@/i18n/provider";
+import { useI18n, useLocale, useT } from "@/i18n/provider";
+import { tPair, type Vars } from "@/i18n/store";
 import { useFeeds } from "@/hooks/use-feeds";
 import { PulseAreaMark } from "./logo-marks";
-import { FEEDS, formatPythPrice } from "@/lib/feeds";
+import { FEEDS, formatFeedPrice } from "@/lib/feeds";
+import { PriceAge } from "./price-age";
 import { useRefresh, useSettings, useToasts } from "./providers";
 
 export function cx(...parts: Array<string | false | null | undefined>): string {
@@ -46,35 +46,83 @@ export function onSpot(e: MouseEvent<HTMLElement>) {
   e.currentTarget.style.setProperty("--sy", `${e.clientY - r.top}px`);
 }
 
+/**
+ * Renders the active translation on top of a hidden sibling of the other
+ * language inside a 1x1 CSS grid cell, guaranteeing identical max(EN, ZH)
+ * box dimensions and <1px layout shift across bilingual toggles.
+ */
+export function StableText({
+  k,
+  vars,
+  block = false,
+  align = "start",
+  className,
+}: {
+  k: string;
+  vars?: Vars;
+  block?: boolean;
+  align?: "start" | "center" | "end";
+  className?: string;
+}) {
+  useLocale();
+  const { en, zh, locale } = tPair(k, vars);
+  const activeText = locale === "zh" ? zh : en;
+  const reserveText = locale === "zh" ? en : zh;
+  const activeLang = locale === "zh" ? "zh-CN" : "en";
+  const reserveLang = locale === "zh" ? "en" : "zh-CN";
+  const alignCls =
+    align === "center"
+      ? "justify-items-center text-center"
+      : align === "end"
+        ? "justify-items-end text-right"
+        : "justify-items-start text-left";
+  return (
+    <span className={cx(block ? "grid" : "inline-grid", "items-baseline", alignCls, className)}>
+      <span
+        lang={reserveLang}
+        aria-hidden="true"
+        className="pointer-events-none col-start-1 row-start-1 select-none invisible"
+      >
+        {reserveText}
+      </span>
+      <span lang={activeLang} className="col-start-1 row-start-1">
+        {activeText}
+      </span>
+    </span>
+  );
+}
+
 export function Button({
   tone = "primary",
   className,
   busy,
   children,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { tone?: "primary" | "secondary" | "yes" | "no"; busy?: boolean }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  tone?: "primary" | "secondary" | "yes" | "no";
+  busy?: boolean;
+}) {
   const tones: Record<string, string> = {
-    primary:
-      "font-semibold bg-cyan-400 text-zinc-950 hover:bg-cyan-300",
-    secondary:
-      "btn-ghost font-medium bg-transparent text-zinc-200 border border-white/[0.08] hover:border-white/20 hover:bg-white/[0.06]",
-    yes:
-      "font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 hover:bg-emerald-500/20",
-    no: "font-medium bg-rose-500/10 text-rose-300 border border-rose-500/20 hover:bg-rose-500/20",
+    primary: "btn-primary font-semibold",
+    secondary: "btn-ghost font-medium",
+    yes: "font-medium border border-[var(--yes-line)] bg-[var(--yes-soft)] text-[var(--yes)] hover:brightness-110",
+    no: "font-medium border border-[var(--no-line)] bg-[var(--no-soft)] text-[var(--no)] hover:brightness-110",
   };
   return (
     <button
       data-tone={tone}
       className={cx(
-        "relative inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm transition-all duration-150 hover:brightness-110 active:brightness-95 enabled:active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100",
+        "relative inline-flex h-10 items-center justify-center whitespace-nowrap px-4 text-sm transition-all duration-150 enabled:active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50",
         tones[tone],
         className
       )}
       {...props}
     >
-      <span className={busy ? "opacity-0" : "opacity-100"}>{children}</span>
+      <span className={cx("inline-flex items-center justify-center gap-1.5", busy ? "opacity-0" : "opacity-100")}>
+        {children}
+      </span>
       {busy ? (
-        <span className="absolute h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent opacity-70" />
+        <span className="absolute h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent opacity-75" />
       ) : null}
     </button>
   );
@@ -88,7 +136,7 @@ export function Card({
   className?: string;
 }) {
   return (
-    <div onMouseMove={onSpot} className={cx("surface p-4 backdrop-blur-md", className)}>
+    <div onMouseMove={onSpot} className={cx("surface p-5", className)}>
       {children}
     </div>
   );
@@ -100,9 +148,9 @@ export function Field({
   error,
   children,
 }: {
-  label: string;
-  hint?: string;
-  error?: string;
+  label: ReactNode;
+  hint?: ReactNode;
+  error?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -127,7 +175,7 @@ export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
     <input
       {...props}
       className={cx(
-        "field h-11 w-full rounded-lg border border-zinc-700 px-3 text-sm text-white outline-none placeholder:text-zinc-600 transition-all duration-300",
+        "field h-11 w-full border border-zinc-700 px-3 text-sm text-white outline-none placeholder:text-zinc-600 transition-colors duration-200",
         props.className
       )}
     />
@@ -137,19 +185,27 @@ export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
 export function Chip({
   children,
   tone = "mute",
+  className,
 }: {
   children: ReactNode;
   tone?: "mute" | "yes" | "no" | "accent" | "ink";
+  className?: string;
 }) {
   const tones: Record<string, string> = {
-    mute: "border-white/5 text-zinc-400",
-    yes: "border-emerald-500/20 bg-emerald-500/10 text-emerald-400",
-    no: "border-rose-500/20 bg-rose-500/10 text-rose-400",
-    accent: "border-cyan-500/20 bg-cyan-500/10 text-cyan-400",
-    ink: "border-zinc-800 text-zinc-200",
+    mute: "border-[var(--hair)] text-[var(--ink-2)]",
+    yes: "border-[var(--yes-line)] bg-[var(--yes-soft)] text-[var(--yes)]",
+    no: "border-[var(--no-line)] bg-[var(--no-soft)] text-[var(--no)]",
+    accent: "border-[var(--line)] bg-[var(--seg-bg)] text-[var(--ink)]",
+    ink: "border-[var(--warn-line)] bg-[var(--warn-soft)] text-[var(--warn)]",
   };
   return (
-    <span className={cx("chip-x inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[11px] font-medium", tones[tone])}>
+    <span
+      className={cx(
+        "chip-x inline-flex items-center gap-1.5 whitespace-nowrap border px-2.5 py-0.5 text-[11px] font-medium",
+        tones[tone],
+        className
+      )}
+    >
       {children}
     </span>
   );
@@ -158,50 +214,54 @@ export function Chip({
 export function CopyText({ value, label }: { value: string; label?: string }) {
   const { push } = useToasts();
   const t = useT();
+  const [copied, setCopied] = useState(false);
+
   return (
     <button
       type="button"
-      className="rounded-md px-1.5 py-0.5 font-mono text-xs text-zinc-400 transition-colors hover:bg-white/5 hover:text-white"
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 font-mono text-xs text-zinc-400 transition-colors hover:bg-white/5 hover:text-white"
       onClick={async () => {
         await navigator.clipboard.writeText(value);
+        setCopied(true);
         push("info", t("common.copied"), label ?? value);
+        window.setTimeout(() => setCopied(false), 1400);
       }}
     >
-      {label ?? shorten(value, 4, 4)}
-      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="ml-1 inline-block align-[-1px] opacity-50" aria-hidden>
-        <rect x="9" y="9" width="12" height="12" rx="2" />
-        <path d="M5 15V5a2 2 0 0 1 2-2h10" />
-      </svg>
+      <span>{label ?? shorten(value, 4, 4)}</span>
+      {copied ? (
+        <Check className="h-3 w-3 text-[var(--yes)]" aria-hidden />
+      ) : (
+        <svg
+          width="11"
+          height="11"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="opacity-55"
+          aria-hidden
+        >
+          <rect x="9" y="9" width="12" height="12" />
+          <path d="M5 15V5h10" />
+        </svg>
+      )}
     </button>
   );
 }
 
 export function StatusChip({ market, now }: { market: MarketView; now?: number }) {
-  const ts = now ?? Math.floor(Date.now() / 1000);
+  const ts = now && now > 0 ? now : 0;
   const kind = marketKind(market, ts);
+  const labelKey = kindLabelKey(kind, market);
   return (
-    <Chip tone={kindTone(kind, market)}>
-      {kind === "live" ? <span className="live-dot h-1.5 w-1.5 rounded-full bg-accent" /> : null}
-      {kindLabel(kind, market)}
+    <Chip tone={kindTone(kind, market)} className="min-w-[8.75rem] justify-center">
+      {kind === "live" ? <span className="live-dot h-1.5 w-1.5 rounded-full bg-[var(--yes)]" /> : null}
+      <StableText k={labelKey} align="center" />
     </Chip>
   );
 }
 
-export function OddsLine({ yes }: { yes: number }) {
-  return <span className="num whitespace-nowrap text-sm text-zinc-200">{formatYesNo(yes)}</span>;
-}
-
-export function StatBox({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div>
-      <div className="kicker text-[11px] text-zinc-500">{label}</div>
-      <div className="num mt-2 text-right font-medium text-white">{value}</div>
-      {hint ? <div className="mt-1 text-right text-xs text-zinc-500">{hint}</div> : null}
-    </div>
-  );
-}
-
-export function Kv({ k, v }: { k: string; v: ReactNode }) {
+export function Kv({ k, v }: { k: ReactNode; v: ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-4">
       <span className="text-zinc-500">{k}</span>
@@ -231,25 +291,17 @@ export function Reveal({ children, className }: { children: ReactNode; className
       setShown(true);
       return;
     }
-    const show = new IntersectionObserver(
+    const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting) setShown(true);
+        if (entries[0].isIntersecting) {
+          setShown(true);
+          observer.disconnect();
+        }
       },
-      { rootMargin: "0px 0px -20% 0px", threshold: 0 }
+      { rootMargin: "0px 0px -2% 0px", threshold: 0 }
     );
-    const rearm = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (!entry.isIntersecting && entry.boundingClientRect.top > 0) setShown(false);
-      },
-      { threshold: 0 }
-    );
-    show.observe(el);
-    rearm.observe(el);
-    return () => {
-      show.disconnect();
-      rearm.disconnect();
-    };
+    observer.observe(el);
+    return () => observer.disconnect();
   }, []);
   return (
     <div ref={ref} className={cx("reveal", shown && "reveal-in", className)}>
@@ -263,7 +315,7 @@ export function SegTabs<T extends string>({
   value,
   onChange,
 }: {
-  options: { value: T; label: ReactNode; color: string; activeText?: string }[];
+  options: { value: T; label: ReactNode; color?: string; activeText?: string }[];
   value: T;
   onChange: (v: T) => void;
 }) {
@@ -274,19 +326,19 @@ export function SegTabs<T extends string>({
   const active = options[index];
   return (
     <div
-      className="seg-tabs relative grid rounded-lg border border-white/5 bg-zinc-900/50 p-1"
+      className="seg-tabs relative grid p-1"
       style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
     >
       <span
         aria-hidden
-        className="seg-thumb absolute inset-y-1 rounded transition-all duration-300"
+        className="seg-thumb absolute inset-y-1 transition-transform duration-200"
         style={{
           left: "0.25rem",
           width: `calc((100% - 0.5rem) / ${options.length})`,
           transform: `translateX(${index * 100}%)`,
-          background: active?.color,
-          boxShadow: "0 1px 3px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08)",
-          transitionTimingFunction: "cubic-bezier(0.34, 1.3, 0.64, 1)",
+          background: active?.color ?? "var(--seg-thumb)",
+          border: "1px solid var(--card-line)",
+          transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
         }}
       />
       {options.map((o) => (
@@ -294,15 +346,67 @@ export function SegTabs<T extends string>({
           key={o.value}
           type="button"
           onClick={() => onChange(o.value)}
-          className={`relative z-10 h-9 rounded-lg text-sm font-medium transition-all duration-150 active:scale-95 ${
+          className={cx(
+            "relative z-10 flex h-9 items-center justify-center px-2 text-sm font-medium transition-colors duration-150",
             o.value === value
-              ? (o.activeText ?? "text-white")
-              : "bg-white/[0.05] text-zinc-400 hover:bg-white/[0.09] hover:text-zinc-200"
-          }`}
+              ? o.activeText ?? "text-[var(--ink-strong)]"
+              : "text-[var(--ink-2)] hover:text-[var(--ink-strong)]"
+          )}
         >
           {o.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+export function DataFreshness({
+  updatedAt,
+  refreshing,
+  staleError,
+  onRefresh,
+  className,
+}: {
+  updatedAt: number | null;
+  refreshing?: boolean;
+  staleError?: boolean;
+  onRefresh?: () => void;
+  className?: string;
+}) {
+  useLocale();
+  if (!updatedAt && !refreshing) return null;
+  const stamp = updatedAt
+    ? (() => {
+        const d = new Date(updatedAt);
+        const pad = (n: number) => String(n).padStart(2, "0");
+        return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      })()
+    : "";
+
+  return (
+    <div className={cx("flex flex-wrap items-center gap-3 text-xs text-zinc-500", className)}>
+      {staleError && updatedAt ? (
+        <span className="inline-flex items-center gap-1.5 text-[var(--warn)]">
+          <span className="h-1.5 w-1.5 rounded-full bg-[var(--warn)]" />
+          <StableText k="freshness.staleWarning" vars={{ time: stamp }} />
+        </span>
+      ) : updatedAt ? (
+        <span className="num inline-flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-[var(--yes)] opacity-80" />
+          <StableText k="freshness.asOf" vars={{ time: stamp }} />
+        </span>
+      ) : null}
+      {onRefresh ? (
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={refreshing}
+          className="inline-flex items-center gap-1.5 border border-[var(--hair)] px-2 py-0.5 text-[11px] text-zinc-400 transition-colors hover:border-[var(--line)] hover:text-white disabled:opacity-50"
+        >
+          <RefreshCw className={cx("h-3 w-3", refreshing && "animate-spin")} aria-hidden />
+          <StableText k={refreshing ? "freshness.syncing" : "freshness.refresh"} align="center" />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -314,14 +418,14 @@ export function StateBlock({
   action,
 }: {
   kind: "loading" | "empty" | "wallet" | "error" | "pending";
-  title: string;
-  body?: string;
+  title: ReactNode;
+  body?: ReactNode;
   action?: ReactNode;
 }) {
   return (
-    <div className="surface flex min-h-40 flex-col items-start justify-center gap-3 px-5 py-6">
+    <div className="surface flex min-h-40 flex-col items-start justify-center gap-3 px-6 py-6">
       <div className="text-base font-medium text-white">{title}</div>
-      {body ? <p className="max-w-xl text-sm leading-relaxed text-zinc-500">{body}</p> : null}
+      {body ? <p className="max-w-xl text-sm leading-relaxed text-zinc-400">{body}</p> : null}
       {kind === "loading" || kind === "pending" ? <div className="sk h-2 w-40" /> : null}
       {action}
     </div>
@@ -364,19 +468,27 @@ export function useTx() {
 export function WalletButton() {
   const { publicKey, connected, disconnect } = useWallet();
   const { setVisible } = useWalletModal();
-  const t = useT();
   if (!connected || !publicKey) {
     return (
-      <Button type="button" onClick={() => setVisible(true)} className="h-8 shrink-0 whitespace-nowrap px-2 text-[11px] sm:h-10 sm:px-4 sm:text-sm">
-        {t("wallet.connect")}
+      <Button
+        type="button"
+        onClick={() => setVisible(true)}
+        className="h-8 shrink-0 px-3 text-xs sm:h-9 sm:px-4"
+      >
+        <StableText k="wallet.connect" align="center" />
       </Button>
     );
   }
   return (
     <div className="flex items-center gap-2">
       <CopyText value={publicKey.toBase58()} label={shorten(publicKey.toBase58(), 4, 4)} />
-      <Button type="button" tone="secondary" className="h-8 shrink-0 whitespace-nowrap px-2 text-[11px] sm:h-10 sm:px-4 sm:text-sm" onClick={() => disconnect()}>
-        {t("wallet.disconnect")}
+      <Button
+        type="button"
+        tone="secondary"
+        className="h-8 shrink-0 px-3 text-xs sm:h-9 sm:px-4"
+        onClick={() => disconnect()}
+      >
+        <StableText k="wallet.disconnect" align="center" />
       </Button>
     </div>
   );
@@ -404,14 +516,34 @@ function ThemeToggle() {
       onClick={toggle}
       aria-label={t("nav.theme")}
       title={t("nav.theme")}
-      className="grid h-8 w-8 shrink-0 place-items-center rounded-none border border-zinc-800 bg-zinc-950/80 text-zinc-400 transition-colors hover:text-white"
+      className="grid h-8 w-8 shrink-0 place-items-center border border-[var(--hair)] bg-[var(--seg-bg)] text-zinc-400 transition-colors hover:border-[var(--line)] hover:text-white"
     >
       {theme === "light" ? (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
           <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
         </svg>
       ) : (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
           <circle cx="12" cy="12" r="4" />
           <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
         </svg>
@@ -424,7 +556,7 @@ function LangSwitch() {
   const { locale, setLocale, t } = useI18n();
   return (
     <div
-      className="inline-flex h-8 shrink-0 items-center rounded-none border border-zinc-800 bg-zinc-950/80 p-0.5"
+      className="inline-flex h-8 shrink-0 items-center border border-[var(--hair)] bg-[var(--seg-bg)] p-0.5"
       role="group"
       aria-label={t("nav.language")}
     >
@@ -432,21 +564,21 @@ function LangSwitch() {
         type="button"
         onClick={() => setLocale("en")}
         className={cx(
-          "rounded-none px-2 py-1 text-[11px] font-medium leading-none transition-colors",
-          locale === "en" ? "bg-accent text-zinc-950" : "text-zinc-400 hover:text-white"
+          "px-2 py-1 text-[11px] font-medium leading-none transition-colors",
+          locale === "en" ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-zinc-400 hover:text-white"
         )}
       >
-        {t("nav.en")}
+        EN
       </button>
       <button
         type="button"
         onClick={() => setLocale("zh")}
         className={cx(
-          "rounded-none px-2 py-1 text-[11px] font-medium leading-none transition-colors",
-          locale === "zh" ? "bg-accent text-zinc-950" : "text-zinc-400 hover:text-white"
+          "px-2 py-1 text-[11px] font-medium leading-none transition-colors",
+          locale === "zh" ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-zinc-400 hover:text-white"
         )}
       >
-        {t("nav.zh")}
+        中文
       </button>
     </div>
   );
@@ -456,16 +588,23 @@ function HeaderTape() {
   const { quotes } = useFeeds();
   const items = FEEDS.filter((f) => f.key === "btc" || f.key === "sol");
   return (
-    <div className="pointer-events-none absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 items-center gap-5 xl:flex">
+    <div className="pointer-events-none hidden items-center gap-5 xl:flex">
       {items.map((f) => (
-        <span key={f.key} className="flex items-baseline gap-1.5 text-[13px]">
+        <span key={f.key} className="flex items-baseline gap-1.5 text-[12px]">
           <span className="font-medium text-zinc-500">{f.symbol}</span>
-          <span className="num text-zinc-200">{formatPythPrice(quotes[f.key]?.price ?? null)}</span>
-          <PriceAge publishTime={quotes[f.key]?.publishTime ?? null} />
+          <span className="num text-zinc-200">{formatFeedPrice(quotes[f.key]?.price ?? null)}</span>
+          <PriceAge publishTime={quotes[f.key]?.publishTime ?? null} className="min-w-[4.5rem] text-left text-[10px] text-zinc-500" />
         </span>
       ))}
     </div>
   );
+}
+
+function clusterKey(cluster: string): "cluster.mainnet" | "cluster.local" | "cluster.devnet" | "cluster.testnet" {
+  if (cluster === "mainnet-beta") return "cluster.mainnet";
+  if (cluster === "localnet") return "cluster.local";
+  if (cluster === "testnet") return "cluster.testnet";
+  return "cluster.devnet";
 }
 
 export function Header() {
@@ -493,14 +632,6 @@ export function Header() {
       delete root.dataset.brand;
       return;
     }
-    // The small header brand hands over from the homepage masthead: hidden
-    // while any of the masthead is still at or below the header line,
-    // shown once it has scrolled past. This used to be an
-    // IntersectionObserver attached once at mount — on a cold document
-    // load it never produced the initial hidden state (only in-app
-    // navigation worked), so the state is now recomputed directly from
-    // the masthead's rect on scroll/resize and at a few bounded retries
-    // after mount, which cannot miss regardless of mount order.
     const update = () => {
       const el = document.getElementById("masthead");
       if (!el) return;
@@ -522,33 +653,37 @@ export function Header() {
   }, [pathname]);
 
   const nav = [
-    { href: "/markets", label: t("nav.markets") },
-    { href: "/create", label: t("nav.create") },
-    { href: "/me", label: t("nav.me") },
-    { href: "/help", label: t("nav.help") },
+    { href: "/markets", key: "nav.markets" as const },
+    { href: "/create", key: "nav.create" as const },
+    { href: "/me", key: "nav.me" as const },
+    { href: "/help", key: "nav.help" as const },
   ];
 
   return (
-    <header className="app-header header-line nav-in sticky top-0 z-40 border-b border-cyan-500/10 backdrop-blur-xl">
-      <div className="page-width relative mx-auto flex min-h-14 min-w-0 flex-wrap items-start justify-between gap-2 px-3 py-2 sm:h-14 sm:flex-nowrap sm:items-center sm:px-4 sm:py-0">
-        <div className="flex min-w-0 items-center gap-2 md:gap-5">
-          <Link href="/" className="header-brand flex items-center gap-2.5">
-<PulseAreaMark size={30} />
-            <span className="brand-word font-display hidden text-base font-semibold text-white sm:inline">{t("brand.name")}</span>
+    <header className="app-header nav-in sticky top-0 z-40">
+      <div className="page-width relative mx-auto flex min-h-14 min-w-0 flex-wrap items-center justify-between gap-2 px-3 py-2 sm:h-14 sm:flex-nowrap sm:px-4 sm:py-0">
+        <div className="flex min-w-0 items-center gap-3 md:gap-6">
+          <Link href="/" className="header-brand flex items-center gap-2.5 text-[var(--ink-strong)]">
+            <PulseAreaMark size={26} />
+            <span className="brand-word font-display hidden text-lg font-semibold sm:inline">
+              {t("brand.name")}
+            </span>
           </Link>
           <nav className="hidden items-center gap-1 md:flex">
             {nav.map((item) => {
-              const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+              const active = pathname.startsWith(item.href);
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   className={cx(
-                    "whitespace-nowrap rounded-lg px-3 py-1.5 text-sm transition-colors",
-                    active ? "bg-accent/15 text-accent" : "text-zinc-400 hover:text-white"
+                    "whitespace-nowrap px-3 py-1.5 text-sm transition-colors",
+                    active
+                      ? "border border-[var(--card-line)] bg-[var(--seg-thumb)] font-medium text-[var(--ink-strong)]"
+                      : "border border-transparent text-zinc-400 hover:text-white"
                   )}
                 >
-                  {item.label}
+                  <StableText k={item.key} align="center" />
                 </Link>
               );
             })}
@@ -556,29 +691,28 @@ export function Header() {
         </div>
 
         <HeaderTape />
-        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1 sm:flex-none sm:gap-2">
+
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5 sm:flex-none sm:gap-2">
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className={cx(
-              "hidden items-center gap-2 rounded-none px-3 py-1 text-xs md:flex",
-              ok
-                ? "border border-emerald-800/50 bg-emerald-950/40 text-emerald-400"
-                : ok === false
-                  ? "border border-rose-800/50 bg-rose-950/40 text-rose-400"
-                  : "border border-zinc-700 bg-zinc-900 text-zinc-400"
-            )}
+            className="hidden h-8 items-center gap-2 border border-[var(--hair)] bg-[var(--seg-bg)] px-2.5 text-xs text-zinc-300 transition-colors hover:border-[var(--line)] hover:text-white md:inline-flex"
           >
             <span
               className={cx(
                 "h-1.5 w-1.5 rounded-full",
-                ok ? "live-dot bg-accent" : ok === false ? "bg-rose-400" : "bg-zinc-500"
+                ok ? "live-dot bg-[var(--yes)]" : ok === false ? "bg-[var(--no)]" : "bg-zinc-500"
               )}
             />
-            {clusterLabel(settings.cluster)}
+            <StableText k={clusterKey(settings.cluster)} align="center" />
           </button>
-          <Button type="button" tone="secondary" className="h-8 whitespace-nowrap px-2 text-[11px] md:hidden" onClick={() => setOpen(true)}>
-            {t("nav.settings")}
+          <Button
+            type="button"
+            tone="secondary"
+            className="h-8 whitespace-nowrap px-2.5 text-[11px] md:hidden"
+            onClick={() => setOpen(true)}
+          >
+            <StableText k="nav.settings" align="center" />
           </Button>
           <ThemeToggle />
           <LangSwitch />
@@ -587,17 +721,19 @@ export function Header() {
       </div>
       <nav className="page-width mx-auto flex gap-1 overflow-x-auto px-3 pb-2 md:hidden">
         {nav.map((item) => {
-          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+          const active = pathname.startsWith(item.href);
           return (
             <Link
               key={item.href}
               href={item.href}
               className={cx(
-                "whitespace-nowrap rounded-none px-3 py-1 text-[11px]",
-                active ? "bg-accent text-zinc-950" : "text-zinc-400"
+                "whitespace-nowrap px-3 py-1 text-xs",
+                active
+                  ? "bg-[var(--accent)] font-medium text-[var(--on-accent)]"
+                  : "text-zinc-400"
               )}
             >
-              {item.label}
+              <StableText k={item.key} align="center" />
             </Link>
           );
         })}
@@ -636,22 +772,35 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4" onClick={onClose}>
-      <div className="surface w-full max-w-lg p-6 shadow-glow" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-md"
+      onClick={onClose}
+    >
+      <div
+        className="surface panel-float w-full max-w-lg p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="mb-2 flex items-center justify-between">
           <h2 className="page-title">{t("settings.title")}</h2>
-          <button type="button" className="text-zinc-400 hover:text-white" onClick={onClose}>
+          <button
+            type="button"
+            className="text-sm text-zinc-400 transition-colors hover:text-white"
+            onClick={onClose}
+          >
             {t("common.close")}
           </button>
         </div>
         <p className="mb-5 text-sm text-zinc-400">{t("settings.hint")}</p>
         <div className="stack-4">
           <Field label={t("settings.rpc")}>
-            <TextInput value={draft.rpcUrl} onChange={(e) => setDraft({ ...draft, rpcUrl: e.target.value })} />
+            <TextInput
+              value={draft.rpcUrl}
+              onChange={(e) => setDraft({ ...draft, rpcUrl: e.target.value })}
+            />
           </Field>
           <Field label={t("settings.network")}>
             <select
-              className="h-11 w-full rounded-xl border border-zinc-800 bg-zinc-950/60 px-3 text-sm text-white"
+              className="field h-11 w-full border border-zinc-700 px-3 text-sm text-white outline-none"
               value={draft.cluster}
               onChange={(e) => setDraft({ ...draft, cluster: e.target.value as ClusterName })}
             >
@@ -662,10 +811,16 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
             </select>
           </Field>
           <Field label={t("settings.programId")}>
-            <TextInput value={draft.programId} onChange={(e) => setDraft({ ...draft, programId: e.target.value })} />
+            <TextInput
+              value={draft.programId}
+              onChange={(e) => setDraft({ ...draft, programId: e.target.value })}
+            />
           </Field>
           <Field label={t("settings.settlementToken")} hint={t("settings.settlementHint")}>
-            <TextInput value={draft.collateralMint} onChange={(e) => setDraft({ ...draft, collateralMint: e.target.value })} />
+            <TextInput
+              value={draft.collateralMint}
+              onChange={(e) => setDraft({ ...draft, collateralMint: e.target.value })}
+            />
           </Field>
         </div>
         <div className="mt-6 flex justify-between gap-3">
@@ -692,30 +847,27 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-
-
 export function Footer() {
-  const t = useT();
   const pathname = usePathname();
   const { settings } = useSettings();
   const programHref = explorerAccount(settings.programId, settings.cluster);
   if (pathname === "/") return null;
   return (
-    <footer className="page-width relative z-10 mx-auto px-4 pb-8 pt-4">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-zinc-500">
+    <footer className="page-width relative z-10 mx-auto border-t border-[var(--hair)] px-4 pb-8 pt-5">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px] text-zinc-500">
         {programHref ? (
           <a href={programHref} target="_blank" rel="noreferrer" className="link-accent font-mono">
-            {t("footer.program")} {shorten(settings.programId, 4, 4)}
+            <StableText k="footer.program" /> {shorten(settings.programId, 4, 4)}
           </a>
         ) : (
           <span className="font-mono">
-            {t("footer.program")} {shorten(settings.programId, 4, 4)}
+            <StableText k="footer.program" /> {shorten(settings.programId, 4, 4)}
           </span>
         )}
         <a href={GITHUB_REPO} target="_blank" rel="noreferrer" className="link-accent">
-          {t("footer.github")}
+          <StableText k="footer.github" />
         </a>
-        <span>{t("footer.disclaimer")}</span>
+        <StableText k="footer.disclaimer" />
       </div>
     </footer>
   );

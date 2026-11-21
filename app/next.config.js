@@ -8,10 +8,15 @@ const nextConfig = {
     "@solana/wallet-adapter-react",
     "@solana/wallet-adapter-react-ui",
     "@coral-xyz/anchor",
-    "@pythnetwork/hermes-client",
-    "@pythnetwork/pyth-solana-receiver",
-    "@pythnetwork/solana-utils",
   ],
+  async rewrites() {
+    return [
+      {
+        source: "/chart/:path*",
+        destination: "https://api.exchange.coinbase.com/:path*",
+      },
+    ];
+  },
   webpack: (config, { webpack }) => {
     config.resolve.fallback = {
       ...config.resolve.fallback,

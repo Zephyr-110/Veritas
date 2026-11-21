@@ -5,12 +5,8 @@ import { fetchCandles, type Candle } from "@/lib/chart";
 import { formatCents } from "@/lib/format";
 import type { MarketView } from "@/lib/markets";
 import { impliedYesPrice, quoteBet } from "@/lib/quote";
-import { Card } from "@/components/ui";
+import { Card, StableText } from "@/components/ui";
 import { useT } from "@/i18n/provider";
-
-const UP = "#34d399";
-const DOWN = "#fb7185";
-const ACCENT = "#22d3ee";
 
 function fmtPrice(v: number): string {
   if (v >= 1000) return Math.round(v).toLocaleString("en-US");
@@ -24,10 +20,6 @@ function fmtTime(unix: number): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-/** Merge consecutive candles so the plot never squeezes more than ~90
-    candles across its width: at 250+ one-minute candles each body is
-    ~1px wide and the chart reads as dots. OHLC semantics are preserved —
-    first open, highest high, lowest low, last close, bucket start time. */
 function aggregateCandles(candles: Candle[], maxCount = 60): Candle[] {
   if (candles.length <= maxCount) return candles;
   const size = Math.ceil(candles.length / maxCount);
@@ -99,11 +91,6 @@ export function PriceChartCard({
       lo = Math.min(lo, c.low);
       hi = Math.max(hi, c.high);
     }
-    // The threshold may pull the domain toward itself by at most a quarter of the
-    // data span. A far-away target (e.g. price 3,900 vs target 4,000) used
-    // to stretch the domain ~3x and squash every candle body to ~1px; now
-    // the target line clamps to the plot edge instead, which still reads
-    // truthfully: the target is beyond the visible range, on that side.
     const dataSpan = hi - lo || 1;
     if (thresholdValue > hi) hi = Math.min(thresholdValue, hi + dataSpan * 0.25);
     if (thresholdValue < lo) lo = Math.max(thresholdValue, lo - dataSpan * 0.25);
@@ -118,18 +105,15 @@ export function PriceChartCard({
     const t1 = candles[candles.length - 1].time + gran;
     const xTime = (unix: number) => padL + ((unix - t0) / (t1 - t0)) * plotW;
     const thrY = Math.max(padT, Math.min(padT + plotH, y(thresholdValue)));
-    // If the target line sits near the top of the plot, the tag goes below
-    // the line instead of above it, where it would collide with the expiry
-    // tag riding the top edge.
     const thrTagY = thrY - 6 < padT + 12 ? thrY + 16 : thrY - 6;
     const expX = Math.max(padL + 20, Math.min(padL + plotW - 20, xTime(expiry)));
     const last = candles[candles.length - 1];
-    const lastColor = last.close >= thresholdValue ? UP : DOWN;
+    const lastColor = last.close >= thresholdValue ? "var(--yes)" : "var(--no)";
     const ticks = [0, 1, 2, 3].map((i) => t0 + ((t1 - t0) * (i + 0.5)) / 4);
     return (
       <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full" role="img">
-        <rect x={padL} y={padT} width={plotW} height={Math.max(0, thrY - padT)} fill={UP} opacity={0.05} />
-        <rect x={padL} y={thrY} width={plotW} height={Math.max(0, padT + plotH - thrY)} fill={DOWN} opacity={0.05} />
+        <rect x={padL} y={padT} width={plotW} height={Math.max(0, thrY - padT)} fill="var(--yes)" opacity={0.045} />
+        <rect x={padL} y={thrY} width={plotW} height={Math.max(0, padT + plotH - thrY)} fill="var(--no)" opacity={0.045} />
         {[0.25, 0.5, 0.75].map((f) => (
           <line
             key={f}
@@ -137,12 +121,12 @@ export function PriceChartCard({
             x2={padL + plotW}
             y1={padT + plotH * f}
             y2={padT + plotH * f}
-            stroke="rgba(255,255,255,0.05)"
+            stroke="var(--hair)"
             strokeDasharray="3 5"
           />
         ))}
         {candles.map((c, i) => {
-          const color = c.close >= thresholdValue ? UP : DOWN;
+          const color = c.close >= thresholdValue ? "var(--yes)" : "var(--no)";
           const cx = padL + step * (i + 0.5);
           const yOpen = y(c.open);
           const yClose = y(c.close);
@@ -165,28 +149,28 @@ export function PriceChartCard({
           x2={padL + plotW}
           y1={thrY}
           y2={thrY}
-          stroke="#e4e4e7"
+          stroke="var(--ink-strong)"
           strokeWidth={1}
           strokeDasharray="6 4"
-          opacity={0.55}
+          opacity={0.48}
         />
         <text
           x={padL + plotW - 4}
           y={thrTagY}
           fontSize={10.5}
-          fill="#e4e4e7"
+          fill="var(--ink-strong)"
           textAnchor="end"
-          stroke="#0B0E14"
+          stroke="var(--bg)"
           strokeWidth={3}
           paintOrder="stroke"
           className="num"
         >
           {t("chart.thresholdTag")} {thresholdLabel}
         </text>
-        <text x={padL + plotW + 8} y={y(hi - (hi - lo) * 0.02) + 3} fontSize={10} fill="#71717a" className="num">
+        <text x={padL + plotW + 8} y={y(hi - (hi - lo) * 0.02) + 3} fontSize={10} fill="var(--ink-3)" className="num">
           {fmtPrice(hi)}
         </text>
-        <text x={padL + plotW + 8} y={y(lo + (hi - lo) * 0.02) + 3} fontSize={10} fill="#71717a" className="num">
+        <text x={padL + plotW + 8} y={y(lo + (hi - lo) * 0.02) + 3} fontSize={10} fill="var(--ink-3)" className="num">
           {fmtPrice(lo)}
         </text>
         {expiry >= t0 && expiry <= t1 ? (
@@ -196,21 +180,21 @@ export function PriceChartCard({
               x2={xTime(expiry)}
               y1={padT}
               y2={padT + plotH}
-              stroke="rgba(255,255,255,0.4)"
+              stroke="var(--line)"
               strokeDasharray="3 4"
             />
             <text
               x={expX - 6 - 34 < padL ? expX + 6 : expX - 6}
               y={padT - 4}
               fontSize={10}
-              fill="#a1a1aa"
+              fill="var(--ink-2)"
               textAnchor={expX - 6 - 34 < padL ? "start" : "end"}
             >
               {t("chart.expiryTag")}
             </text>
           </g>
         ) : null}
-        <circle cx={padL + step * (candles.length - 0.5)} cy={y(last.close)} r={7} fill={lastColor} opacity={0.25} />
+        <circle cx={padL + step * (candles.length - 0.5)} cy={y(last.close)} r={7} fill={lastColor} opacity={0.22} />
         <circle
           cx={padL + step * (candles.length - 0.5)}
           cy={y(last.close)}
@@ -222,7 +206,7 @@ export function PriceChartCard({
         />
         <circle cx={padL + step * (candles.length - 0.5)} cy={y(last.close)} r={3} fill={lastColor} />
         {ticks.map((unix) => (
-          <text key={unix} x={xTime(unix)} y={H - 5} fontSize={10} fill="#63636b" textAnchor="middle" className="num">
+          <text key={unix} x={xTime(unix)} y={H - 5} fontSize={10} fill="var(--ink-3)" textAnchor="middle" className="num">
             {fmtTime(Math.round(unix))}
           </text>
         ))}
@@ -234,15 +218,19 @@ export function PriceChartCard({
     <Card className="stack-3 enter-up">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="section-title">
-          {symbol} · {t("chart.title")}
+          {symbol} · <StableText k="chart.title" />
         </div>
-        <div className="text-[11px] text-zinc-500">{t("chart.source")}{pair === "PAXG-USD" ? " · PAXG" : ""}</div>
+        <div className="text-[11px] text-zinc-500">
+          <StableText k="chart.source" align="end" />
+        </div>
       </div>
       {body ??
         (failed ? (
-          <div className="grid h-[180px] place-items-center text-sm text-zinc-500">{t("chart.unavailable")}</div>
+          <div className="grid h-[180px] place-items-center text-sm text-zinc-500">
+            <StableText k="chart.unavailable" align="center" />
+          </div>
         ) : (
-          <div className="h-[252px] animate-pulse rounded bg-white/[0.02]" />
+          <div className="sk h-[252px]" />
         ))}
     </Card>
   );
@@ -308,11 +296,15 @@ export function LiquidityCard({ market }: { market: MarketView }) {
 
   return (
     <Card className="stack-4">
-      <div className="section-title">{t("liq.title")}</div>
+      <div className="section-title">
+        <StableText k="liq.title" />
+      </div>
 
       <div className="stack-2">
         <div className="flex items-baseline justify-between gap-2">
-          <div className="text-[13px] text-zinc-400">{t("liq.impact")}</div>
+          <div className="text-[13px] text-zinc-400">
+            <StableText k="liq.impact" />
+          </div>
           <div className="num whitespace-nowrap text-[13px] text-zinc-200">
             {active
               ? t("liq.impactReadout", {
@@ -336,13 +328,21 @@ export function LiquidityCard({ market }: { market: MarketView }) {
         >
           <defs>
             <linearGradient id="impact-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={ACCENT} stopOpacity={0.22} />
-              <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.18} />
+              <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
             </linearGradient>
           </defs>
-          <polygon points={area} fill="url(#impact-fill)" className="fade-in" style={{ animationDelay: "450ms" }} />
-          <polyline points={line} fill="none" stroke={ACCENT} strokeWidth={1.6} pathLength={1} strokeDasharray={1} className="draw-line" />
-          <circle cx={x(0)} cy={y(model.current)} r={3} fill={ACCENT} />
+          <polygon points={area} fill="url(#impact-fill)" className="fade-in" style={{ animationDelay: "300ms" }} />
+          <polyline
+            points={line}
+            fill="none"
+            stroke="var(--accent)"
+            strokeWidth={1.6}
+            pathLength={1}
+            strokeDasharray={1}
+            className="draw-line"
+          />
+          <circle cx={x(0)} cy={y(model.current)} r={3} fill="var(--accent)" />
           {active ? (
             <g>
               <line
@@ -350,19 +350,26 @@ export function LiquidityCard({ market }: { market: MarketView }) {
                 x2={x(active.amount)}
                 y1={padT}
                 y2={padT + plotH}
-                stroke="rgba(255,255,255,0.25)"
+                stroke="var(--line)"
                 strokeDasharray="3 3"
               />
-              <circle cx={x(active.amount)} cy={y(active.price)} r={3.5} fill="#fff" />
+              <circle
+                cx={x(active.amount)}
+                cy={y(active.price)}
+                r={3.5}
+                fill="var(--ink-strong)"
+                stroke="var(--bg)"
+                strokeWidth={1.5}
+              />
             </g>
           ) : null}
-          <text x={padL} y={H - 4} fontSize={9.5} fill="#63636b" className="num">
+          <text x={padL} y={H - 4} fontSize={9.5} fill="var(--ink-3)" className="num">
             0
           </text>
-          <text x={padL + plotW} y={H - 4} fontSize={9.5} fill="#63636b" textAnchor="end" className="num">
+          <text x={padL + plotW} y={H - 4} fontSize={9.5} fill="var(--ink-3)" textAnchor="end" className="num">
             {model.maxX.toFixed(0)} U
           </text>
-          <text x={padL + 2} y={y(yHi) + 8} fontSize={9.5} fill="#63636b" className="num">
+          <text x={padL + 2} y={y(yHi) + 8} fontSize={9.5} fill="var(--ink-3)" className="num">
             {formatCents(yHi)}
           </text>
         </svg>
@@ -370,36 +377,40 @@ export function LiquidityCard({ market }: { market: MarketView }) {
 
       <div className="stack-2">
         <div className="flex items-baseline justify-between text-[13px]">
-          <span className="text-zinc-400">{t("liq.reserves")}</span>
+          <span className="text-zinc-400">
+            <StableText k="liq.reserves" />
+          </span>
           <span className="num text-zinc-400">
-            <span style={{ color: UP }}>{t("liq.yes")} {model.yesPct.toFixed(0)}%</span>
+            <span style={{ color: "var(--yes)" }}>{t("liq.yes")} {model.yesPct.toFixed(0)}%</span>
             {" · "}
-            <span style={{ color: DOWN }}>{t("liq.no")} {(100 - model.yesPct).toFixed(0)}%</span>
+            <span style={{ color: "var(--no)" }}>{t("liq.no")} {(100 - model.yesPct).toFixed(0)}%</span>
           </span>
         </div>
-        <div className="flex h-2.5 overflow-hidden rounded-full bg-zinc-800">
+        <div className="flex h-2 overflow-hidden bg-zinc-800">
           <div
             className="h-full"
             style={{
               width: mounted ? `${model.yesPct}%` : "0%",
-              background: UP,
-              opacity: 0.75,
-              transition: "width 800ms cubic-bezier(0.34, 1.35, 0.64, 1)",
+              background: "var(--yes)",
+              opacity: 0.78,
+              transition: "width 700ms cubic-bezier(0.22, 1, 0.36, 1)",
             }}
           />
           <div
             className="h-full"
             style={{
               width: mounted ? `${100 - model.yesPct}%` : "0%",
-              background: DOWN,
-              opacity: 0.75,
-              transition: "width 800ms cubic-bezier(0.34, 1.35, 0.64, 1)",
+              background: "var(--no)",
+              opacity: 0.78,
+              transition: "width 700ms cubic-bezier(0.22, 1, 0.36, 1)",
             }}
           />
         </div>
       </div>
 
-      <p className="text-xs leading-relaxed text-zinc-500">{t("liq.note")}</p>
+      <p className="text-xs leading-relaxed text-zinc-500">
+        <StableText k="liq.note" block />
+      </p>
     </Card>
   );
 }

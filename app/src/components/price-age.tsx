@@ -1,32 +1,42 @@
 "use client";
 
-import { useT } from "@/i18n/provider";
 import { useNow } from "@/hooks/use-now";
+import { cx, StableText } from "./ui";
 
 /**
- * How old the displayed price print is, from the print's own Pyth
- * publish time, ticking once a second. A price on this site always
- * carries its age: a stale print labels itself instead of passing as
- * a live one (standing no-fake-data rule). Renders nothing when the
- * print has no publish time.
+ * How old the displayed price print is, from the print's own Chainlink
+ * publish time, ticking once a second. Fixed minimum width prevents
+ * EN <-> ZH age text from shifting neighboring numerals.
  */
 export function PriceAge({
   publishTime,
-  className = "text-[10px] text-zinc-400",
+  className = "min-w-[4.75rem] text-right text-[11px]",
 }: {
   publishTime: number | null;
   className?: string;
 }) {
-  const t = useT();
   const now = useNow(1000);
 
-  if (publishTime == null) return null;
+  if (publishTime == null || now <= 0) return null;
   const age = Math.max(0, now - publishTime);
-  const label =
+  const key =
     age < 60
-      ? t("quotes.ageSec", { n: age })
+      ? "quotes.ageSec"
       : age < 3600
-        ? t("quotes.ageMin", { n: Math.floor(age / 60) })
-        : t("quotes.ageHour", { n: Math.floor(age / 3600) });
-  return <span className={className}>{label}</span>;
+        ? "quotes.ageMin"
+        : "quotes.ageHour";
+  const count = age < 60 ? age : age < 3600 ? Math.floor(age / 60) : Math.floor(age / 3600);
+  const tone =
+    age > 300
+      ? "text-[var(--warn)]"
+      : age > 30
+        ? "text-zinc-500"
+        : "text-zinc-400";
+  const stamp = new Date(publishTime * 1000).toLocaleTimeString("en-GB", { hour12: false });
+
+  return (
+    <span title={stamp} className={cx("num inline-block whitespace-nowrap", tone, className)}>
+      <StableText k={key} vars={{ n: count }} align="end" />
+    </span>
+  );
 }

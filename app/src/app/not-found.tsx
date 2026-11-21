@@ -1,19 +1,18 @@
 "use client";
 
-import { useT } from "@/i18n/provider";
-import { StateBlock } from "@/components/ui";
+import Link from "next/link";
+import { StableText, StateBlock } from "@/components/ui";
 
 export default function NotFound() {
-  const t = useT();
   return (
     <StateBlock
       kind="empty"
-      title={t("notFound.title")}
-      body={t("notFound.body")}
+      title={<StableText k="notFound.title" />}
+      body={<StableText k="notFound.body" block />}
       action={
-        <a href="/markets" className="link-accent text-[15px]">
-          {t("nav.markets")}
-        </a>
+        <Link href="/markets" className="link-accent text-[15px]">
+          <StableText k="nav.markets" />
+        </Link>
       }
     />
   );

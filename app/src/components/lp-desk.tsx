@@ -10,8 +10,8 @@ import { ixAddLiquidity, ixGetLiquidity } from "@/lib/instructions";
 import { marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
 import { useProgram } from "@/hooks/use-program";
 import { useNow } from "@/hooks/use-now";
+import { Button, Card, Chip, PopNum, SegTabs, StableText, TextInput, useTx } from "./ui";
 import { useT } from "@/i18n/provider";
-import { Button, Card, Chip, PopNum, SegTabs, TextInput, useTx } from "./ui";
 
 export function LpDesk({ market, position }: { market: MarketView; position: UserPosition }) {
   const program = useProgram();
@@ -41,22 +41,21 @@ export function LpDesk({ market, position }: { market: MarketView; position: Use
     position.pendingNo
   );
 
-  const disabled =
-    !publicKey
-      ? t("lpDisable.connect")
-      : parsed.invalid
-        ? t("lpDisable.invalid")
-        : parsed.value <= 0n
-          ? t("lpDisable.enter")
-          : tab === "add" && !live
-            ? t("lpDisable.notLive")
-            : tab === "add" && parsed.value > position.collateral
-              ? t("lpDisable.noCollateral", { symbol: COLLATERAL_SYMBOL })
-              : tab === "withdraw" && parsed.value > position.lpShares
-                ? t("lpDisable.noShares")
-                : !program
-                  ? t("errors.badAddress")
-                  : null;
+  const disabledReasonKey: { key: string; vars?: Record<string, string | number> } | null = !publicKey
+    ? { key: "lpDisable.connect" }
+    : parsed.invalid
+      ? { key: "lpDisable.invalid" }
+      : parsed.value <= 0n
+        ? { key: "lpDisable.enter" }
+        : tab === "add" && !live
+          ? { key: "lpDisable.notLive" }
+          : tab === "add" && parsed.value > position.collateral
+            ? { key: "lpDisable.noCollateral", vars: { symbol: COLLATERAL_SYMBOL } }
+            : tab === "withdraw" && parsed.value > position.lpShares
+              ? { key: "lpDisable.noShares" }
+              : !program
+                ? { key: "errors.badAddress" }
+                : null;
 
   const submit = async () => {
     if (!publicKey || !program) return;
@@ -69,21 +68,25 @@ export function LpDesk({ market, position }: { market: MarketView; position: Use
 
   return (
     <Card className="stack-4">
-      <div>
-        <p className="mt-1 text-xs text-zinc-500">{t("lp.subtitle", { symbol: COLLATERAL_SYMBOL })}</p>
-        <p className="mt-1 text-xs text-zinc-500">{t("lp.feeNote")}</p>
+      <div className="stack-1">
+        <p className="text-xs leading-5 text-zinc-500">
+          <StableText k="lp.subtitle" vars={{ symbol: COLLATERAL_SYMBOL }} block />
+        </p>
+        <p className="text-xs leading-5 text-zinc-500">
+          <StableText k="lp.feeNote" block />
+        </p>
       </div>
       <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-sm">
         <span className="text-zinc-500">
-          {t("lp.yourShares")}
+          <StableText k="lp.yourShares" />
           <span className="num ml-1.5 text-zinc-100">{toUi(position.lpShares, market.decimals, 2)}</span>
         </span>
         <span className="text-zinc-500">
-          {t("lp.poolShares")}
+          <StableText k="lp.poolShares" />
           <span className="num ml-1.5 text-zinc-100">{toUi(market.totalLpShares, market.decimals, 2)}</span>
         </span>
         <span className="text-zinc-500">
-          {t("common.pending")}
+          <StableText k="common.pending" />
           <span className="num ml-1.5 text-zinc-100">
             {toUi(position.pendingYes, market.decimals, 4)} / {toUi(position.pendingNo, market.decimals, 4)}
           </span>
@@ -93,13 +96,17 @@ export function LpDesk({ market, position }: { market: MarketView; position: Use
         value={tab}
         onChange={setTab}
         options={[
-          { value: "add", label: t("lp.add"), color: "linear-gradient(to bottom, rgba(255,255,255,0.14), rgba(255,255,255,0.07))" },
-          { value: "withdraw", label: t("lp.withdraw"), color: "linear-gradient(to bottom, rgba(255,255,255,0.14), rgba(255,255,255,0.07))" },
+          { value: "add", label: <StableText k="lp.add" align="center" /> },
+          { value: "withdraw", label: <StableText k="lp.withdraw" align="center" /> },
         ]}
       />
       {tab === "add" ? (
         <div className="text-right text-xs text-zinc-500">
-          {t("common.balance", { amount: `${toUi(position.collateral, market.decimals, 2)} ${COLLATERAL_SYMBOL}` })}
+          <StableText
+            k="common.balance"
+            vars={{ amount: `${toUi(position.collateral, market.decimals, 2)} ${COLLATERAL_SYMBOL}` }}
+            align="end"
+          />
         </div>
       ) : null}
       <TextInput
@@ -119,9 +126,15 @@ export function LpDesk({ market, position }: { market: MarketView; position: Use
           <PopNum text={money(tab === "add" ? addQuote.noIn : wdQuote.noOut, market.decimals)} />
         </Chip>
       </div>
-      <p className="text-xs leading-5 text-amber-300/80">{t("lp.riskNote")}</p>
-      <Button type="button" busy={busy} disabled={busy || !!disabled} onClick={() => void submit()}>
-        {disabled ?? (tab === "add" ? t("lp.addSubmit") : t("lp.withdrawSubmit"))}
+      <p className="text-xs leading-5 text-[var(--warn)]">
+        <StableText k="lp.riskNote" block />
+      </p>
+      <Button type="button" busy={busy} disabled={busy || !!disabledReasonKey} onClick={() => void submit()}>
+        {disabledReasonKey ? (
+          <StableText k={disabledReasonKey.key} vars={disabledReasonKey.vars} align="center" />
+        ) : (
+          <StableText k={tab === "add" ? "lp.addSubmit" : "lp.withdrawSubmit"} align="center" />
+        )}
       </Button>
     </Card>
   );

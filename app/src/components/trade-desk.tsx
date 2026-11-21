@@ -12,13 +12,10 @@ import { useProgram } from "@/hooks/use-program";
 import { useNow } from "@/hooks/use-now";
 import type { Side } from "@/lib/types";
 import { useT } from "@/i18n/provider";
-import { Button, Card, Field, Kv, PopNum, SegTabs, TextInput, useTx } from "./ui";
+import { Button, Card, Field, Kv, PopNum, SegTabs, StableText, TextInput, useTx } from "./ui";
 import { FaucetClaimButton } from "./faucet-claim";
 
 const PRESETS = ["1", "2", "5", "10"];
-const SEG_NEUTRAL = "linear-gradient(to bottom, rgba(255,255,255,0.14), rgba(255,255,255,0.07))";
-const SEG_YES = "linear-gradient(to bottom, rgba(52,211,153,0.30), rgba(52,211,153,0.15))";
-const SEG_NO = "linear-gradient(to bottom, rgba(251,113,133,0.30), rgba(251,113,133,0.15))";
 
 export function TradeDesk({ market, position }: { market: MarketView; position: UserPosition }) {
   const program = useProgram();
@@ -60,20 +57,20 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
   const sideLabel = side === "yes" ? t("common.yes") : t("common.no");
   const otherLabel = side === "yes" ? t("common.no") : t("common.yes");
 
-  const disabledReason = !publicKey
-    ? t("tradeDisable.connect")
+  const disabledReasonKey: { key: string; vars?: Record<string, string | number> } | null = !publicKey
+    ? { key: "tradeDisable.connect" }
     : !phase.live
-      ? t("tradeDisable.ended")
+      ? { key: "tradeDisable.ended" }
       : parsed.invalid
-        ? t("tradeDisable.invalid")
+        ? { key: "tradeDisable.invalid" }
         : parsed.value <= 0n
-          ? t("tradeDisable.enter")
+          ? { key: "tradeDisable.enter" }
           : tab === "bet" && parsed.value > position.collateral
-            ? t("tradeDisable.noCollateral", { symbol: COLLATERAL_SYMBOL })
+            ? { key: "tradeDisable.noCollateral", vars: { symbol: COLLATERAL_SYMBOL } }
             : tab === "swap" && parsed.value > sellBalance
-              ? t("tradeDisable.noShares", { side: otherLabel })
+              ? { key: "tradeDisable.noShares", vars: { side: otherLabel } }
               : !program
-                ? t("errors.badAddress")
+                ? { key: "errors.badAddress" }
                 : null;
 
   const submit = async () => {
@@ -103,35 +100,58 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
         value={tab}
         onChange={setTab}
         options={[
-          { value: "bet", label: t("trade.confirm"), color: SEG_NEUTRAL },
-          { value: "swap", label: t("trade.switch"), color: SEG_NEUTRAL },
+          { value: "bet", label: <StableText k="trade.confirm" align="center" /> },
+          { value: "swap", label: <StableText k="trade.switch" align="center" /> },
         ]}
       />
       <SegTabs
         value={side}
         onChange={setSide}
         options={[
-          { value: "yes", label: t("trade.buyYes"), color: SEG_YES, activeText: "text-emerald-300" },
-          { value: "no", label: t("trade.buyNo"), color: SEG_NO, activeText: "text-rose-300" },
+          {
+            value: "yes",
+            label: <StableText k="trade.buyYes" align="center" />,
+            color: "var(--yes-soft)",
+            activeText: "text-[var(--yes)]",
+          },
+          {
+            value: "no",
+            label: <StableText k="trade.buyNo" align="center" />,
+            color: "var(--no-soft)",
+            activeText: "text-[var(--no)]",
+          },
         ]}
       />
-      <p className="-mt-2 text-xs leading-5 text-zinc-500">
-        {t("trade.gloss", {
-          side: sideLabel,
-          op: (side === "yes") === market.settleAbove ? "≥" : "<",
-          price: thresholdToHuman(market.threshold, market.exponent),
-        })}
+      <p className="-mt-1 text-xs leading-5 text-zinc-500">
+        <StableText
+          k="trade.gloss"
+          vars={{
+            side: sideLabel,
+            op: (side === "yes") === market.settleAbove ? "≥" : "<",
+            price: thresholdToHuman(market.threshold, market.priceDecimals),
+          }}
+          block
+        />
       </p>
-      <Field label={t("trade.youPay")}>
-        <TextInput inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} className="font-mono tabular-nums" />
+      <Field label={<StableText k="trade.youPay" />}>
+        <TextInput
+          inputMode="decimal"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          className="font-mono tabular-nums"
+        />
       </Field>
       <div className="-mt-2 text-right text-xs text-zinc-500">
-        {t("common.balance", {
-          amount:
-            tab === "bet"
-              ? `${toUi(position.collateral, market.decimals, 2)} ${COLLATERAL_SYMBOL}`
-              : `${toUi(sellBalance, market.decimals, 2)} ${otherLabel}`,
-        })}
+        <StableText
+          k="common.balance"
+          vars={{
+            amount:
+              tab === "bet"
+                ? `${toUi(position.collateral, market.decimals, 2)} ${COLLATERAL_SYMBOL}`
+                : `${toUi(sellBalance, market.decimals, 2)} ${otherLabel}`,
+          }}
+          align="end"
+        />
       </div>
       {tab === "bet" && position.collateral === 0n ? (
         <div className="-mt-2 flex justify-end">
@@ -140,33 +160,49 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
       ) : null}
       <div className="cluster-2">
         {PRESETS.map((p) => (
-          <button key={p} type="button" className="rounded-none border border-white/5 px-3 py-1 text-xs text-zinc-400 transition hover:bg-white/[0.06] active:scale-95" onClick={() => setAmount(p)}>
+          <button
+            key={p}
+            type="button"
+            className="border border-[var(--hair)] px-3 py-1 text-xs text-zinc-400 transition hover:border-[var(--line)] hover:text-white active:scale-95"
+            onClick={() => setAmount(p)}
+          >
             {p}
           </button>
         ))}
         <button
           type="button"
-          className="rounded-none border border-white/5 px-3 py-1 text-xs text-zinc-400 transition hover:bg-white/[0.06] active:scale-95"
+          className="border border-[var(--hair)] px-3 py-1 text-xs text-zinc-400 transition hover:border-[var(--line)] hover:text-white active:scale-95"
           onClick={() => setAmount(toUi(tab === "bet" ? position.collateral : sellBalance, market.decimals, 6))}
         >
-          {t("common.max")}
+          <StableText k="common.max" align="center" />
         </button>
       </div>
       <div className="stack-2 text-sm">
         <Kv
-          k={t("trade.youGet")}
+          k={<StableText k="trade.youGet" />}
           v={<PopNum text={`${toUi(tab === "bet" ? betQuote.totalOut : swapOut, market.decimals, 2)} ${sideLabel}`} />}
         />
         {tab === "bet" && betQuote.totalOut > 0n && parsed.value > 0n ? (
-          <Kv k={t("trade.avgPrice")} v={<PopNum text={formatCents(Number(parsed.value) / Number(betQuote.totalOut))} />} />
+          <Kv
+            k={<StableText k="trade.avgPrice" />}
+            v={<PopNum text={formatCents(Number(parsed.value) / Number(betQuote.totalOut))} />}
+          />
         ) : null}
-        {tab === "swap" ? <p className="text-xs leading-5 text-zinc-500">{t("trade.swapHint")}</p> : null}
+        {tab === "swap" ? (
+          <p className="text-xs leading-5 text-zinc-500">
+            <StableText k="trade.swapHint" block />
+          </p>
+        ) : null}
         {tab === "bet" && impactPct != null && impactPct > 10 ? (
-          <p className="text-xs leading-5 text-amber-300/90">{t("trade.impactWarn", { pct: Math.round(impactPct) })}</p>
+          <p className="text-xs leading-5 text-[var(--warn)]">
+            <StableText k="trade.impactWarn" vars={{ pct: Math.round(impactPct) }} block />
+          </p>
         ) : null}
       </div>
       <div className="flex items-center gap-3">
-        <span className="shrink-0 text-xs text-zinc-500">{t("trade.slippage")}</span>
+        <span className="shrink-0 text-xs text-zinc-500">
+          <StableText k="trade.slippage" />
+        </span>
         <input
           type="range"
           className="min-w-0 flex-1"
@@ -176,10 +212,18 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
           value={slippage}
           onChange={(e) => setSlippage(Number(e.target.value))}
         />
-        <span className="num w-10 shrink-0 text-right text-xs text-zinc-300">{(slippage / 100).toFixed(1)}%</span>
+        <span className="num w-11 shrink-0 text-right text-xs text-zinc-300">
+          {(slippage / 100).toFixed(1)}%
+        </span>
       </div>
-      <Button type="button" busy={busy} disabled={busy || !!disabledReason} onClick={() => void submit()}>
-        {disabledReason ?? (tab === "bet" ? (side === "yes" ? t("trade.buyYes") : t("trade.buyNo")) : t("trade.switch"))}
+      <Button type="button" busy={busy} disabled={busy || !!disabledReasonKey} onClick={() => void submit()}>
+        {disabledReasonKey ? (
+          <StableText k={disabledReasonKey.key} vars={disabledReasonKey.vars} align="center" />
+        ) : tab === "bet" ? (
+          <StableText k={side === "yes" ? "trade.buyYes" : "trade.buyNo"} align="center" />
+        ) : (
+          <StableText k="trade.switch" align="center" />
+        )}
       </Button>
     </Card>
   );

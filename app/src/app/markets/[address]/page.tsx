@@ -2,17 +2,17 @@
 
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useMarket } from "@/hooks/use-market";
 import { useNow } from "@/hooks/use-now";
 import { useFeeds } from "@/hooks/use-feeds";
-import { formatWhen, hasBet, marketKind, money, questionTitle } from "@/lib/display";
+import { formatWhen, hasBet, isMarketVoided, marketKind, money, questionTitle } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
-import { feedByHex, formatPythPrice, thresholdToHuman } from "@/lib/feeds";
+import { feedByState, formatFeedPrice, thresholdToHuman } from "@/lib/feeds";
 import { countdown, explorerAccount, formatUnix, formatYesNo, marketIdHex, shorten, toUi } from "@/lib/format";
 import { RESOLVE_WINDOW } from "@/lib/constants";
-import { marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
+import { isFinalizedStatus, marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
 import { TradeDesk } from "@/components/trade-desk";
 import { LiquidityCard, PriceChartCard } from "@/components/market-visuals";
 import { chartPair } from "@/lib/chart";
@@ -20,7 +20,7 @@ import { LpDesk } from "@/components/lp-desk";
 import { SettleDesk } from "@/components/settle-desk";
 import { CountUp, FlashNum, LiveCountdown } from "@/components/live";
 import { PriceAge } from "@/components/price-age";
-import { Button, Card, CopyText, Kv, Reveal, SegTabs, StateBlock, StatusChip } from "@/components/ui";
+import { Button, Card, CopyText, DataFreshness, Kv, Reveal, SegTabs, StableText, StateBlock, StatusChip, onSpot } from "@/components/ui";
 import { useSettings } from "@/components/providers";
 import { MarketDetailSkeleton } from "@/components/skeletons";
 import { useT } from "@/i18n/provider";
@@ -28,14 +28,9 @@ import { useT } from "@/i18n/provider";
 type Spot = { price: number; publishTime: number | null } | null;
 
 export default function MarketDetailPage() {
-  const [v2, setV2] = useState<false | "v2" | "v3">(false);
-  useEffect(() => {
-    const q = new URLSearchParams(window.location.search);
-    setV2(q.has("v3") ? "v3" : q.has("v2") ? "v2" : false);
-  }, []);
   const params = useParams<{ address: string }>();
   const address = params.address;
-  const { market, position, loading, error, reload } = useMarket(address);
+  const { market, position, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarket(address);
   const { publicKey } = useWallet();
   const now = useNow(1000);
   const { quotes, ready } = useFeeds();
@@ -44,20 +39,33 @@ export default function MarketDetailPage() {
   if (loading && !market) {
     return <MarketDetailSkeleton />;
   }
-  if (error || !market) {
+  if (error && !market) {
     return (
       <StateBlock
         kind="error"
-        title={error ? localizeError(error) : t("market.notFound")}
+        title={localizeError(error)}
         action={
           <div className="cluster-3">
             <Button type="button" tone="secondary" onClick={() => void reload()}>
-              {t("common.tryAgain")}
+              <StableText k="common.tryAgain" align="center" />
             </Button>
             <Link href="/markets" className="link-accent text-[15px]">
-              {t("market.backToMarkets")}
+              <StableText k="market.backToMarkets" />
             </Link>
           </div>
+        }
+      />
+    );
+  }
+  if (!market) {
+    return (
+      <StateBlock
+        kind="error"
+        title={<StableText k="market.notFound" />}
+        action={
+          <Link href="/markets" className="link-accent text-[15px]">
+            <StableText k="market.backToMarkets" />
+          </Link>
         }
       />
     );
@@ -65,29 +73,33 @@ export default function MarketDetailPage() {
 
   const kind = marketKind(market, now);
   const live = kind === "live";
-  const settled = market.status === "resolved" || market.status === "burn";
-  const preset = feedByHex(market.feedHex);
+  const preset = feedByState(market.ocr2State);
   const feedKey = preset?.key;
   const quote = feedKey ? quotes[feedKey] : undefined;
   const spot: Spot =
     ready && quote?.available && quote?.price != null
       ? { price: quote.price, publishTime: quote.publishTime }
       : null;
-  const humanThreshold = thresholdToHuman(market.threshold, market.exponent);
+  const humanThreshold = thresholdToHuman(market.threshold, market.priceDecimals);
   const pair = chartPair(feedKey);
-  const rule = market.settleAbove
-    ? t("market.settleAbove", { price: humanThreshold })
-    : t("market.settleBelow", { price: humanThreshold });
 
   return (
-    <div className={`stack-6 fade-in${v2 === "v2" ? " dsample" : v2 === "v3" ? " dsample3" : ""}`}>
-      <div className="enter-up" style={{ animationDelay: "100ms" }}>
-        <Link href="/markets" className="link-accent text-[15px]">
-          {t("market.back")}
-        </Link>
+    <div className="stack-6 fade-in">
+      <div className="enter-up">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Link href="/markets" className="link-accent text-[15px]">
+            <StableText k="market.back" />
+          </Link>
+          <DataFreshness
+            updatedAt={updatedAt}
+            refreshing={refreshing}
+            staleError={isStaleError}
+            onRefresh={() => void reload()}
+          />
+        </div>
         <div className="mt-3 cluster-2">
           <StatusChip market={market} now={now} />
-          <span className="text-xs text-zinc-500">{market.feedSymbol}</span>
+          <span className="text-xs font-medium text-zinc-400">{market.feedSymbol}</span>
         </div>
         <h1 className="page-title mt-3">
           {market.title ? questionTitle(market) : t("common.untitled")}
@@ -104,7 +116,7 @@ export default function MarketDetailPage() {
                 pair={pair}
                 symbol={market.feedSymbol}
                 expiry={market.expiry}
-                thresholdValue={Number(market.threshold) * 10 ** market.exponent}
+                thresholdValue={Number(market.threshold) * 10 ** -market.priceDecimals}
                 thresholdLabel={humanThreshold}
               />
             </div>
@@ -123,7 +135,7 @@ export default function MarketDetailPage() {
             <PositionCard market={market} position={position} connected={!!publicKey} />
           </Reveal>
           <Reveal className="flex-1">
-            <PoolFactsCard market={market} rule={rule} humanThreshold={humanThreshold} />
+            <PoolFactsCard market={market} humanThreshold={humanThreshold} />
           </Reveal>
         </div>
         <aside className="desk-rail stack-4">
@@ -137,26 +149,35 @@ export default function MarketDetailPage() {
   );
 }
 
-function PoolFactsCard({ market, rule, humanThreshold }: { market: MarketView; rule: string; humanThreshold: string }) {
-  const t = useT();
+function PoolFactsCard({ market, humanThreshold }: { market: MarketView; humanThreshold: string }) {
   return (
     <Card className="stack-3 h-full">
-      <div className="section-title">{t("market.history")}</div>
-      <Kv k={t("market.yesReserve")} v={`${toUi(market.reserveYes, market.decimals, 2)} YES`} />
-      <Kv k={t("market.noReserve")} v={`${toUi(market.reserveNo, market.decimals, 2)} NO`} />
-      <Kv k={t("market.depth")} v={money(market.vault, market.decimals)} />
-      <p className="text-xs leading-relaxed text-zinc-500">{t("market.vaultNote")}</p>
-      <Kv k={t("market.deadline")} v={formatWhen(market.expiry)} />
-      <Kv k={t("market.threshold")} v={humanThreshold} />
-      <Kv k={t("market.settleRule")} v={rule} />
+      <div className="section-title">
+        <StableText k="market.history" />
+      </div>
+      <Kv k={<StableText k="market.yesReserve" />} v={`${toUi(market.reserveYes, market.decimals, 2)} YES`} />
+      <Kv k={<StableText k="market.noReserve" />} v={`${toUi(market.reserveNo, market.decimals, 2)} NO`} />
+      <Kv k={<StableText k="market.depth" />} v={money(market.vault, market.decimals)} />
+      <p className="text-xs leading-relaxed text-zinc-500">
+        <StableText k="market.vaultNote" block />
+      </p>
+      <Kv k={<StableText k="market.deadline" />} v={formatWhen(market.expiry)} />
+      <Kv k={<StableText k="market.threshold" />} v={humanThreshold} />
+      <Kv
+        k={<StableText k="market.settleRule" />}
+        v={
+          <StableText
+            k={market.settleAbove ? "market.settleAbove" : "market.settleBelow"}
+            vars={{ price: humanThreshold }}
+            align="end"
+          />
+        }
+      />
     </Card>
   );
 }
 
-const DESK_SEG = "linear-gradient(to bottom, rgba(255,255,255,0.14), rgba(255,255,255,0.07))";
-
 function DeskSwitcher({ market, position }: { market: MarketView; position: UserPosition }) {
-  const t = useT();
   const [desk, setDesk] = useState<"trade" | "lp">("trade");
   return (
     <div className="stack-3">
@@ -164,8 +185,8 @@ function DeskSwitcher({ market, position }: { market: MarketView; position: User
         value={desk}
         onChange={setDesk}
         options={[
-          { value: "trade", label: t("desk.trade"), color: DESK_SEG },
-          { value: "lp", label: t("desk.liquidity"), color: DESK_SEG },
+          { value: "trade", label: <StableText k="desk.trade" align="center" /> },
+          { value: "lp", label: <StableText k="desk.liquidity" align="center" /> },
         ]}
       />
       {desk === "trade" ? (
@@ -178,33 +199,55 @@ function DeskSwitcher({ market, position }: { market: MarketView; position: User
 }
 
 function AddressesPanel({ market }: { market: MarketView }) {
-  const t = useT();
   const { settings } = useSettings();
   const [open, setOpen] = useState(false);
   return (
-    <div className="surface p-4 text-sm text-zinc-500">
+    <div onMouseMove={onSpot} className="surface p-5 text-sm text-zinc-500">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         className="flex w-full items-center justify-between font-medium text-zinc-300 transition-colors hover:text-white"
       >
-        {t("market.addresses")}
-        <span className={`text-xs transition-transform duration-300 ${open ? "rotate-180" : ""}`}>▾</span>
+        <StableText k="market.addresses" />
+        <span className={`text-xs transition-transform duration-200 ${open ? "rotate-180" : ""}`}>▾</span>
       </button>
       <div
-        className={`grid transition-all duration-300 ease-out ${
+        className={`grid transition-all duration-200 ease-out ${
           open ? "mt-4 grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
         }`}
       >
         <div className="overflow-hidden">
           <div className="stack-2 font-mono text-xs">
-            <Row k={t("market.addrMarket")} v={market.address.toBase58()} explorer={explorerAccount(market.address.toBase58(), settings.cluster)} />
-            <Row k={t("market.addrQuestionId")} v={marketIdHex(market.id)} />
-            <Row k={t("market.addrCreator")} v={market.creator.toBase58()} explorer={explorerAccount(market.creator.toBase58(), settings.cluster)} />
-            <Row k={t("market.addrToken")} v={market.collateralMint.toBase58()} explorer={explorerAccount(market.collateralMint.toBase58(), settings.cluster)} />
-            <Row k={t("market.addrFeed")} v={market.feedHex} />
-            <div className="pt-0.5 text-right font-sans text-[11px] text-zinc-600">{t("market.feedNote")}</div>
+            <Row
+              kKey="market.addrMarket"
+              v={market.address.toBase58()}
+              explorer={explorerAccount(market.address.toBase58(), settings.cluster)}
+            />
+            <Row kKey="market.addrQuestionId" v={marketIdHex(market.id)} />
+            <Row
+              kKey="market.addrCreator"
+              v={market.creator.toBase58()}
+              explorer={explorerAccount(market.creator.toBase58(), settings.cluster)}
+            />
+            <Row
+              kKey="market.addrToken"
+              v={market.collateralMint.toBase58()}
+              explorer={explorerAccount(market.collateralMint.toBase58(), settings.cluster)}
+            />
+            <Row
+              kKey="market.addrFeed"
+              v={market.ocr2State.toBase58()}
+              explorer={explorerAccount(market.ocr2State.toBase58(), settings.cluster)}
+            />
+            <Row
+              kKey="market.addrSnapshot"
+              v={market.pdas.snapshot.toBase58()}
+              explorer={explorerAccount(market.pdas.snapshot.toBase58(), settings.cluster)}
+            />
+            <div className="pt-0.5 text-right font-sans text-[11px] text-zinc-500">
+              <StableText k="market.feedNote" align="end" />
+            </div>
           </div>
         </div>
       </div>
@@ -212,21 +255,45 @@ function AddressesPanel({ market }: { market: MarketView }) {
   );
 }
 
-function BandCell({ label, children, sub, valueClassName }: { label: string; children: ReactNode; sub?: ReactNode; valueClassName?: string }) {
+function BandCell({
+  labelKey,
+  children,
+  sub,
+  valueClassName,
+}: {
+  labelKey: string;
+  children: ReactNode;
+  sub?: ReactNode;
+  valueClassName?: string;
+}) {
   return (
     <div className="min-w-0 px-5 py-4">
-      <div className="section-title">{label}</div>
-      <div className={`num mt-1.5 truncate text-[19px] font-semibold ${valueClassName ?? "text-zinc-50"}`}>{children}</div>
+      <div className="section-title">
+        <StableText k={labelKey} />
+      </div>
+      <div className={`num mt-1.5 truncate text-[19px] font-semibold ${valueClassName ?? "text-zinc-50"}`}>
+        {children}
+      </div>
       <div className="mt-0.5 min-h-[1.25rem] truncate text-xs text-zinc-500">{sub ?? ""}</div>
     </div>
   );
 }
 
-function StatusBand({ market, now, spot, humanThreshold }: { market: MarketView; now: number; spot: Spot; humanThreshold: string }) {
+function StatusBand({
+  market,
+  now,
+  spot,
+  humanThreshold,
+}: {
+  market: MarketView;
+  now: number;
+  spot: Spot;
+  humanThreshold: string;
+}) {
   const t = useT();
   const kind = marketKind(market, now);
   const phase = marketPhase(market, now);
-  const thresholdNum = Number(market.threshold) * 10 ** market.exponent;
+  const thresholdNum = Number(market.threshold) * 10 ** -market.priceDecimals;
 
   const relation = (() => {
     if (!spot || !Number.isFinite(thresholdNum) || thresholdNum <= 0) return null;
@@ -236,7 +303,7 @@ function StatusBand({ market, now, spot, humanThreshold }: { market: MarketView;
     const deltaText =
       absDelta >= 0.01
         ? absDelta.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-        : formatPythPrice(absDelta);
+        : formatFeedPrice(absDelta);
     const yesFavored = market.settleAbove ? delta >= 0 : delta <= 0;
     const side = yesFavored ? t("common.yes") : t("common.no");
     const dir =
@@ -252,80 +319,87 @@ function StatusBand({ market, now, spot, humanThreshold }: { market: MarketView;
     relation && relation.pct < 0.5 ? (relation.yesFavored ? "alert-pulse alert-yes" : "alert-pulse alert-no") : undefined;
 
   const spotCell = (
-    <BandCell label={t("market.livePrice")}>
+    <BandCell labelKey="market.livePrice">
       {spot ? (
         <span className="flex items-baseline gap-2">
           <FlashNum value={spot.price}>
-            <CountUp value={spot.price} format={(v) => formatPythPrice(v)} />
+            <CountUp value={spot.price} format={(v) => formatFeedPrice(v)} />
           </FlashNum>
-          <PriceAge publishTime={spot.publishTime} />
+          <PriceAge publishTime={spot.publishTime} className="min-w-[4.25rem] text-left text-[11px]" />
         </span>
       ) : (
-        <span className="text-zinc-500">{t("band.spotUnavailable")}</span>
+        <span className="text-zinc-500">
+          <StableText k="band.spotUnavailable" />
+        </span>
       )}
     </BandCell>
   );
 
   let cells: ReactNode;
-  let note: string | null = null;
+  let noteKey: string | null = null;
 
-  if (market.status === "resolved" || market.status === "burn") {
+  if (isFinalizedStatus(market.status)) {
     const hasSnapshot = !!market.settledPublishTime;
+    const voided = isMarketVoided(market);
     cells = (
       <>
-        <BandCell label={t("market.winner")}>
-          {market.status === "burn" ? (
-            <span className="text-zinc-300">{t("kind.voided")}</span>
+        <BandCell labelKey="market.winner">
+          {voided ? (
+            <span className="text-zinc-300">
+              <StableText k={market.status === "staleBurn" ? "kind.staleVoid" : "kind.windowVoid"} />
+            </span>
           ) : market.winner === "yes" ? (
             <span className="text-yes">{t("common.yes")}</span>
           ) : (
             <span className="text-no">{t("common.no")}</span>
           )}
         </BandCell>
-        <BandCell label={t("market.settledPrice")}>
-          {hasSnapshot ? thresholdToHuman(market.settledPrice, market.exponent) : "—"}
+        <BandCell labelKey="market.settledPrice">
+          {hasSnapshot ? thresholdToHuman(market.settledPrice, market.priceDecimals) : "—"}
         </BandCell>
-        <BandCell label={t("market.settledPublishTime")}>
+        <BandCell labelKey="market.settledPublishTime">
           {hasSnapshot ? formatUnix(market.settledPublishTime) : "—"}
         </BandCell>
-        <BandCell label={t("market.threshold")}>{humanThreshold}</BandCell>
+        <BandCell labelKey="market.threshold">{humanThreshold}</BandCell>
       </>
     );
-  } else if (kind === "live" || kind === "upcoming") {
+  } else if (kind === "live") {
     cells = (
       <>
-        <BandCell label={t("band.timeLeft")}>
+        <BandCell labelKey="band.timeLeft">
           <LiveCountdown expiry={market.expiry} now={now} className="text-[19px] font-semibold text-zinc-50" />
         </BandCell>
-        <BandCell label={t("markets.colYes")}>
+        <BandCell labelKey="markets.colYes">
           <CountUp value={market.yesPrice} format={(v) => formatYesNo(v)} />
         </BandCell>
         {spotCell}
         <BandCell
-          label={t("band.vsThreshold")}
-          sub={relation ? t("band.favored", { side: relation.side }) : undefined}
+          labelKey="band.vsThreshold"
+          sub={relation ? <StableText k="band.favored" vars={{ side: relation.side }} /> : undefined}
           valueClassName={alertCls}
         >
-          {relation ? relation.dir : <span className="text-zinc-500">{t("band.spotUnavailable")}</span>}
+          {relation ? relation.dir : <span className="text-zinc-500"><StableText k="band.spotUnavailable" /></span>}
         </BandCell>
       </>
     );
   } else {
-    note = t("band.firstPrintNote");
+    noteKey = "band.firstPrintNote";
     cells = (
       <>
-        <BandCell label={t("band.expiredFor")}>{countdown(now, market.expiry)}</BandCell>
+        <BandCell labelKey="band.expiredFor">{countdown(now, market.expiry)}</BandCell>
         {spotCell}
         <BandCell
-          label={t("band.indication")}
-          sub={relation ? t("band.favored", { side: relation.side }) : undefined}
+          labelKey="band.indication"
+          sub={relation ? <StableText k="band.favored" vars={{ side: relation.side }} /> : undefined}
           valueClassName={alertCls}
         >
-          {relation ? relation.dir : <span className="text-zinc-500">{t("band.spotUnavailable")}</span>}
+          {relation ? relation.dir : <span className="text-zinc-500"><StableText k="band.spotUnavailable" /></span>}
         </BandCell>
-        <BandCell label={t("band.voidWindow")}>
+        <BandCell labelKey="band.voidWindow">
           {phase.afterWindow ? (
-            <span className="num-accent">{t("band.voidOpenNow")}</span>
+            <span className="num-accent">
+              <StableText k="band.voidOpenNow" />
+            </span>
           ) : (
             countdown(market.expiry + RESOLVE_WINDOW, now)
           )}
@@ -335,44 +409,76 @@ function StatusBand({ market, now, spot, humanThreshold }: { market: MarketView;
   }
 
   return (
-    <div className="surface overflow-hidden">
+    <div onMouseMove={onSpot} className="surface overflow-hidden">
       <div className="band-grid grid grid-cols-2 md:grid-cols-4">{cells}</div>
-      {note ? <p className="border-t border-zinc-800/80 px-5 py-2.5 text-xs text-zinc-500">{note}</p> : null}
+      {noteKey ? (
+        <p className="border-t border-[var(--hair)] px-5 py-2.5 text-xs text-zinc-500">
+          <StableText k={noteKey} block />
+        </p>
+      ) : null}
     </div>
   );
 }
 
-function PositionCard({ market, position, connected }: { market: MarketView; position: UserPosition; connected: boolean }) {
-  const t = useT();
-  const empty = !hasBet(position) && position.lpShares === 0n && position.pendingYes === 0n && position.pendingNo === 0n;
+function PositionCard({
+  market,
+  position,
+  connected,
+}: {
+  market: MarketView;
+  position: UserPosition;
+  connected: boolean;
+}) {
+  const empty =
+    !hasBet(position) && position.lpShares === 0n && position.pendingYes === 0n && position.pendingNo === 0n;
   return (
     <Card className="stack-3">
-      <div className="section-title">{t("me.positions")}</div>
+      <div className="section-title">
+        <StableText k="me.positions" />
+      </div>
       {!connected ? (
-        <p className="text-sm text-zinc-500">{t("market.connectToSee")}</p>
+        <p className="text-sm text-zinc-500">
+          <StableText k="market.connectToSee" block />
+        </p>
       ) : empty ? (
-        <p className="text-sm text-zinc-500">{t("market.noPosition")}</p>
+        <p className="text-sm text-zinc-500">
+          <StableText k="market.noPosition" block />
+        </p>
       ) : (
         <>
-          {position.yes > 0n ? <Kv k={t("common.yes")} v={toUi(position.yes, market.decimals, 2)} /> : null}
-          {position.no > 0n ? <Kv k={t("common.no")} v={toUi(position.no, market.decimals, 2)} /> : null}
-          {position.lpShares > 0n ? <Kv k={t("lp.yourShares")} v={toUi(position.lpShares, market.decimals, 2)} /> : null}
-          {position.pendingYes > 0n ? <Kv k={t("lp.pendingYes")} v={toUi(position.pendingYes, market.decimals, 4)} /> : null}
-          {position.pendingNo > 0n ? <Kv k={t("lp.pendingNo")} v={toUi(position.pendingNo, market.decimals, 4)} /> : null}
+          {position.yes > 0n ? <Kv k={<StableText k="common.yes" />} v={toUi(position.yes, market.decimals, 2)} /> : null}
+          {position.no > 0n ? <Kv k={<StableText k="common.no" />} v={toUi(position.no, market.decimals, 2)} /> : null}
+          {position.lpShares > 0n ? (
+            <Kv k={<StableText k="lp.yourShares" />} v={toUi(position.lpShares, market.decimals, 2)} />
+          ) : null}
+          {position.pendingYes > 0n ? (
+            <Kv k={<StableText k="lp.pendingYes" />} v={toUi(position.pendingYes, market.decimals, 4)} />
+          ) : null}
+          {position.pendingNo > 0n ? (
+            <Kv k={<StableText k="lp.pendingNo" />} v={toUi(position.pendingNo, market.decimals, 4)} />
+          ) : null}
         </>
       )}
     </Card>
   );
 }
 
-function Row({ k, v, explorer }: { k: string; v: string; explorer?: string | null }) {
+function Row({ kKey, v, explorer }: { kKey: string; v: string; explorer?: string | null }) {
   return (
     <div className="flex items-center justify-between gap-4">
-      <span className="min-w-0 truncate">{k}</span>
+      <span className="min-w-0 truncate">
+        <StableText k={kKey} />
+      </span>
       <span className="flex items-center">
         <CopyText value={v} label={shorten(v, 8, 8)} />
         {explorer ? (
-          <a href={explorer} target="_blank" rel="noreferrer" aria-label="Explorer" className="px-1 py-0.5 text-zinc-500 transition-colors hover:text-white">
+          <a
+            href={explorer}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Explorer"
+            className="px-1 py-0.5 text-zinc-500 transition-colors hover:text-white"
+          >
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
               <path d="M7 17L17 7M8 7h9v9" />
             </svg>

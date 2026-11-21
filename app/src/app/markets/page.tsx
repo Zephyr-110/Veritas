@@ -8,7 +8,7 @@ import { listSection, marketKind, questionTitle } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
 import { MarketTable } from "@/components/market-table";
 import { MarketsSkeleton } from "@/components/skeletons";
-import { Button, Reveal, StateBlock } from "@/components/ui";
+import { Button, DataFreshness, Reveal, StableText, StateBlock, onSpot } from "@/components/ui";
 import { LiveCountdown } from "@/components/live";
 import { useT } from "@/i18n/provider";
 import type { MarketView } from "@/lib/markets";
@@ -16,7 +16,7 @@ import type { MarketView } from "@/lib/markets";
 type Tape = "hot" | "history";
 
 export default function MarketsPage() {
-  const { markets, loading, error, reload } = useMarkets();
+  const { markets, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarkets();
   const now = useNow(1000);
   const t = useT();
   const [tape, setTape] = useState<Tape>("hot");
@@ -31,15 +31,15 @@ export default function MarketsPage() {
   const nextMarket: MarketView | null = groups.next[0] ?? null;
   const currentLive = [...groups.live].sort((a, b) => a.expiry - b.expiry)[0] ?? null;
 
-  if (error) {
+  if (error && !markets.length) {
     return (
       <StateBlock
         kind="error"
         title={t("markets.loadError", { error: localizeError(error) })}
-        body={t("markets.loadHint")}
+        body={<StableText k="markets.loadHint" block />}
         action={
           <Button type="button" tone="secondary" onClick={() => void reload()}>
-            {t("common.tryAgain")}
+            <StableText k="common.tryAgain" align="center" />
           </Button>
         }
       />
@@ -50,90 +50,149 @@ export default function MarketsPage() {
     return <MarketsSkeleton />;
   }
 
-  // When nothing is live or scheduled but finished markets exist, two
-  // stacked empty blocks leave the page looking dead. Show one empty
-  // notice for the live section, then the finished list itself — proof
-  // the venue has actually run — in place of the upcoming section.
   const endedPreview =
     tape === "hot" && groups.live.length === 0 && groups.next.length === 0 && groups.ended.length > 0;
   const sections =
     tape === "hot"
       ? [
-          { key: "live", title: t("markets.live"), rows: groups.live, emptyTitle: t("markets.emptyLiveTitle"), emptyBody: t("markets.emptyLiveBody") },
+          {
+            key: "live",
+            titleKey: "markets.live",
+            rows: groups.live,
+            emptyTitleKey: "markets.emptyLiveTitle",
+            emptyBodyKey: "markets.emptyLiveBody",
+          },
           endedPreview
-            ? { key: "ended", title: t("markets.ended"), rows: groups.ended, emptyTitle: t("markets.emptyEndedTitle"), emptyBody: t("markets.emptyEndedBody") }
-            : { key: "next", title: t("markets.next"), rows: groups.next, emptyTitle: t("markets.emptyNextTitle"), emptyBody: t("markets.emptyNextBody") },
+            ? {
+                key: "ended",
+                titleKey: "markets.ended",
+                rows: groups.ended,
+                emptyTitleKey: "markets.emptyEndedTitle",
+                emptyBodyKey: "markets.emptyEndedBody",
+              }
+            : {
+                key: "next",
+                titleKey: "markets.next",
+                rows: groups.next,
+                emptyTitleKey: "markets.emptyNextTitle",
+                emptyBodyKey: "markets.emptyNextBody",
+              },
         ]
-      : [{ key: "ended", title: t("markets.ended"), rows: groups.ended, emptyTitle: t("markets.emptyEndedTitle"), emptyBody: t("markets.emptyEndedBody") }];
+      : [
+          {
+            key: "ended",
+            titleKey: "markets.ended",
+            rows: groups.ended,
+            emptyTitleKey: "markets.emptyEndedTitle",
+            emptyBodyKey: "markets.emptyEndedBody",
+          },
+        ];
 
   return (
     <div className="split split-markets">
       <div className="stack-5 enter-up">
-        <div className="flex items-end justify-between gap-3">
-          <h1 className="page-title">{t("markets.title")}</h1>
-          <div className="cluster-2 seg-slot rounded-none p-1">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="stack-1">
+            <h1 className="page-title">
+              <StableText k="markets.title" />
+            </h1>
+            <DataFreshness
+              updatedAt={updatedAt}
+              refreshing={refreshing}
+              staleError={isStaleError}
+              onRefresh={() => void reload()}
+            />
+          </div>
+          <div className="cluster-2 seg-slot p-1">
             {(["hot", "history"] as const).map((id) => (
               <button
                 key={id}
                 type="button"
                 onClick={() => setTape(id)}
-                className={"rounded-none px-3 py-1 text-xs " + (tape === id ? "seg-on" : "text-zinc-400")}
+                className={
+                  "px-3 py-1 text-xs transition-colors " +
+                  (tape === id ? "seg-on font-medium" : "text-zinc-400 hover:text-white")
+                }
               >
-                {t(id === "hot" ? "markets.hot" : "markets.history")}
+                <StableText k={id === "hot" ? "markets.hot" : "markets.history"} align="center" />
               </button>
             ))}
           </div>
         </div>
         {sections.map((section) => (
-          <Reveal key={section.key}><section className="stack-3">
-            <h2 className="section-title">{section.title}</h2>
-            {section.rows.length ? (
-              <MarketTable markets={section.rows} />
-            ) : (
-              <StateBlock
-                kind="empty"
-                title={section.emptyTitle}
-                body={section.emptyBody}
-                action={
-                  <Link href="/create">
-                    <Button type="button">{t("markets.emptyCta")}</Button>
-                  </Link>
-                }
-              />
-            )}
-          </section></Reveal>
+          <Reveal key={section.key}>
+            <section className="stack-3">
+              <h2 className="section-title">
+                <StableText k={section.titleKey} />
+              </h2>
+              {section.rows.length ? (
+                <MarketTable markets={section.rows} />
+              ) : (
+                <StateBlock
+                  kind="empty"
+                  title={<StableText k={section.emptyTitleKey} />}
+                  body={<StableText k={section.emptyBodyKey} block />}
+                  action={
+                    section.key === "next" && groups.live.length === 0 ? undefined : (
+                      <Link href="/create">
+                        <Button type="button" tone={section.key === "live" ? "primary" : "secondary"}>
+                          <StableText k="markets.emptyCta" align="center" />
+                        </Button>
+                      </Link>
+                    )
+                  }
+                />
+              )}
+            </section>
+          </Reveal>
         ))}
       </div>
       <aside className="desk-rail stack-4 enter-side">
-        <Reveal><div className="surface p-4 stack-3">
-          <div className="section-title">{nextMarket ? t("markets.nextRound") : t("markets.thisRound")}</div>
-          {nextMarket ? (
-            <>
-              <div className="line-clamp-2 leading-snug text-sm text-white">{questionTitle(nextMarket)}</div>
-              <div className="text-right">
-                <LiveCountdown expiry={nextMarket.expiry} now={now} className="text-[28px] num-accent cd-glow" />
-              </div>
-            </>
-          ) : currentLive ? (
-            <>
-              <div className="line-clamp-2 leading-snug text-sm text-white">{questionTitle(currentLive)}</div>
-              <div className="text-right">
-                <LiveCountdown expiry={currentLive.expiry} now={now} className="text-[28px] num-accent cd-glow" />
-              </div>
-            </>
-          ) : (
-            <p className="text-sm text-zinc-500">{t("markets.noNext")}</p>
-          )}
-        </div></Reveal>
-        <Reveal><div className="surface p-4 stack-3">
-          <div className="section-title">{t("markets.rulesTitle")}</div>
-          <p className="text-[15px] leading-relaxed text-zinc-400">{t("markets.rule1")}</p>
-          <p className="text-[15px] leading-relaxed text-zinc-400">{t("markets.rule2")}</p>
-          <p className="text-[15px] leading-relaxed text-zinc-400">{t("markets.rule3")}</p>
-          <Link href="/help" className="link-accent text-[15px]">
-            {t("markets.rulesMore")}
-          </Link>
-        </div></Reveal>
+        <Reveal>
+          <div onMouseMove={onSpot} className="surface p-5 stack-3">
+            <div className="section-title">
+              <StableText k={nextMarket ? "markets.nextRound" : "markets.thisRound"} />
+            </div>
+            {nextMarket ? (
+              <>
+                <div className="line-clamp-2 leading-snug text-sm text-white">{questionTitle(nextMarket)}</div>
+                <div className="text-right">
+                  <LiveCountdown expiry={nextMarket.expiry} now={now} className="text-[28px] num-accent" />
+                </div>
+              </>
+            ) : currentLive ? (
+              <>
+                <div className="line-clamp-2 leading-snug text-sm text-white">{questionTitle(currentLive)}</div>
+                <div className="text-right">
+                  <LiveCountdown expiry={currentLive.expiry} now={now} className="text-[28px] num-accent" />
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-zinc-500">
+                <StableText k="markets.noNext" block />
+              </p>
+            )}
+          </div>
+        </Reveal>
+        <Reveal>
+          <div onMouseMove={onSpot} className="surface p-5 stack-3">
+            <div className="section-title">
+              <StableText k="markets.rulesTitle" />
+            </div>
+            <p className="text-[14px] leading-relaxed text-zinc-400">
+              <StableText k="markets.rule1" block />
+            </p>
+            <p className="text-[14px] leading-relaxed text-zinc-400">
+              <StableText k="markets.rule2" block />
+            </p>
+            <p className="text-[14px] leading-relaxed text-zinc-400">
+              <StableText k="markets.rule3" block />
+            </p>
+            <Link href="/help" className="link-accent text-[14px]">
+              <StableText k="markets.rulesMore" />
+            </Link>
+          </div>
+        </Reveal>
       </aside>
     </div>
   );

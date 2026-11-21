@@ -2,16 +2,10 @@
 
 import { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { Button } from "./ui";
+import { Button, StableText } from "./ui";
 import { useRefresh } from "./providers";
-import { useT } from "@/i18n/provider";
 
-// The devnet test-USDT claim (POST /api/faucet), shared by the Help
-// quick-start and the trade desk's zero-balance state. On success it
-// bumps the shared refresh nonce so any mounted balance/position query
-// refetches and the new funds show up without a reload.
 export function FaucetClaimButton({ className = "h-9 px-4 text-sm" }: { className?: string }) {
-  const t = useT();
   const { publicKey } = useWallet();
   const { bump } = useRefresh();
   const [state, setState] = useState<"idle" | "busy" | "done" | "cooldown" | "unavailable">("idle");
@@ -35,23 +29,24 @@ export function FaucetClaimButton({ className = "h-9 px-4 text-sm" }: { classNam
       setState("unavailable");
     }
   };
-  const label =
+  const labelKey =
     state === "done"
-      ? t("help.q2Claimed")
+      ? "help.q2Claimed"
       : state === "cooldown"
-        ? t("help.q2Cooldown")
+        ? "help.q2Cooldown"
         : state === "unavailable"
-          ? t("help.q2Unavailable")
-          : t("help.q2Claim");
+          ? "help.q2Unavailable"
+          : "help.q2Claim";
   return (
     <Button
       type="button"
+      tone={publicKey ? "primary" : "secondary"}
       className={className}
       busy={state === "busy"}
       disabled={!publicKey || state === "busy" || state === "done"}
       onClick={() => void claim()}
     >
-      {label}
+      <StableText k={labelKey} align="center" />
     </Button>
   );
 }

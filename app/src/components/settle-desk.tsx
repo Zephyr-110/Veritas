@@ -1,20 +1,38 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useAnchorWallet, useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { COLLATERAL_SYMBOL, MAX_SETTLE_DELAY } from "@/lib/constants";
-import { money, resolveHours } from "@/lib/display";
+import { useEffect, useMemo, useState } from "react";
+import { useConnection, useAnchorWallet, useWallet } from "@solana/wallet-adapter-react";
+import { PublicKey } from "@solana/web3.js";
+import {
+  COLLATERAL_SYMBOL,
+  MAX_SETTLE_DELAY,
+  SNAPSHOT_MAX_ENTRIES,
+  SNAPSHOT_WINDOW,
+} from "@/lib/constants";
+import { isMarketVoided, money, resolveHours } from "@/lib/display";
+import { feedByState } from "@/lib/feeds";
 import { explorerTx, fromUi, toUi } from "@/lib/format";
-import { ixGetCollateral, ixMergeToken, ixVoidMarket } from "@/lib/instructions";
-import { marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
+import {
+  ixBurnAccount,
+  ixGetCollateral,
+  ixMergeToken,
+  ixTakeSnapshot,
+  ixVoidMarket,
+} from "@/lib/instructions";
+import {
+  fetchMarketSnapshot,
+  marketPhase,
+  type MarketView,
+  type UserPosition,
+} from "@/lib/markets";
 import { parseTxError } from "@/lib/errors";
-import { postPythAndResolve } from "@/lib/resolve-post";
+import { resolveMarketWithChainlink } from "@/lib/resolve";
 import { useProgram } from "@/hooks/use-program";
 import { useNow } from "@/hooks/use-now";
 import { useRefresh, useSettings, useToasts } from "./providers";
 import type { Side } from "@/lib/types";
 import { useT } from "@/i18n/provider";
-import { Button, Card, Field, SegTabs, TextInput, useTx } from "./ui";
+import { Button, Card, Field, SegTabs, StableText, TextInput, useTx } from "./ui";
 
 export function SettleDesk({ market, position }: { market: MarketView; position: UserPosition }) {
   const program = useProgram();
@@ -24,11 +42,19 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
   const t = useT();
   const phase = marketPhase(market, now);
   const mergeable = position.yes < position.no ? position.yes : position.no;
-  const winningAmount = market.status === "resolved" ? (market.winner === "yes" ? position.yes : position.no) : 0n;
+  const winningAmount =
+    market.status === "resolved"
+      ? market.winner === "yes"
+        ? position.yes
+        : position.no
+      : 0n;
   const canMerge = market.status === "open" && mergeable > 0n;
   const canClaimWinner = market.status === "resolved" && winningAmount > 0n;
-  const canClaimVoid = market.status === "burn" && (position.yes > 1n || position.no > 1n);
+  const canClaimVoid = isMarketVoided(market) && (position.yes > 1n || position.no > 1n);
+  const showSnapshot = phase.inSnapshotWindow;
   const showResolve = market.status === "open" && phase.expired;
+  const isCreator = Boolean(publicKey && publicKey.equals(market.creator));
+  const showBurn = phase.canBurn && isCreator;
 
   return (
     <div className="stack-4">
@@ -36,14 +62,24 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
         <Card className="stack-4">
           {canMerge ? (
             <>
-              <p className="text-sm text-zinc-400">{t("settle.mergeBody", { symbol: COLLATERAL_SYMBOL })}</p>
+              <p className="text-sm text-zinc-400">
+                <StableText k="settle.mergeBody" vars={{ symbol: COLLATERAL_SYMBOL }} block />
+              </p>
               <Button
                 type="button"
                 busy={busy}
                 disabled={busy || !publicKey || !program}
-                onClick={() => publicKey && program && run(t("tx.cashOut"), () => ixMergeToken(program, market, publicKey, mergeable))}
+                onClick={() =>
+                  publicKey &&
+                  program &&
+                  run(t("tx.cashOut"), () => ixMergeToken(program, market, publicKey, mergeable))
+                }
               >
-                {t("settle.cashOut", { amount: money(mergeable, market.decimals) })}
+                <StableText
+                  k="settle.cashOut"
+                  vars={{ amount: money(mergeable, market.decimals) }}
+                  align="center"
+                />
               </Button>
             </>
           ) : null}
@@ -56,42 +92,146 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
               onClick={() => {
                 if (!publicKey) return;
                 const mint = market.winner === "yes" ? market.pdas.yesMint : market.pdas.noMint;
-                return run(t("tx.collectWinnings"), () => ixGetCollateral(program, market, publicKey, mint, winningAmount));
+                return run(t("tx.collectWinnings"), () =>
+                  ixGetCollateral(program, market, publicKey, mint, winningAmount)
+                );
               }}
             >
-              {t("settle.collectAmount", { amount: money(winningAmount, market.decimals) })}
+              <StableText
+                k="settle.collectAmount"
+                vars={{ amount: money(winningAmount, market.decimals) }}
+                align="center"
+              />
             </Button>
           ) : null}
           {canClaimVoid ? <VoidClaim market={market} position={position} /> : null}
         </Card>
       ) : null}
 
+      {showSnapshot ? <SnapshotCard market={market} now={now} /> : null}
+
       {showResolve ? (
         <Card className="stack-4">
           <div>
-            <div className="text-base font-medium text-white">{phase.afterWindow ? t("settle.cancelRefund") : t("settle.resolveTitle")}</div>
+            <div className="text-base font-medium text-white">
+              <StableText k={phase.afterWindow ? "settle.cancelRefund" : "settle.resolveTitle"} />
+            </div>
             <p className="mt-1 text-sm text-zinc-500">
-              {t("settle.resolveBody", { hours: resolveHours(), delay: MAX_SETTLE_DELAY })}
+              <StableText
+                k="settle.resolveBody"
+                vars={{ hours: resolveHours(), delay: MAX_SETTLE_DELAY }}
+                block
+              />
             </p>
           </div>
           <div className="cluster-2">
             <ResolveButton market={market} disabled={phase.afterWindow} />
             <Button
               type="button"
-              tone={phase.afterWindow ? undefined : "secondary"}
+              tone={phase.afterWindow ? "primary" : "secondary"}
               busy={busy}
               disabled={busy || !phase.afterWindow || !publicKey || !program}
-              onClick={() => publicKey && program && run(t("tx.cancelMarket"), () => ixVoidMarket(program, market, publicKey))}
+              onClick={() =>
+                publicKey &&
+                program &&
+                run(t("tx.cancelMarket"), () => ixVoidMarket(program, market, publicKey))
+              }
             >
-              {t("settle.cancelRefund")}
+              <StableText k="settle.cancelRefund" align="center" />
             </Button>
           </div>
           {phase.afterWindow ? (
-            <p className="text-xs leading-5 text-amber-300/90">{t("settle.windowClosed")}</p>
+            <p className="text-xs leading-5 text-[var(--warn)]">
+              <StableText k="settle.windowClosed" block />
+            </p>
           ) : null}
         </Card>
       ) : null}
+
+      {showBurn ? (
+        <Card className="stack-4">
+          <div>
+            <div className="text-base font-medium text-white">
+              <StableText k="settle.burnTitle" />
+            </div>
+            <p className="mt-1 text-sm text-zinc-500">
+              <StableText k="settle.burnBody" block />
+            </p>
+          </div>
+          <Button
+            type="button"
+            tone="secondary"
+            busy={busy}
+            disabled={busy || !publicKey || !program}
+            onClick={() =>
+              publicKey &&
+              program &&
+              run(t("tx.burnAccount"), () => ixBurnAccount(program, market, publicKey))
+            }
+          >
+            <StableText k="settle.burnSubmit" align="center" />
+          </Button>
+        </Card>
+      ) : null}
     </div>
+  );
+}
+
+function SnapshotCard({ market, now }: { market: MarketView; now: number }) {
+  const program = useProgram();
+  const { connection } = useConnection();
+  const { publicKey } = useWallet();
+  const { busy, run } = useTx();
+  const { nonce } = useRefresh();
+  const t = useT();
+  const [count, setCount] = useState<number | null>(null);
+  const preset = feedByState(market.ocr2State);
+  const secsLeft = Math.max(1, market.endTs + SNAPSHOT_WINDOW - now);
+
+  useEffect(() => {
+    let alive = true;
+    void fetchMarketSnapshot(connection, market.pdas.snapshot).then((snap) => {
+      if (alive) setCount(snap ? snap.entries.length : 0);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [connection, market.pdas.snapshot, nonce]);
+
+  if (!preset) return null;
+  const full = count != null && count >= SNAPSHOT_MAX_ENTRIES;
+
+  return (
+    <Card className="stack-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="text-base font-medium text-white">
+          <StableText k="settle.snapshotTitle" />
+        </div>
+        {count != null ? (
+          <span className="num text-xs text-zinc-400">
+            <StableText k="settle.snapshotCount" vars={{ count, max: SNAPSHOT_MAX_ENTRIES }} align="end" />
+          </span>
+        ) : null}
+      </div>
+      <p className="text-sm text-zinc-500">
+        <StableText k="settle.snapshotBody" vars={{ secs: secsLeft }} block />
+      </p>
+      <Button
+        type="button"
+        tone="secondary"
+        busy={busy}
+        disabled={busy || full || !publicKey || !program}
+        onClick={() =>
+          publicKey &&
+          program &&
+          run(t("tx.takeSnapshot"), () =>
+            ixTakeSnapshot(program, market, publicKey, new PublicKey(preset.feed))
+          )
+        }
+      >
+        <StableText k="settle.snapshotSubmit" align="center" />
+      </Button>
+    </Card>
   );
 }
 
@@ -109,8 +249,7 @@ function ResolveButton({ market, disabled = false }: { market: MarketView; disab
     if (!program || !wallet) return;
     setBusy(true);
     try {
-      const sigs = await postPythAndResolve(connection, wallet, program, market);
-      const sig = sigs[0];
+      const sig = await resolveMarketWithChainlink(connection, wallet, program, market);
       const link = sig ? explorerTx(sig, settings.cluster) : null;
       push("ok", t("tx.submitResolve"), link ? t("tx.view") : t("tx.confirmed"), link ?? undefined);
       bump();
@@ -122,8 +261,13 @@ function ResolveButton({ market, disabled = false }: { market: MarketView; disab
   };
 
   return (
-    <Button type="button" busy={busy} disabled={busy || disabled || !wallet || !program} onClick={() => void onClick()}>
-      {t("settle.submitResolve")}
+    <Button
+      type="button"
+      busy={busy}
+      disabled={busy || disabled || !wallet || !program}
+      onClick={() => void onClick()}
+    >
+      <StableText k="settle.submitResolve" align="center" />
     </Button>
   );
 }
@@ -146,29 +290,51 @@ function VoidClaim({ market, position }: { market: MarketView; position: UserPos
   }, [amount, market.decimals]);
 
   return (
-    <div className="w-full stack-3 rounded-md bg-white/[0.02] p-4">
+    <div className="w-full stack-3 border border-[var(--hair)] bg-[var(--seg-bg)] p-4">
       <SegTabs
         value={side}
         onChange={setSide}
         options={[
-          { value: "yes", label: t("settle.refundYes"), color: "linear-gradient(to bottom, rgba(52,211,153,0.30), rgba(52,211,153,0.15))", activeText: "text-emerald-300" },
-          { value: "no", label: t("settle.refundNo"), color: "linear-gradient(to bottom, rgba(251,113,133,0.30), rgba(251,113,133,0.15))", activeText: "text-rose-300" },
+          {
+            value: "yes",
+            label: <StableText k="settle.refundYes" align="center" />,
+            color: "var(--yes-soft)",
+            activeText: "text-[var(--yes)]",
+          },
+          {
+            value: "no",
+            label: <StableText k="settle.refundNo" align="center" />,
+            color: "var(--no-soft)",
+            activeText: "text-[var(--no)]",
+          },
         ]}
       />
-      <Field label={t("settle.sharesToRefund")} hint={t("settle.evenHint")}>
-        <TextInput value={amount} onChange={(e) => setAmount(e.target.value)} className="font-mono tabular-nums" />
+      <Field label={<StableText k="settle.sharesToRefund" />} hint={<StableText k="settle.evenHint" />}>
+        <TextInput
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          className="font-mono tabular-nums"
+        />
       </Field>
       <Button
         type="button"
         busy={busy}
-        disabled={busy || !publicKey || !program || parsed.invalid || parsed.value < 2n || parsed.value > max}
+        disabled={
+          busy || !publicKey || !program || parsed.invalid || parsed.value < 2n || parsed.value > max
+        }
         onClick={() => {
           if (!publicKey || !program) return;
           const mint = side === "yes" ? market.pdas.yesMint : market.pdas.noMint;
-          return run(t("tx.collectRefund"), () => ixGetCollateral(program, market, publicKey, mint, parsed.value));
+          return run(t("tx.collectRefund"), () =>
+            ixGetCollateral(program, market, publicKey, mint, parsed.value)
+          );
         }}
       >
-        {t("settle.collectAmount", { amount: money(parsed.value / 2n, market.decimals) })}
+        <StableText
+          k="settle.collectAmount"
+          vars={{ amount: money(parsed.value / 2n, market.decimals) }}
+          align="center"
+        />
       </Button>
     </div>
   );

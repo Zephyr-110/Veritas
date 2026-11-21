@@ -178,12 +178,12 @@ function ToastViewport({
       {toasts.map((item) => (
         <div
           key={item.id}
-          className={`toast-in pointer-events-auto rounded-xl border px-4 py-3 text-left shadow-glow backdrop-blur ${
+          className={`toast-in pointer-events-auto border px-4 py-3 text-left shadow-glow backdrop-blur-2xl ${
             item.kind === "ok"
-              ? "border-yes/40 bg-panel text-yes"
+              ? "border-[var(--yes-line)] bg-[var(--float-bg)] text-[var(--yes)]"
               : item.kind === "err"
-                ? "border-no/40 bg-panel text-no"
-                : "border-line bg-panel text-ink"
+                ? "border-[var(--no-line)] bg-[var(--float-bg)] text-[var(--no)]"
+                : "border-[var(--card-line)] bg-[var(--float-bg)] text-[var(--ink)]"
           }`}
         >
           <button type="button" className="w-full text-left" onClick={() => dismiss(item.id)}>

@@ -1,13 +1,12 @@
 "use client";
 
-import { useT } from "@/i18n/provider";
+import { StableText } from "./ui";
 
 export function FetchingNote() {
-  const t = useT();
   return (
     <div className="flex items-center justify-center gap-2 pt-2 text-sm text-zinc-500" aria-hidden>
-      <span className="live-dot" />
-      {t("state.fetchingNode")}
+      <span className="live-dot h-1.5 w-1.5 rounded-full bg-zinc-400" />
+      <StableText k="state.fetchingNode" />
     </div>
   );
 }
@@ -22,16 +21,19 @@ export function Sk({ className }: { className?: string }) {
 
 export function PricePanelSkeleton() {
   return (
-    <div className="surface home-prices" aria-hidden>
-      <div className="flex items-center justify-between">
+    <div className="surface home-prices panel-float" aria-hidden>
+      <div className="flex items-center justify-between pb-1">
         <Sk className="h-3 w-20" />
-        <Sk className="h-3 w-14" />
+        <Sk className="h-3 w-24" />
       </div>
       <div className="mt-1">
-        {["a", "b", "c"].map((id) => (
+        {["a", "b", "c", "d", "e", "f"].map((id) => (
           <div key={id} className="home-prices-row">
             <Sk className="h-3.5 w-16" />
-            <Sk className="h-5 w-24" />
+            <div className="flex items-baseline gap-2.5">
+              <Sk className="h-5 w-20" />
+              <Sk className="h-3 w-12" />
+            </div>
           </div>
         ))}
       </div>
@@ -50,36 +52,36 @@ export function FeatureCardSkeleton() {
   );
 }
 
-export function MarketTableSkeleton({ rows = 8 }: { rows?: number }) {
+export function MarketTableSkeleton({ rows = 6 }: { rows?: number }) {
   return (
     <div className="surface overflow-hidden" aria-hidden>
-      <div className="market-head h-8 px-4">
-        <Sk className="h-2 w-16" />
-        <Sk className="ml-auto h-2 w-12" />
-        <Sk className="ml-auto h-2 w-12" />
-        <Sk className="ml-auto h-2 w-12" />
-        <Sk className="ml-auto h-2 w-10" />
-        <Sk className="ml-auto h-2 w-10" />
+      <div className="market-head h-9 px-5">
+        <Sk className="h-2.5 w-16" />
+        <Sk className="ml-auto h-2.5 w-12" />
+        <Sk className="ml-auto h-2.5 w-12" />
+        <Sk className="ml-auto h-2.5 w-12" />
+        <Sk className="ml-auto h-2.5 w-12" />
+        <Sk className="ml-auto h-2.5 w-10" />
       </div>
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="market-row px-4">
+        <div key={i} className="market-row border-t border-[var(--hair)] px-5">
           <div className="c-name">
-            <Sk className="h-3 w-4/5" />
+            <Sk className="h-3.5 w-4/5" />
           </div>
           <div className="c-yes">
-            <Sk className="ml-auto h-3 w-14" />
+            <Sk className="ml-auto h-3.5 w-14" />
           </div>
           <div className="c-ends">
-            <Sk className="ml-auto h-3 w-16" />
+            <Sk className="ml-auto h-3.5 w-16" />
           </div>
           <div className="c-pool">
-            <Sk className="ml-auto h-3 w-16" />
+            <Sk className="ml-auto h-3.5 w-16" />
           </div>
           <div className="c-status flex justify-end">
-            <Sk className="h-4 w-14 rounded-full" />
+            <Sk className="h-5 w-20" />
           </div>
           <div className="c-trade">
-            <Sk className="ml-auto h-7 w-12 rounded-lg" />
+            <Sk className="ml-auto h-8 w-14" />
           </div>
         </div>
       ))}
@@ -96,12 +98,12 @@ export function HomeSkeleton() {
             <Sk className="h-1.5 w-1.5 rounded-full" />
             <Sk className="h-3 w-56" />
           </div>
-          <Sk className="home-hero-title-sk mt-6 w-full max-w-xl" />
+          <Sk className="home-hero-title-sk mt-5 w-full max-w-xl" />
           <Sk className="mt-4 h-[18px] w-full max-w-lg" />
           <Sk className="mt-2 h-[18px] w-80 max-w-full" />
-          <div className="mt-8 flex gap-3">
-            <Sk className="h-10 w-28 rounded-lg" />
-            <Sk className="h-10 w-24 rounded-lg" />
+          <div className="mt-7 flex gap-3">
+            <Sk className="h-11 w-32" />
+            <Sk className="h-11 w-28" />
           </div>
         </div>
         <PricePanelSkeleton />
@@ -115,15 +117,15 @@ export function MarketsSkeleton() {
   return (
     <div className="split split-markets" aria-hidden>
       <div className="stack-5">
-        <Sk className="h-[30px] w-40" />
+        <Sk className="h-[32px] w-40" />
         <MarketTableSkeleton />
       </div>
       <div className="stack-4">
-        <div className="surface p-4 stack-3">
+        <div className="surface p-5 stack-3">
           <Sk className="h-3 w-20" />
           <Sk className="ml-auto h-7 w-28" />
         </div>
-        <div className="surface p-4 stack-3">
+        <div className="surface p-5 stack-3">
           <Sk className="h-3 w-16" />
           <Sk className="h-3 w-full" />
           <Sk className="h-3 w-5/6" />
@@ -140,16 +142,16 @@ export function MarketDetailSkeleton() {
     <div className="stack-6" aria-hidden>
       <div className="stack-3">
         <Sk className="h-3 w-24" />
-        <Sk className="h-[30px] w-2/3" />
+        <Sk className="h-[32px] w-2/3" />
       </div>
       <div className="split split-detail">
         <div className="stack-4">
-          <div className="surface p-4 stack-3">
+          <div className="surface p-5 stack-3">
             <Sk className="h-3 w-16" />
             <Sk className="ml-auto h-8 w-28" />
             <Sk className="ml-auto h-8 w-24" />
           </div>
-          <div className="surface p-4 stack-3">
+          <div className="surface p-5 stack-3">
             <Sk className="h-3 w-20" />
             <Sk className="h-3 w-full" />
             <Sk className="h-3 w-5/6" />
@@ -157,12 +159,12 @@ export function MarketDetailSkeleton() {
           </div>
         </div>
         <div className="stack-4">
-          <div className="surface p-4 stack-4">
+          <div className="surface p-5 stack-4">
             <Sk className="h-4 w-20" />
             <Sk className="h-11 w-full" />
             <Sk className="h-11 w-full" />
             <Sk className="h-11 w-full" />
-            <Sk className="h-10 w-full rounded-lg" />
+            <Sk className="h-10 w-full" />
           </div>
         </div>
       </div>
@@ -174,10 +176,10 @@ export function MarketDetailSkeleton() {
 export function MeSkeleton() {
   return (
     <div className="stack-6" aria-hidden>
-      <Sk className="h-[30px] w-28" />
+      <Sk className="h-[32px] w-28" />
       <div className="cards-2">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="surface p-4 stack-3">
+          <div key={i} className="surface p-5 stack-3">
             <Sk className="h-4 w-3/4" />
             <Sk className="ml-auto h-3 w-20" />
             <Sk className="ml-auto h-3 w-16" />
@@ -194,13 +196,13 @@ export function CreateSkeleton() {
   return (
     <div className="split split-create" aria-hidden>
       <div className="stack-5">
-        <Sk className="h-[30px] w-48" />
-        <div className="surface p-4 stack-4">
+        <Sk className="h-[32px] w-48" />
+        <div className="surface p-5 stack-4">
           <Sk className="h-3 w-20" />
           <Sk className="h-11 w-full" />
           <Sk className="h-11 w-full" />
           <Sk className="h-11 w-full" />
-          <Sk className="h-12 w-full rounded-xl" />
+          <Sk className="h-12 w-full" />
         </div>
       </div>
       <FeatureCardSkeleton />
