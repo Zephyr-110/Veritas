@@ -25,7 +25,7 @@ type Ripple = {
   dur: number;
 };
 
-const LAYER_PARALLAX = [0.06, 0.14, 0.24] as const;
+const LAYER_PARALLAX = [0.16, 0.34, 0.62] as const;
 const LAYER_SPEED = [0.14, 0.24, 0.36] as const;
 
 export function Ambience() {
@@ -133,7 +133,9 @@ export function Ambience() {
 
       pointer.x += (pointer.tx - pointer.x) * 0.1;
       pointer.y += (pointer.ty - pointer.y) * 0.1;
+      const prevScrollY = scrollY;
       scrollY += (targetScrollY - scrollY) * 0.12;
+      const scrollDelta = scrollY - prevScrollY;
 
       ctx.clearRect(0, 0, width, height);
 
@@ -150,13 +152,14 @@ export function Ambience() {
       // Draw click shockwave ripples
       for (let i = ripples.length - 1; i >= 0; i -= 1) {
         const rp = ripples[i];
-        const t = (nowMs - rp.start) / rp.dur;
+        const t = Math.max(0, (nowMs - rp.start) / rp.dur);
         if (t >= 1) {
           ripples.splice(i, 1);
           continue;
         }
         const eased = 1 - Math.pow(1 - t, 3);
-        const radius = eased * rp.maxR;
+        const radius = Math.max(0, eased * rp.maxR);
+        if (radius <= 0) continue;
         const opacity = (1 - t) * (isLight ? 0.18 : 0.22);
         ctx.beginPath();
         ctx.arc(rp.x, rp.y, radius, 0, Math.PI * 2);
@@ -178,7 +181,7 @@ export function Ambience() {
           p.ox += Math.cos(p.phase + nowMs * 0.00018) * baseSpeed * 0.28;
           p.oy += Math.sin(p.phase + nowMs * 0.00015) * baseSpeed * 0.28;
           p.x += p.vx;
-          p.y += p.vy;
+          p.y += p.vy - scrollDelta * LAYER_PARALLAX[p.layer] * 0.04;
 
           // Subtle cursor orbital deflection (never clumps into a center knot)
           if (pointer.active) {

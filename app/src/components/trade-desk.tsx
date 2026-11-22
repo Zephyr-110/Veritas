@@ -5,7 +5,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { COLLATERAL_SYMBOL, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
 import { formatCents, fromUi, toUi } from "@/lib/format";
 import { thresholdToHuman } from "@/lib/feeds";
-import { applySlippage, quoteBet, quoteSwapOut } from "@/lib/quote";
+import { applySlippage, pmAmmAccrue, quoteBet, quoteSwapOut } from "@/lib/quote";
 import { ixSwap, ixUserBetOn } from "@/lib/instructions";
 import { marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
 import { useProgram } from "@/hooks/use-program";
@@ -43,15 +43,26 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
     }
   }, [amount, market.decimals]);
 
-  const betQuote = quoteBet(market.reserveYes, market.reserveNo, parsed.value, side);
-  const curSideCents = (side === "yes" ? market.yesPrice : 1 - market.yesPrice) * 100;
+  const hasPmAmm = Boolean(market.lZero && market.lZero > 0n);
+  const accrued = useMemo(
+    () => (hasPmAmm ? pmAmmAccrue(market, now > 0 ? now : market.lastAccrualTs) : null),
+    [hasPmAmm, market, now]
+  );
+  const effYes = accrued ? BigInt(Math.max(1, Math.round(accrued.reserveYes))) : market.reserveYes;
+  const effNo = accrued ? BigInt(Math.max(1, Math.round(accrued.reserveNo))) : market.reserveNo;
+  const effL = accrued && accrued.lEff > 0 ? accrued.lEff : undefined;
+
+  const betQuote = quoteBet(effYes, effNo, parsed.value, side, effL);
+  const baseYesPrice = accrued ? accrued.yesPrice : market.yesPrice;
+  const curSideCents = (side === "yes" ? baseYesPrice : 1 - baseYesPrice) * 100;
   const avgCents =
     betQuote.totalOut > 0n && parsed.value > 0n ? (Number(parsed.value) / Number(betQuote.totalOut)) * 100 : null;
   const impactPct = avgCents != null && curSideCents > 0 ? (avgCents / curSideCents - 1) * 100 : null;
   const swapOut = quoteSwapOut(
-    side === "yes" ? market.reserveYes : market.reserveNo,
-    side === "yes" ? market.reserveNo : market.reserveYes,
-    parsed.value
+    side === "yes" ? effYes : effNo,
+    side === "yes" ? effNo : effYes,
+    parsed.value,
+    effL
   );
   const sellBalance = side === "yes" ? position.no : position.yes;
   const sideLabel = side === "yes" ? t("common.yes") : t("common.no");

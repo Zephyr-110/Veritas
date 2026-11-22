@@ -39,24 +39,43 @@ const ERRORS: Record<number, string> = {
   6035: "errors.unsupportedDecimals",
 };
 
-function pickLogs(err: unknown): string {
-  if (!err || typeof err !== "object") return String(err ?? "");
+const FRAMEWORK_ERRORS: Record<number, string> = {
+  2012: "errors.wrongMint",
+  3012: "errors.ataMissing",
+};
+
+function readErrText(err: unknown, depth = 0): string {
+  if (!err || typeof err !== "object" || depth > 2) return String(err ?? "");
   const anyErr = err as {
     message?: string;
     logs?: string[];
+    transactionLogs?: string[];
+    transactionMessage?: string;
     name?: string;
+    error?: unknown;
+    cause?: unknown;
   };
-  const logs = Array.isArray(anyErr.logs) ? anyErr.logs.join("\n") : "";
-  return `${anyErr.name ?? ""}\n${anyErr.message ?? ""}\n${logs}\n${String(err)}`;
+  const logs = Array.isArray(anyErr.logs)
+    ? anyErr.logs.join("\n")
+    : Array.isArray(anyErr.transactionLogs)
+      ? anyErr.transactionLogs.join("\n")
+      : "";
+  const nested = anyErr.error && anyErr.error !== err
+    ? readErrText(anyErr.error, depth + 1)
+    : anyErr.cause && anyErr.cause !== err
+      ? readErrText(anyErr.cause, depth + 1)
+      : "";
+  return `${anyErr.name ?? ""}\n${anyErr.message ?? ""}\n${anyErr.transactionMessage ?? ""}\n${logs}\n${nested}\n${String(err)}`;
 }
 
 export function parseTxError(err: unknown): string {
-  const text = pickLogs(err);
+  const text = readErrText(err);
 
   const named = text.match(/Error Code: ([A-Za-z0-9_]+)\. Error Number: (\d+)/);
   if (named) {
     const code = Number(named[2]);
-    return ERRORS[code] ?? "errors.txFailed";
+    if (ERRORS[code]) return ERRORS[code];
+    if (FRAMEWORK_ERRORS[code]) return FRAMEWORK_ERRORS[code];
   }
 
   const hex = text.match(/custom program error: 0x([0-9a-fA-F]+)/);
@@ -71,10 +90,18 @@ export function parseTxError(err: unknown): string {
     if (ERRORS[code]) return ERRORS[code];
   }
 
+  if (/errors\.[a-zA-Z0-9]+/.test(text)) {
+    const key = text.match(/errors\.[a-zA-Z0-9]+/)?.[0];
+    if (key && hasKey(key)) return key;
+  }
+
+  if (/Transfer: insufficient lamports|insufficient lamports|AccountNotFound|Attempt to debit an account but found no record of a prior credit/i.test(text)) {
+    return "errors.noSol";
+  }
+  if (/Error:\s*insufficient funds/i.test(text)) return "errors.notEnoughTokens";
+  if (/insufficient funds/i.test(text)) return "errors.insufficient";
   if (/Account does not exist|could not find account/i.test(text)) return "errors.accountMissing";
   if (/Invalid public key|Non-base58|Invalid address/i.test(text)) return "errors.badAddress";
-  if (/Attempt to debit an account but found no record of a prior credit/i.test(text)) return "errors.noSol";
-  if (/insufficient funds|insufficient lamports/i.test(text)) return "errors.insufficient";
   if (/Blockhash not found/i.test(text)) return "errors.blockhash";
   if (/User rejected|rejected the request/i.test(text)) return "errors.rejected";
   if (/401|403|api[- ]?key|forbidden|unauthorized/i.test(text)) return "errors.rpcAuth";
@@ -83,10 +110,7 @@ export function parseTxError(err: unknown): string {
   if (/Connect a wallet first|WalletNotConnected|WalletNotReady|WalletNotSelected/i.test(text)) return "errors.connectWallet";
   if (/No instructions to send/i.test(text)) return "errors.noIxs";
   if (/Collateral mint not found/i.test(text)) return "errors.mintNotFound";
-  if (/errors\.[a-zA-Z0-9]+/.test(text)) {
-    const key = text.match(/errors\.[a-zA-Z0-9]+/)?.[0];
-    if (key && hasKey(key)) return key;
-  }
+  if (/WalletSignTransactionError|WalletSendTransactionError|Unexpected error/i.test(text)) return "errors.walletSign";
 
   return "errors.txFailed";
 }

@@ -8,6 +8,11 @@ import {
   impliedYesPrice,
   applySlippage,
   reserveAmount,
+  pmAmmPrice,
+  pmAmmReservesFromPrice,
+  pmAmmQuoteBet,
+  pmAmmAccrue,
+  pmAmmLeff,
 } from "@/lib/quote";
 import { i80f48ToAmount } from "@/lib/codec";
 
@@ -123,6 +128,59 @@ describe("quote", () => {
       const one = 1n << 48n;
       expect(reserveAmount(one)).toBe(1n);
       expect(reserveAmount(-one)).toBe(0n); // clamped
+    });
+  });
+
+  describe("pm-AMM Gaussian math", () => {
+    it("P=0.5 时储备满足 x = y = L_eff * phi(0) 且隐含价格为 0.5", () => {
+      const lEff = 1_000_000;
+      const { yes, no } = pmAmmReservesFromPrice(0.5, lEff);
+      const expected = lEff / Math.sqrt(2 * Math.PI);
+      expect(yes).toBeCloseTo(expected, 1);
+      expect(no).toBeCloseTo(expected, 1);
+      expect(pmAmmPrice(yes, no, lEff)).toBeCloseTo(0.5, 6);
+    });
+
+    it("非对称价格 P=0.7 时可通过 Phi((y-x)/L_eff) 准确还原", () => {
+      const lEff = 500_000;
+      const { yes, no } = pmAmmReservesFromPrice(0.7, lEff);
+      expect(no).toBeGreaterThan(yes);
+      expect(pmAmmPrice(yes, no, lEff)).toBeCloseTo(0.7, 5);
+    });
+
+    it("pmAmmQuoteBet 买入 YES 后价格严格上升且满足 Phi((y'-x')/L_eff)", () => {
+      const lEff = 250_000_000; // 250 U scale (6 decimals)
+      const { yes, no } = pmAmmReservesFromPrice(0.5, lEff);
+      const q = pmAmmQuoteBet(yes, no, lEff, 50_000_000, "yes");
+      expect(q.swapOut).toBeGreaterThan(0n);
+      expect(q.totalOut).toBe(50_000_000n + q.swapOut);
+      expect(q.postYesPrice).toBeGreaterThan(0.5);
+      expect(q.postYesPrice).toBeLessThan(1);
+    });
+
+    it("pmAmmAccrue 随剩余时间 sqrt(T - t) 衰减有效流动性并保持价格不变", () => {
+      const endTs = 1_003_600;
+      const lastAccrualTs = 1_000_000; // 剩 3600s
+      const lZeroNum = 10_000; // 10_000 atoms / sqrt(s)
+      const lZeroBits = BigInt(lZeroNum) << 48n;
+      const lOld = pmAmmLeff(lZeroBits, 3600);
+      expect(lOld).toBeCloseTo(600_000, 1);
+
+      const { yes, no } = pmAmmReservesFromPrice(0.6, lOld);
+      const accrued = pmAmmAccrue(
+        {
+          reserveYes: BigInt(Math.round(yes)),
+          reserveNo: BigInt(Math.round(no)),
+          lZero: lZeroBits,
+          endTs,
+          lastAccrualTs,
+        },
+        lastAccrualTs + 2700 // 剩 900s -> sqrt(900)/sqrt(3600) = 0.5
+      );
+      expect(accrued.lEff).toBeCloseTo(300_000, 1);
+      expect(accrued.reserveYes).toBeCloseTo(yes * 0.5, -1);
+      expect(accrued.reserveNo).toBeCloseTo(no * 0.5, -1);
+      expect(accrued.yesPrice).toBeCloseTo(0.6, 4);
     });
   });
 });

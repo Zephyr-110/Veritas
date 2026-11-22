@@ -9,6 +9,7 @@ export const CLAIM_WINDOW = 2_592_000;
 export const SNAPSHOT_WINDOW = 10;
 export const SNAPSHOT_MAX_ENTRIES = 16;
 export const MIN_CREATE_COLLATERAL = 1_000_001n;
+export const MIN_CREATE_SOL_LAMPORTS = 20_000_000;
 export const PREDICTION_BYTES = 64;
 export const MARKET_ID_BYTES = 16;
 export const DEFAULT_SLIPPAGE_BPS = 300;

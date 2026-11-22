@@ -13,7 +13,7 @@ import { PulseAreaMark } from "@/components/logo-marks";
 import { MarketTable } from "@/components/market-table";
 import { MarketCard } from "@/components/market-card";
 import { MarketTableSkeleton } from "@/components/skeletons";
-import { Button, DataFreshness, Reveal, StableText } from "@/components/ui";
+import { Button, DataFreshness, Reveal, StableText, onSpot } from "@/components/ui";
 import { LiveCountdown } from "@/components/live";
 import { useSettings } from "@/components/providers";
 import { useLocale, useT } from "@/i18n/provider";
@@ -112,11 +112,87 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="home-statement">
-        <p className="font-display home-statement-text">
-          <StableText k="home.statement" block align="center" />
-        </p>
-      </section>
+      <Reveal>
+        <section className="py-3">
+          <div onMouseMove={onSpot} className="surface overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--hair)] px-5 py-3">
+              <span className="home-kicker flex items-center gap-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
+                <StableText k="home.settleKicker" />
+              </span>
+              <span className="text-xs text-zinc-400">
+                <StableText k="home.settleRuleTag" align="end" />
+              </span>
+            </div>
+
+            <div className="grid divide-y divide-[var(--hair)] md:grid-cols-3 md:divide-x md:divide-y-0">
+              <div className="flex flex-col gap-1.5 px-5 py-4">
+                <span className="num text-[11px] font-medium tracking-wider text-zinc-500">
+                  01 · {t("home.settleNode1Tag")}
+                </span>
+                <div className="text-[15px] font-medium text-[var(--ink-strong)]">
+                  <StableText k="home.settleNode1Title" block />
+                </div>
+                <p className="text-xs leading-relaxed text-zinc-400">
+                  <StableText k="home.settleNode1Sub" block />
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-1.5 px-5 py-4">
+                <span className="num text-[11px] font-medium tracking-wider text-zinc-500">
+                  02 · {t("home.settleNode2Tag")}
+                </span>
+                <div className="text-[15px] font-medium text-[var(--ink-strong)]">
+                  <StableText k="home.settleNode2Title" block />
+                </div>
+                <p className="text-xs leading-relaxed text-zinc-400">
+                  <StableText k="home.settleNode2Sub" block />
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-1.5 px-5 py-4">
+                <span className="num flex items-center gap-1.5 text-[11px] font-medium tracking-wider text-[var(--yes)]">
+                  <span className="live-dot h-1.5 w-1.5 rounded-full bg-[var(--yes)]" />
+                  03 · {t("home.settleNode3Tag")}
+                </span>
+                <div className="text-[15px] font-medium text-[var(--ink-strong)]">
+                  <StableText k="home.settleNode3Title" block />
+                </div>
+                <p className="text-xs leading-relaxed text-zinc-400">
+                  <StableText k="home.settleNode3Sub" block />
+                </p>
+              </div>
+            </div>
+
+            <div className="grid divide-y divide-[var(--hair)] border-t border-[var(--hair)] bg-[var(--seg-bg)] md:grid-cols-3 md:divide-x md:divide-y-0">
+              <div className="flex items-center justify-between gap-3 px-5 py-2.5 text-xs">
+                <span className="text-zinc-500">
+                  <StableText k="home.settleGuard1Label" />
+                </span>
+                <span className="font-medium text-[var(--yes)]">
+                  <StableText k="home.settleGuard1Val" align="end" />
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3 px-5 py-2.5 text-xs">
+                <span className="text-zinc-500">
+                  <StableText k="home.settleGuard2Label" />
+                </span>
+                <span className="font-medium text-[var(--warn)]">
+                  <StableText k="home.settleGuard2Val" align="end" />
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3 px-5 py-2.5 text-xs">
+                <span className="text-zinc-500">
+                  <StableText k="home.settleGuard3Label" />
+                </span>
+                <span className="font-medium text-zinc-300">
+                  <StableText k="home.settleGuard3Val" align="end" />
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </Reveal>
 
       <Reveal>
         <section className="home-section">

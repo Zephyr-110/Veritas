@@ -21,7 +21,7 @@ import {
 import { feedByState } from "./feeds";
 import { decodePrediction } from "./format";
 import { findLpPosition, findMarketPdas } from "./pdas";
-import { impliedYesPrice, reserveAmount } from "./quote";
+import { impliedYesPrice, pmAmmLeff, reserveAmount } from "./quote";
 import { ataOf, getMultiple, tokenProgramOf, unpackAmount, unpackDecimals } from "./tokens";
 import type { FeedKey, MarketPdas, MarketStatusName, Side } from "./types";
 
@@ -61,6 +61,7 @@ export type MarketView = {
   settledPrice: bigint;
   settledPublishTime: number;
   feeBps: number;
+  lZero?: bigint;
   lastAccrualTs: number;
   cumYesPerShare: bigint;
   cumNoPerShare: bigint;
@@ -130,7 +131,11 @@ function buildView(
   const pdas = findMarketPdas(programId, account.id);
   const reserveYes = reserveAmount(account.reserveYes);
   const reserveNo = reserveAmount(account.reserveNo);
-  const yesPrice = impliedYesPrice(reserveYes, reserveNo);
+  const lEff =
+    account.lZero > 0n && account.endTs > account.lastAccrualTs
+      ? pmAmmLeff(account.lZero, Number(account.endTs - account.lastAccrualTs))
+      : 0;
+  const yesPrice = impliedYesPrice(reserveYes, reserveNo, lEff > 0 ? lEff : undefined);
   const preset = feedByState(account.ocr2State);
   return {
     address,
@@ -166,6 +171,7 @@ function buildView(
     settledPrice: account.settledPrice,
     settledPublishTime: Number(account.settledPublishTime),
     feeBps: account.feeBps,
+    lZero: account.lZero,
     lastAccrualTs: Number(account.lastAccrualTs),
     cumYesPerShare: account.cumYesPerShare,
     cumNoPerShare: account.cumNoPerShare,

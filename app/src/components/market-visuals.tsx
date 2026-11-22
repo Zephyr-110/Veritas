@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchCandles, type Candle } from "@/lib/chart";
 import { formatCents } from "@/lib/format";
 import type { MarketView } from "@/lib/markets";
-import { impliedYesPrice, quoteBet } from "@/lib/quote";
+import { pmAmmAccrue, pmAmmQuoteBet } from "@/lib/quote";
+import { useNow } from "@/hooks/use-now";
 import { Card, StableText } from "@/components/ui";
 import { useT } from "@/i18n/provider";
 
@@ -238,6 +239,7 @@ export function PriceChartCard({
 
 export function LiquidityCard({ market }: { market: MarketView }) {
   const t = useT();
+  const now = useNow(5000);
   const [hover, setHover] = useState<number | null>(null);
   const [mounted, setMounted] = useState(false);
 
@@ -246,34 +248,35 @@ export function LiquidityCard({ market }: { market: MarketView }) {
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  const ts = now > 0 ? now : market.lastAccrualTs;
   const model = useMemo(() => {
-    const reserveYes = market.reserveYes;
-    const reserveNo = market.reserveNo;
-    if (reserveYes <= 0n || reserveNo <= 0n) return null;
+    const accrued = pmAmmAccrue(market, ts);
+    if (accrued.reserveYes <= 0 || accrued.reserveNo <= 0 || accrued.lEff <= 0) return null;
     const unit = 10 ** market.decimals;
     const vaultU = Number(market.vault) / unit;
-    const maxX = Math.min(500, Math.max(4, vaultU * 2));
-    const N = 36;
+    const poolU = (accrued.reserveYes + accrued.reserveNo) / (2 * unit);
+    const maxX = Math.min(500, Math.max(4, (vaultU > 0 ? vaultU : poolU) * 2));
+    const N = 40;
     const points: { amount: number; price: number }[] = [];
     for (let i = 0; i <= N; i += 1) {
       const amount = (maxX * i) / N;
       if (i === 0) {
-        points.push({ amount: 0, price: impliedYesPrice(reserveYes, reserveNo) });
+        points.push({ amount: 0, price: accrued.yesPrice });
         continue;
       }
-      const aSmall = BigInt(Math.round(amount * unit));
-      const { swapOut } = quoteBet(reserveYes, reserveNo, aSmall, "yes");
-      const afterFee = (aSmall * 9970n) / 10000n;
-      const postNo = reserveNo + afterFee;
-      const postYes = reserveYes > swapOut ? reserveYes - swapOut : 0n;
-      const sum = postYes + postNo;
-      points.push({ amount, price: sum > 0n ? Number(postNo) / Number(sum) : 1 });
+      const q = pmAmmQuoteBet(
+        accrued.reserveYes,
+        accrued.reserveNo,
+        accrued.lEff,
+        amount * unit,
+        "yes",
+        market.feeBps
+      );
+      points.push({ amount, price: q.postYesPrice });
     }
-    const yesNum = Number(reserveYes);
-    const noNum = Number(reserveNo);
-    const yesPct = (yesNum / (yesNum + noNum)) * 100;
+    const yesPct = (accrued.reserveYes / (accrued.reserveYes + accrued.reserveNo)) * 100;
     return { points, maxX, yesPct, current: points[0].price };
-  }, [market]);
+  }, [market, ts]);
 
   if (!model) return null;
   const active = hover != null ? model.points[hover] : null;

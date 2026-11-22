@@ -6,6 +6,26 @@ import {
 } from "@solana/web3.js";
 import type { AnchorWalletLike } from "./program";
 
+async function simulateBeforeSign(connection: Connection, tx: Transaction): Promise<void> {
+  if (typeof connection.simulateTransaction !== "function") return;
+  let sim: Awaited<ReturnType<Connection["simulateTransaction"]>> | null = null;
+  try {
+    sim = await connection.simulateTransaction(tx);
+  } catch {
+    return;
+  }
+  const simErr = sim?.value?.err;
+  if (!simErr) return;
+  if (simErr === "AccountNotFound") {
+    throw new Error("errors.noSol");
+  }
+  const err = new Error(typeof simErr === "string" ? simErr : JSON.stringify(simErr)) as Error & {
+    logs?: string[];
+  };
+  err.logs = sim.value.logs ?? [];
+  throw err;
+}
+
 export async function sendIxs(
   connection: Connection,
   wallet: AnchorWalletLike,
@@ -19,6 +39,7 @@ export async function sendIxs(
   tx.feePayer = wallet.publicKey;
   tx.recentBlockhash = latest.blockhash;
   tx.add(...ixs);
+  await simulateBeforeSign(connection, tx);
   const signed = await wallet.signTransaction(tx);
   const sig = await connection.sendRawTransaction(signed.serialize(), {
     skipPreflight: false,

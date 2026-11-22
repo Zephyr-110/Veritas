@@ -4,7 +4,12 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
-import { COLLATERAL_SYMBOL, MIN_CREATE_COLLATERAL, PREDICTION_BYTES } from "@/lib/constants";
+import {
+  COLLATERAL_SYMBOL,
+  MIN_CREATE_COLLATERAL,
+  MIN_CREATE_SOL_LAMPORTS,
+  PREDICTION_BYTES,
+} from "@/lib/constants";
 import { countdown, encodePrediction, formatStamp, fromUi, randomMarketId, toUi, utf8Len } from "@/lib/format";
 import { FEEDS, feedByKey, formatFeedPrice, humanToThreshold } from "@/lib/feeds";
 import { findMarketPdas } from "@/lib/pdas";
@@ -14,7 +19,7 @@ import { localizeError } from "@/lib/errors";
 import { useFeeds } from "@/hooks/use-feeds";
 import { useNow } from "@/hooks/use-now";
 import { useProgram } from "@/hooks/use-program";
-import { useSettings, useToasts } from "@/components/providers";
+import { useRefresh, useSettings, useToasts } from "@/components/providers";
 import { FeatureCard } from "@/components/market-card";
 import { PriceAge } from "@/components/price-age";
 import { Button, Reveal, StableText, TextInput, choiceClass, onSpot, useTx } from "@/components/ui";
@@ -105,6 +110,7 @@ export default function CreatePage() {
   const { connection } = useConnection();
   const { publicKey } = useWallet();
   const { settings } = useSettings();
+  const { nonce } = useRefresh();
   const { busy, run } = useTx();
   const { push } = useToasts();
   const { quotes, ready } = useFeeds();
@@ -132,13 +138,23 @@ export default function CreatePage() {
   }, []);
 
   const [walletBalance, setWalletBalance] = useState<{ atoms: bigint; decimals: number } | null>(null);
+  const [solLamports, setSolLamports] = useState<number | null>(null);
   useEffect(() => {
     if (!publicKey) {
       setWalletBalance(null);
+      setSolLamports(null);
       return;
     }
     let cancelled = false;
-    (async () => {
+    void (async () => {
+      try {
+        const lamports = await connection.getBalance(publicKey, "confirmed");
+        if (!cancelled) setSolLamports(lamports);
+      } catch {
+        if (!cancelled) setSolLamports(null);
+      }
+    })();
+    void (async () => {
       try {
         const mint = new PublicKey(settings.collateralMint.trim());
         const meta = await fetchMintMeta(connection, mint);
@@ -154,8 +170,9 @@ export default function CreatePage() {
     return () => {
       cancelled = true;
     };
-  }, [connection, publicKey, settings.collateralMint]);
+  }, [connection, publicKey, settings.collateralMint, nonce]);
   const maxAmount = walletBalance ? toUi(walletBalance.atoms, walletBalance.decimals, walletBalance.decimals) : null;
+  const solShort = Boolean(publicKey && solLamports !== null && solLamports < MIN_CREATE_SOL_LAMPORTS);
 
   const syncTitle = (nextTitle: string) => {
     if (!titleLocked) setTitle(nextTitle);
@@ -248,7 +265,7 @@ export default function CreatePage() {
 
   const submit = async () => {
     setAttempted(true);
-    if (!expiry || questionErrorKey || expiryErrorKey || thresholdErrorKey || seedErrorKey) return;
+    if (!expiry || questionErrorKey || expiryErrorKey || thresholdErrorKey || seedErrorKey || solShort) return;
     if (!publicKey) return;
     if (!program) {
       push("err", t("create.createFailed"), t("errors.badAddress"));
@@ -525,10 +542,24 @@ export default function CreatePage() {
             </section>
           </Reveal>
 
+          {solShort && solLamports !== null ? (
+            <p className="text-[13px] leading-5 text-rose-400">
+              <StableText k="create.insufficientSol" vars={{ sol: (solLamports / 1e9).toFixed(4) }} block />
+            </p>
+          ) : null}
+
           <div className="max-w-xs">
-            <Button type="submit" className="h-12 w-full" disabled={busy || !publicKey}>
+            <Button type="submit" className="h-12 w-full" disabled={busy || !publicKey || solShort}>
               <StableText
-                k={busy ? "state.confirming" : publicKey ? "create.submit" : "create.connectFirst"}
+                k={
+                  busy
+                    ? "state.confirming"
+                    : !publicKey
+                      ? "create.connectFirst"
+                      : solShort
+                        ? "create.needSolBtn"
+                        : "create.submit"
+                }
                 align="center"
               />
             </Button>

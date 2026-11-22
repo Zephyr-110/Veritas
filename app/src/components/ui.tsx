@@ -291,17 +291,25 @@ export function Reveal({ children, className }: { children: ReactNode; className
       setShown(true);
       return;
     }
-    const observer = new IntersectionObserver(
+    const show = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting) {
-          setShown(true);
-          observer.disconnect();
-        }
+        if (entries[0].isIntersecting) setShown(true);
       },
-      { rootMargin: "0px 0px -2% 0px", threshold: 0 }
+      { rootMargin: "0px 0px -12% 0px", threshold: 0 }
     );
-    observer.observe(el);
-    return () => observer.disconnect();
+    const rearm = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry.isIntersecting && entry.boundingClientRect.top > 0) setShown(false);
+      },
+      { threshold: 0 }
+    );
+    show.observe(el);
+    rearm.observe(el);
+    return () => {
+      show.disconnect();
+      rearm.disconnect();
+    };
   }, []);
   return (
     <div ref={ref} className={cx("reveal", shown && "reveal-in", className)}>

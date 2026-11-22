@@ -25,6 +25,38 @@ describe("errors", () => {
       expect(parseTxError({ message: "ECONNREFUSED" })).toBe("errors.rpc");
       expect(parseTxError({ message: "429 rate limit" })).toBe("errors.rpcRate");
     });
+    it("distinguishes SOL rent shortage, SPL token shortage, ATA missing, and wallet sign errors", () => {
+      expect(
+        parseTxError({
+          message: '{"InstructionError":[1,{"Custom":1}]}',
+          logs: ["Transfer: insufficient lamports 650240, need 3480720"],
+        })
+      ).toBe("errors.noSol");
+      expect(parseTxError({ message: "AccountNotFound" })).toBe("errors.noSol");
+      expect(
+        parseTxError({
+          message: "custom program error: 0x1",
+          logs: ["Program log: Error: insufficient funds"],
+        })
+      ).toBe("errors.notEnoughTokens");
+      expect(
+        parseTxError({
+          logs: ["AnchorError caused by account: creator_collateral_ata. Error Code: AccountNotInitialized. Error Number: 3012."],
+        })
+      ).toBe("errors.ataMissing");
+      expect(
+        parseTxError({
+          name: "WalletSignTransactionError",
+          message: "Unexpected error",
+        })
+      ).toBe("errors.walletSign");
+      expect(
+        parseTxError({
+          name: "WalletSignTransactionError",
+          message: "User rejected the request.",
+        })
+      ).toBe("errors.rejected");
+    });
     it("falls back to generic when unknown", () => {
       expect(parseTxError({ message: "some totally random text" })).toBe("errors.txFailed");
     });
