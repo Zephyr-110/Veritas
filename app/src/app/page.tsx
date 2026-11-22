@@ -55,9 +55,9 @@ export default function HomePage() {
   );
   const merged = !loading && !error && live.length === 0;
 
-  const feesLead = tPair("home.howFeesLead");
-  const feesHelp = tPair("home.howHelp");
-  const feesTail = tPair("home.howFeesTail");
+  const feesLead = tPair("home.howFeesLead", undefined, locale);
+  const feesHelp = tPair("home.howHelp", undefined, locale);
+  const feesTail = tPair("home.howFeesTail", undefined, locale);
   const reserveFees =
     locale === "zh"
       ? `${feesLead.en}${feesHelp.en}${feesTail.en}`
@@ -127,8 +127,9 @@ export default function HomePage() {
 
             <div className="grid divide-y divide-[var(--hair)] md:grid-cols-3 md:divide-x md:divide-y-0">
               <div className="flex flex-col gap-1.5 px-5 py-4">
-                <span className="num text-[11px] font-medium tracking-wider text-zinc-500">
-                  01 · {t("home.settleNode1Tag")}
+                <span className="num flex items-center gap-1.5 text-[11px] font-medium tracking-wider text-[var(--yes)]">
+                  <span className="live-dot h-1.5 w-1.5 rounded-full bg-[var(--yes)]" />
+                  <StableText k="home.settleNode1Tag" />
                 </span>
                 <div className="text-[15px] font-medium text-[var(--ink-strong)]">
                   <StableText k="home.settleNode1Title" block />
@@ -139,8 +140,8 @@ export default function HomePage() {
               </div>
 
               <div className="flex flex-col gap-1.5 px-5 py-4">
-                <span className="num text-[11px] font-medium tracking-wider text-zinc-500">
-                  02 · {t("home.settleNode2Tag")}
+                <span className="num text-[11px] font-medium tracking-wider text-zinc-400">
+                  <StableText k="home.settleNode2Tag" />
                 </span>
                 <div className="text-[15px] font-medium text-[var(--ink-strong)]">
                   <StableText k="home.settleNode2Title" block />
@@ -151,9 +152,8 @@ export default function HomePage() {
               </div>
 
               <div className="flex flex-col gap-1.5 px-5 py-4">
-                <span className="num flex items-center gap-1.5 text-[11px] font-medium tracking-wider text-[var(--yes)]">
-                  <span className="live-dot h-1.5 w-1.5 rounded-full bg-[var(--yes)]" />
-                  03 · {t("home.settleNode3Tag")}
+                <span className="num text-[11px] font-medium tracking-wider text-zinc-500">
+                  <StableText k="home.settleNode3Tag" />
                 </span>
                 <div className="text-[15px] font-medium text-[var(--ink-strong)]">
                   <StableText k="home.settleNode3Title" block />

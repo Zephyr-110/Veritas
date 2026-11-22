@@ -343,6 +343,31 @@ describe("findStraddlingReports", () => {
     expect(conn.getTransaction).toHaveBeenCalledTimes(2);
   });
 
+  it("失败的预言机推送交易（tx.meta.err 非空）只要包含有效签名报告也会被提取结算", async () => {
+    const endTs = 1795254233;
+    const conn = makeMockConnection({
+      stateData: btcState,
+      txs: [
+        {
+          sig: "sig-pre-ok",
+          blockTime: endTs - 3,
+          ixs: [{ programId: OCR2_PROGRAM_KEY, data: rPrevEpoch6 }],
+        },
+        {
+          sig: "sig-post-failed-tx",
+          blockTime: endTs,
+          err: { InstructionError: [0, { Custom: 1 }] },
+          ixs: [{ programId: OCR2_PROGRAM_KEY, data: r1 }],
+        },
+      ],
+    });
+
+    const found = await findStraddlingReports(conn, OCR2_STATE_KEY, endTs, null);
+    expect(found.pre.round).toBe(6);
+    expect(found.post.round).toBe(1);
+    expect(found.adjacent).toBe(true);
+  });
+
   it("错误分类：缺失 state / 空历史 / 缺 post / 缺 pre", async () => {
     const endTs = 1795254232;
 

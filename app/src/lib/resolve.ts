@@ -42,7 +42,7 @@ function decodeIxData(raw: Uint8Array | string): Buffer {
 function extractOcr2Instructions(
   tx: Awaited<ReturnType<Connection["getTransaction"]>>
 ): Buffer[] {
-  if (!tx || tx.meta?.err) return [];
+  if (!tx) return [];
   const message = tx.transaction.message;
   const accountKeys = message.getAccountKeys({
     accountKeysFromLookups: tx.meta?.loadedAddresses ?? undefined,
@@ -111,9 +111,7 @@ async function collectSignaturesAround(
       "confirmed"
     );
     if (!batch.length) break;
-    for (const sig of batch) {
-      if (!sig.err) all.push(sig);
-    }
+    all.push(...batch);
     const oldest = batch[batch.length - 1];
     if (oldest.blockTime != null && oldest.blockTime < minTime) break;
     if (batch.length < SIGNATURES_PER_PAGE) break;

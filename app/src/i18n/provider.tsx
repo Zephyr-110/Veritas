@@ -1,18 +1,18 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { getLocale, hydrateLocale, setLocale, subscribe, t, type Locale } from "./store";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { getLocale, hydrateLocale, setLocale, subscribe, t, type Locale, type Vars } from "./store";
 
 type I18nContextValue = {
   locale: Locale;
   setLocale: (next: Locale) => void;
-  t: typeof t;
+  t: (key: string, vars?: Vars) => string;
 };
 
 const I18nContext = createContext<I18nContextValue | null>(null);
 
 export function LocaleProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(getLocale);
+  const [locale, setLocaleState] = useState<Locale>("en");
 
   useEffect(() => {
     hydrateLocale();
@@ -20,9 +20,11 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     return subscribe(() => setLocaleState(getLocale()));
   }, []);
 
+  const tLocale = useCallback((key: string, vars?: Vars) => t(key, vars, locale), [locale]);
+
   const value = useMemo<I18nContextValue>(
-    () => ({ locale, setLocale, t }),
-    [locale]
+    () => ({ locale, setLocale, t: tLocale }),
+    [locale, tLocale]
   );
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
@@ -34,7 +36,7 @@ export function useI18n(): I18nContextValue {
   return ctx;
 }
 
-export function useT(): typeof t {
+export function useT(): (key: string, vars?: Vars) => string {
   return useI18n().t;
 }
 

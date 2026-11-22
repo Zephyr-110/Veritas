@@ -105,25 +105,28 @@ export function hydrateLocale() {
   applyDocumentLang(current);
 }
 
-export function t(key: string, vars?: Vars): string {
-  const template = tables[current][key];
-  if (template == null) throw new Error(`Missing translation: ${key} (${current})`);
-  return interpolate(template, key, current, vars);
+export function t(key: string, vars?: Vars, localeOverride?: Locale): string {
+  const loc = localeOverride ?? current;
+  const template = tables[loc][key];
+  if (template == null) throw new Error(`Missing translation: ${key} (${loc})`);
+  return interpolate(template, key, loc, vars);
 }
 
 export function tPair(
   key: string,
-  vars?: Vars
+  vars?: Vars,
+  localeOverride?: Locale
 ): { en: string; zh: string; active: string; locale: Locale } {
   const enTpl = tables.en[key];
   const zhTpl = tables.zh[key];
   if (enTpl == null || zhTpl == null) throw new Error(`Missing translation: ${key}`);
   const en = interpolate(enTpl, key, "en", vars);
   const zh = interpolate(zhTpl, key, "zh", vars);
+  const loc = localeOverride ?? current;
   return {
     en,
     zh,
-    active: current === "zh" ? zh : en,
-    locale: current,
+    active: loc === "zh" ? zh : en,
+    locale: loc,
   };
 }

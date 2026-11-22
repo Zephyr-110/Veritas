@@ -64,8 +64,8 @@ export function StableText({
   align?: "start" | "center" | "end";
   className?: string;
 }) {
-  useLocale();
-  const { en, zh, locale } = tPair(k, vars);
+  const locale = useLocale();
+  const { en, zh } = tPair(k, vars, locale);
   const activeText = locale === "zh" ? zh : en;
   const reserveText = locale === "zh" ? en : zh;
   const activeLang = locale === "zh" ? "zh-CN" : "en";
