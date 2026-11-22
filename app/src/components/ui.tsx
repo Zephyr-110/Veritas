@@ -567,30 +567,21 @@ function ThemeToggle() {
 
 function LangSwitch() {
   const { locale, setLocale, t } = useI18n();
+  const btnCls = (on: boolean) =>
+    cx(
+      "flex h-full min-w-[2.5rem] items-center justify-center px-2 text-[11px] font-medium leading-none transition-colors",
+      on ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-zinc-400 hover:text-white"
+    );
   return (
     <div
-      className="inline-flex h-8 shrink-0 items-center border border-[var(--hair)] bg-[var(--seg-bg)] p-0.5"
+      className="inline-grid h-8 shrink-0 grid-cols-2 items-stretch border border-[var(--hair)] bg-[var(--seg-bg)] p-0.5"
       role="group"
       aria-label={t("nav.language")}
     >
-      <button
-        type="button"
-        onClick={() => setLocale("en")}
-        className={cx(
-          "px-2 py-1 text-[11px] font-medium leading-none transition-colors",
-          locale === "en" ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-zinc-400 hover:text-white"
-        )}
-      >
+      <button type="button" onClick={() => setLocale("en")} className={btnCls(locale === "en")}>
         EN
       </button>
-      <button
-        type="button"
-        onClick={() => setLocale("zh")}
-        className={cx(
-          "px-2 py-1 text-[11px] font-medium leading-none transition-colors",
-          locale === "zh" ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-zinc-400 hover:text-white"
-        )}
-      >
+      <button type="button" onClick={() => setLocale("zh")} className={btnCls(locale === "zh")}>
         中文
       </button>
     </div>

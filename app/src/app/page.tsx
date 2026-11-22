@@ -120,9 +120,18 @@ export default function HomePage() {
                 <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
                 <StableText k="home.settleKicker" />
               </span>
-              <span className="text-xs text-zinc-400">
-                <StableText k="home.settleRuleTag" align="end" />
-              </span>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs text-zinc-400">
+                  <StableText k="home.settleRuleTag" align="end" />
+                </span>
+                <Link
+                  href="/help#settlement"
+                  className="link-accent inline-flex items-center gap-1 text-xs"
+                >
+                  <StableText k="home.whyMore" />
+                  <span aria-hidden="true">→</span>
+                </Link>
+              </div>
             </div>
 
             <div className="grid divide-y divide-[var(--hair)] md:grid-cols-3 md:divide-x md:divide-y-0">
@@ -334,6 +343,13 @@ export default function HomePage() {
             <p>
               <StableText k="home.why1" block />
             </p>
+            <Link
+              href="/help#permissionless"
+              className="link-accent mt-3 inline-flex items-center gap-1 text-xs"
+            >
+              <StableText k="home.whyMore" />
+              <span aria-hidden="true">→</span>
+            </Link>
           </div>
           <div className="home-why-item">
             <div className="home-why-title">
@@ -342,6 +358,13 @@ export default function HomePage() {
             <p>
               <StableText k="home.why2" block />
             </p>
+            <Link
+              href="/help#settlement"
+              className="link-accent mt-3 inline-flex items-center gap-1 text-xs"
+            >
+              <StableText k="home.whyMore" />
+              <span aria-hidden="true">→</span>
+            </Link>
           </div>
           <div className="home-why-item">
             <div className="home-why-title">
@@ -350,6 +373,13 @@ export default function HomePage() {
             <p>
               <StableText k="home.why3" block />
             </p>
+            <Link
+              href="/help#pm-amm"
+              className="link-accent mt-3 inline-flex items-center gap-1 text-xs"
+            >
+              <StableText k="home.whyMore" />
+              <span aria-hidden="true">→</span>
+            </Link>
           </div>
         </div>
       </section>

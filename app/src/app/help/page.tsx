@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ComponentType, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import Link from "next/link";
 import {
   ChevronDown,
@@ -42,10 +42,37 @@ function ValueCard({
   );
 }
 
-function DeepItem({ titleKey, bodyKey, children }: { titleKey: string; bodyKey: string; children?: ReactNode }) {
+function DeepItem({
+  id,
+  titleKey,
+  whyKey,
+  howKey,
+  children,
+}: {
+  id: string;
+  titleKey: string;
+  whyKey: string;
+  howKey: string;
+  children?: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const syncHash = () => {
+      if (window.location.hash !== `#${id}`) return;
+      setOpen(true);
+      requestAnimationFrame(() => {
+        rootRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    };
+    syncHash();
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
+  }, [id]);
+
   return (
-    <div onMouseMove={onSpot} className="surface overflow-hidden">
+    <div ref={rootRef} id={id} onMouseMove={onSpot} className="surface scroll-mt-24 overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -64,9 +91,22 @@ function DeepItem({ titleKey, bodyKey, children }: { titleKey: string; bodyKey: 
       >
         <div className="overflow-hidden">
           <div className="stack-3 px-5 pb-5">
-            <p className="text-[15px] leading-relaxed text-zinc-400">
-              <StableText k={bodyKey} block />
-            </p>
+            <div className="stack-1">
+              <div className="text-xs font-medium tracking-wider text-zinc-200 uppercase">
+                <StableText k="help.deepWhyLabel" />
+              </div>
+              <p className="text-[15px] leading-relaxed text-zinc-400">
+                <StableText k={whyKey} block />
+              </p>
+            </div>
+            <div className="stack-1">
+              <div className="text-xs font-medium tracking-wider text-zinc-200 uppercase">
+                <StableText k="help.deepHowLabel" />
+              </div>
+              <p className="text-[15px] leading-relaxed text-zinc-400">
+                <StableText k={howKey} block />
+              </p>
+            </div>
             {children}
           </div>
         </div>
@@ -205,8 +245,27 @@ export default function HelpPage() {
           <h2 className="section-title">
             <StableText k="help.deepTitle" />
           </h2>
-          <DeepItem titleKey="help.a1Title" bodyKey="help.a1" />
-          <DeepItem titleKey="help.a2Title" bodyKey="help.a2">
+          <DeepItem id="permissionless" titleKey="help.a0Title" whyKey="help.a0" howKey="help.a0Sub" />
+          <DeepItem id="settlement" titleKey="help.a2Title" whyKey="help.a2" howKey="help.a2Sub">
+            <div className="stack-2 border border-[var(--hair)] bg-[var(--seg-bg)] p-4 text-sm leading-relaxed text-zinc-300">
+              <p>
+                <StableText k="help.a2Tier1" block />
+              </p>
+              <p>
+                <StableText k="help.a2Tier2" block />
+              </p>
+              <p>
+                <StableText k="help.a2Tier3" block />
+              </p>
+            </div>
+            <div className="stack-2 border border-[var(--hair)] bg-[var(--seg-bg)] p-4 text-sm leading-relaxed text-zinc-300">
+              <p>
+                <StableText k="help.a2Fallback" block />
+              </p>
+              <pre className="overflow-x-auto border border-[var(--hair)] bg-black/40 px-3 py-2 font-mono text-xs text-zinc-200">
+                <code>node scripts/settle.js &lt;MARKET_PUBKEY&gt;</code>
+              </pre>
+            </div>
             <div className="stack-2 border border-[var(--hair)] bg-[var(--seg-bg)] p-4 text-sm leading-relaxed text-zinc-400">
               <div className="font-medium text-zinc-200">
                 <StableText k="help.exTitle" />
@@ -219,6 +278,7 @@ export default function HelpPage() {
               </p>
             </div>
           </DeepItem>
+          <DeepItem id="pm-amm" titleKey="help.a1Title" whyKey="help.a1" howKey="help.a1Sub" />
         </section>
       </Reveal>
 
