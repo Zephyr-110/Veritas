@@ -581,12 +581,24 @@ html[lang="zh-CN"] .section-title:not(:has([lang])) {
 .live-dot { animation: live-dot 2s ease-in-out infinite; }
 
 /* Wallet adapter monochrome square theme */
-.wallet-adapter-modal-wrapper {
+.wallet-adapter-modal {
+  background: transparent !important;
+}
+.wallet-adapter-modal-overlay {
   background: rgba(0, 0, 0, 0.72) !important;
   backdrop-filter: blur(18px) !important;
   -webkit-backdrop-filter: blur(18px) !important;
 }
 .wallet-adapter-modal-container {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  pointer-events: none;
+}
+.wallet-adapter-modal-wrapper {
+  pointer-events: auto;
   background: var(--float-bg) !important;
   border: 1px solid var(--card-line) !important;
   color: var(--ink) !important;
@@ -594,6 +606,29 @@ html[lang="zh-CN"] .section-title:not(:has([lang])) {
   box-shadow: var(--float-shadow) !important;
   backdrop-filter: blur(36px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(36px) saturate(180%) !important;
+}
+.wallet-adapter-modal-title {
+  color: var(--ink-strong) !important;
+}
+.wallet-adapter-modal-list-more {
+  color: var(--ink-2) !important;
+}
+.wallet-adapter-modal-list-more:hover {
+  color: var(--ink-strong) !important;
+}
+.wallet-adapter-modal-list-more svg {
+  fill: currentColor !important;
+}
+.wallet-adapter-modal-button-close {
+  background: var(--seg-bg) !important;
+  border: 1px solid var(--hair) !important;
+  border-radius: 0 !important;
+}
+.wallet-adapter-modal-button-close svg {
+  fill: var(--ink-2) !important;
+}
+.wallet-adapter-modal-button-close:hover svg {
+  fill: var(--ink-strong) !important;
 }
 .wallet-adapter-notifications { display: none !important; }
 .wallet-adapter-button {

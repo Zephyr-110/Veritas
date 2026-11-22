@@ -138,7 +138,9 @@ function SettingsInner({ children }: { children: ReactNode }) {
   const onWalletError = useCallback(
     (err: { name?: string; message?: string }) => {
       if (/WalletNotSelected|WalletNotReady|WalletLoad/i.test(`${err.name ?? ""} ${err.message ?? ""}`)) return;
-      push("err", t("errors.wallet"), parseTxError(err));
+      const key = parseTxError(err);
+      const detail = key === "errors.txFailed" ? err.message || undefined : key;
+      push("err", t("errors.wallet"), detail);
     },
     [push, t]
   );

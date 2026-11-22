@@ -466,13 +466,18 @@ export function useTx() {
 }
 
 export function WalletButton() {
-  const { publicKey, connected, disconnect } = useWallet();
+  const { publicKey, connected, connecting, wallet, select, disconnect } = useWallet();
   const { setVisible } = useWalletModal();
   if (!connected || !publicKey) {
     return (
       <Button
         type="button"
-        onClick={() => setVisible(true)}
+        onClick={() => {
+          if (wallet && !connected && !connecting) {
+            select(null);
+          }
+          setVisible(true);
+        }}
         className="h-8 shrink-0 px-3 text-xs sm:h-9 sm:px-4"
       >
         <StableText k="wallet.connect" align="center" />
