@@ -12,17 +12,82 @@ export type MarketKind =
   | "staleVoid"
   | "windowVoid";
 
-const AUTO_TITLE =
-  /^(.+?) (>=|<) ([\d,.]+) @ |^([A-Z0-9]+\/[A-Z0-9]+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+(?:能站上|会跌破)\s+[\d,.]+\s*吗[？?]?$|^([A-Z0-9]+\/[A-Z0-9]+)\s+(?:above|below)\s+[\d,.]+\s+at\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\??$|^([A-Z0-9]+\/[A-Z0-9]+)\s+at or (?:above|below)\s+/i;
+const STAMP_TITLE =
+  /^(.+?) (>=|<) ([\d,.]+) @ |^([A-Z0-9]+\/[A-Z0-9]+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+(?:能站上|会跌破)\s+[\d,.]+\s*吗[？?]?$|^([A-Z0-9]+\/[A-Z0-9]+)\s+(?:above|below)\s+[\d,.]+\s+at\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\??$/i;
 
-/** Auto-generated spec titles ("BTC/USD >= 73,479 @ ...") read as questions;
-    a creator's custom title is returned untouched. */
+const DURATION_EN_TITLE =
+  /^([A-Z0-9]+\/[A-Z0-9]+)\s+(at or above|at or below|above|below)\s+(opening price|[\d,.]+)\s+in\s+(\d+)\s*(min|mins|minute|minutes|m|hour|hours|hr|hrs|h|day|days|d|sec|secs|second|seconds|s)\s*\??$/i;
+
+const DURATION_ZH_TITLE =
+  /^([A-Z0-9]+\/[A-Z0-9]+)\s+(\d+)\s*(分钟|小时|天|秒)(?:后|内)?\s*(能站上|会跌破)\s*(开盘价|[\d,.]+)\s*吗[？?]?$/i;
+
+type DurationUnit = "min" | "hour" | "day" | "sec";
+
+function normalizeDurationUnit(raw: string): DurationUnit {
+  const u = raw.toLowerCase();
+  if (u === "分钟" || u.startsWith("m")) return "min";
+  if (u === "小时" || u.startsWith("h")) return "hour";
+  if (u === "天" || u.startsWith("d")) return "day";
+  return "sec";
+}
+
+function formatDurationTitle(
+  symbol: string,
+  above: boolean,
+  inclusive: boolean,
+  target: string,
+  amount: string,
+  unit: DurationUnit,
+  locale: "en" | "zh"
+): string {
+  const isOpening = target.toLowerCase() === "opening price" || target === "开盘价";
+  if (locale === "zh") {
+    const zhUnit = unit === "min" ? "分钟" : unit === "hour" ? "小时" : unit === "day" ? "天" : "秒";
+    const zhVerb = above ? "能站上" : "会跌破";
+    const zhTarget = isOpening ? "开盘价" : ` ${target} `;
+    return `${symbol} ${amount} ${zhUnit}后${zhVerb}${zhTarget}吗？`;
+  }
+  const enUnit =
+    unit === "min"
+      ? "min"
+      : unit === "sec"
+        ? "sec"
+        : Number(amount) === 1
+          ? unit
+          : `${unit}s`;
+  const enVerb = inclusive ? (above ? "at or above" : "at or below") : above ? "above" : "below";
+  const enTarget = isOpening ? "opening price" : target;
+  return `${symbol} ${enVerb} ${enTarget} in ${amount} ${enUnit}?`;
+}
+
+/** Auto-generated spec/template titles are re-assembled in the active language;
+    a creator's custom or unparseable title is returned untouched. */
 export function questionTitle(market: MarketView): string {
-  if (!AUTO_TITLE.test(market.title)) return market.title;
-  const symbol = feedByState(market.ocr2State)?.symbol ?? market.title.split(" ")[0];
+  const raw = market.title;
+  const locale = getLocale();
+  const symbol = feedByState(market.ocr2State)?.symbol ?? raw.split(" ")[0];
+
+  const enDur = DURATION_EN_TITLE.exec(raw);
+  if (enDur) {
+    const verb = enDur[2].toLowerCase();
+    const inclusive = verb.startsWith("at or ");
+    const above = market.settleAbove ?? !verb.includes("below");
+    const unit = normalizeDurationUnit(enDur[5]);
+    return formatDurationTitle(symbol, above, inclusive, enDur[3], enDur[4], unit, locale);
+  }
+
+  const zhDur = DURATION_ZH_TITLE.exec(raw);
+  if (zhDur) {
+    const above = market.settleAbove ?? zhDur[4] === "能站上";
+    const unit = normalizeDurationUnit(zhDur[3]);
+    const isOpening = zhDur[5] === "开盘价";
+    return formatDurationTitle(symbol, above, isOpening, zhDur[5], zhDur[2], unit, locale);
+  }
+
+  if (!STAMP_TITLE.test(raw)) return raw;
   const human = thresholdToHuman(market.threshold, market.priceDecimals);
   const stamp = formatStamp(market.expiry);
-  if (getLocale() === "zh") {
+  if (locale === "zh") {
     return symbol + " " + stamp + " " + (market.settleAbove ? "能站上" : "会跌破") + " " + human + " 吗？";
   }
   return symbol + " " + (market.settleAbove ? "above" : "below") + " " + human + " at " + stamp + "?";

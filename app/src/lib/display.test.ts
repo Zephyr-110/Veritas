@@ -112,6 +112,32 @@ describe("display", () => {
       setLocale("zh");
       expect(questionTitle(mEnAuto)).toMatch(/^ETH\/USD \d{4}-\d{2}-\d{2} \d{2}:\d{2} 会跌破 2,000 吗？$/);
     });
+
+    it("时长模板标题按当前语言重拼，自由标题原样保留", () => {
+      const mOpen = makeMarket({
+        title: "SOL/USD at or above opening price in 12 min?",
+        ocr2State: PublicKey.default,
+        settleAbove: true,
+      });
+      setLocale("zh");
+      expect(questionTitle(mOpen)).toBe("SOL/USD 12 分钟后能站上开盘价吗？");
+      setLocale("en");
+      expect(questionTitle(mOpen)).toBe("SOL/USD at or above opening price in 12 min?");
+
+      const mNumZh = makeMarket({
+        title: "ETH/USD 1 小时后会跌破 2,500 吗？",
+        ocr2State: new PublicKey(FEEDS[1].state),
+        settleAbove: false,
+      });
+      setLocale("en");
+      expect(questionTitle(mNumZh)).toBe("ETH/USD below 2,500 in 1 hour?");
+      setLocale("zh");
+      expect(questionTitle(mNumZh)).toBe("ETH/USD 1 小时后会跌破 2,500 吗？");
+
+      const mCustom = makeMarket({ title: "SOL/USD 能不能在下周破百？", ocr2State: PublicKey.default });
+      setLocale("en");
+      expect(questionTitle(mCustom)).toBe("SOL/USD 能不能在下周破百？");
+    });
   });
 
   it("money / formatWhen / resolveHours", () => {

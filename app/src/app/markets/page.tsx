@@ -110,7 +110,7 @@ export default function MarketsPage() {
                 type="button"
                 onClick={() => setTape(id)}
                 className={
-                  "px-3 py-1 text-xs transition-colors " +
+                  "px-3 py-1 text-xs " +
                   (tape === id ? "seg-on font-medium" : "text-zinc-400 hover:text-white")
                 }
               >

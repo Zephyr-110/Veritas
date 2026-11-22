@@ -816,7 +816,7 @@ export function HeaderFaucet() {
         <StableText k="nav.faucet" align="center" />
       </button>
       {open ? (
-        <div className="surface panel-float absolute right-0 top-full z-50 mt-2 w-72 border border-[var(--line)] p-4 shadow-2xl sm:w-80">
+        <div className="faucet-pop absolute right-0 top-full z-50 mt-2 w-72 border border-[var(--line)] bg-zinc-950 p-4 shadow-2xl sm:w-80">
           <div className="stack-3">
             <div className="stack-1">
               <div className="flex items-center justify-between">
