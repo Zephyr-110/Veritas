@@ -388,13 +388,12 @@ function StatusBand({
     cells = (
       <>
         <BandCell labelKey="band.expiredFor">{countdown(now, market.expiry)}</BandCell>
-        {spotCell}
-        <BandCell
-          labelKey="band.indication"
-          sub={relation ? <StableText k="band.favored" vars={{ side: relation.side }} /> : undefined}
-          valueClassName={alertCls}
-        >
-          {relation ? relation.dir : <span className="text-zinc-500"><StableText k="band.spotUnavailable" /></span>}
+        <BandCell labelKey="market.threshold">{humanThreshold}</BandCell>
+        <BandCell labelKey="market.settleRule" valueClassName="text-[15px] font-medium text-zinc-200">
+          <StableText
+            k={market.settleAbove ? "market.settleAbove" : "market.settleBelow"}
+            vars={{ price: humanThreshold }}
+          />
         </BandCell>
         <BandCell labelKey="band.voidWindow">
           {phase.afterWindow ? (
@@ -413,7 +412,7 @@ function StatusBand({
     <div onMouseMove={onSpot} className="surface overflow-hidden">
       <div className="band-grid grid grid-cols-2 md:grid-cols-4">{cells}</div>
       {noteKey ? (
-        <p className="border-t border-[var(--hair)] px-5 py-2.5 text-xs text-zinc-500">
+        <p className="border-t border-[var(--hair)] bg-[var(--seg-bg)] px-5 py-2.5 text-xs font-medium text-zinc-300">
           <StableText k={noteKey} block />
         </p>
       ) : null}

@@ -69,8 +69,8 @@ function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-function isoLocal(d: Date): string {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+function dateKey(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
 function Row({
@@ -189,13 +189,28 @@ export default function CreatePage() {
     setExpiry(next);
   };
 
-  const applyExact = (value: string) => {
-    const next = new Date(value);
+  const applyExactParts = (dateStr: string, hourStr: string, minStr: string) => {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const next = new Date(y, (m || 1) - 1, d || 1, Number(hourStr), Number(minStr), 0, 0);
     if (Number.isNaN(next.getTime())) return;
-    next.setSeconds(0, 0);
     setPreset("custom");
     setExpiry(next);
   };
+
+  const exactDateOptions = useMemo(() => {
+    const base = expiry ? new Date(expiry.getTime()) : defaultExpiry();
+    const today = now > 0 ? new Date(now * 1000) : new Date(base.getTime());
+    today.setHours(0, 0, 0, 0);
+    const list: string[] = [];
+    for (let i = 0; i < 15; i += 1) {
+      const d = new Date(today.getTime());
+      d.setDate(today.getDate() + i);
+      list.push(dateKey(d));
+    }
+    const cur = dateKey(base);
+    if (!list.includes(cur)) list.unshift(cur);
+    return list;
+  }, [expiry, now]);
 
   const onFeed = (key: FeedKey) => {
     userThreshold.current = false;
@@ -456,17 +471,64 @@ export default function CreatePage() {
                     <StableText k="create.exact" align="center" />
                   </button>
                 </div>
-                {exactOpen ? (
-                  <div style={{ width: "16rem" }}>
-                    <TextInput
-                      type="datetime-local"
-                      min={now > 0 ? isoLocal(new Date(now * 1000)) : undefined}
-                      value={expiry ? isoLocal(expiry) : ""}
-                      onChange={(e) => applyExact(e.target.value)}
-                      className="num"
-                    />
-                  </div>
-                ) : null}
+                {exactOpen ? (() => {
+                  const base = expiry ?? defaultExpiry();
+                  const curDate = dateKey(base);
+                  const curHour = pad2(base.getHours());
+                  const curMin = pad2(base.getMinutes());
+                  const selectCls =
+                    "num field h-10 border border-zinc-700 px-2.5 text-sm text-white outline-none";
+                  return (
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <select
+                        aria-label={t("create.tradingEnds")}
+                        value={curDate}
+                        onChange={(e) => applyExactParts(e.target.value, curHour, curMin)}
+                        className={selectCls}
+                      >
+                        {exactDateOptions.map((d) => (
+                          <option key={d} value={d}>
+                            {d}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          aria-label={t("create.hour")}
+                          value={curHour}
+                          onChange={(e) => applyExactParts(curDate, e.target.value, curMin)}
+                          className={selectCls}
+                        >
+                          {Array.from({ length: 24 }, (_, h) => pad2(h)).map((h) => (
+                            <option key={h} value={h}>
+                              {h}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-xs text-zinc-400">
+                          <StableText k="create.hour" />
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          aria-label={t("create.minute")}
+                          value={curMin}
+                          onChange={(e) => applyExactParts(curDate, curHour, e.target.value)}
+                          className={selectCls}
+                        >
+                          {Array.from({ length: 60 }, (_, m) => pad2(m)).map((m) => (
+                            <option key={m} value={m}>
+                              {m}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-xs text-zinc-400">
+                          <StableText k="create.minute" />
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })() : null}
               </Row>
               <div className="hairline" />
               <Row

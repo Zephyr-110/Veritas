@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { money, formatWhen, kindLabelKey, marketKind, questionTitle } from "@/lib/display";
+import { thresholdToHuman } from "@/lib/feeds";
 import { formatYesNo } from "@/lib/format";
 import type { MarketView } from "@/lib/markets";
 import { useNow } from "@/hooks/use-now";
@@ -73,6 +74,7 @@ export function MarketCard({ market }: { market: MarketView }) {
   const now = useNow(1000);
   useLocale();
   const kind = marketKind(market, now);
+  const thr = thresholdToHuman(market.threshold, market.priceDecimals);
   return (
     <FeatureCard
       href={"/markets/" + market.address.toBase58()}
@@ -80,6 +82,7 @@ export function MarketCard({ market }: { market: MarketView }) {
       yesPrice={market.yesPrice}
       expiry={market.expiry}
       liquidity={money(market.vault, market.decimals)}
+      threshold={`${market.feedSymbol} ${market.settleAbove ? "≥" : "<"} ${thr}`}
       statusKey={kindLabelKey(kind, market)}
     />
   );

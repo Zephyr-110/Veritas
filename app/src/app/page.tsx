@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useMemo } from "react";
 import { useMarkets } from "@/hooks/use-markets";
 import { useNow } from "@/hooks/use-now";
-import { listSection, marketKind } from "@/lib/display";
+import { listSection, marketKind, questionTitle } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
-import { explorerAccount, formatStamp, shorten } from "@/lib/format";
+import { explorerAccount, shorten } from "@/lib/format";
 import { GITHUB_REPO } from "@/lib/constants";
 import { PricePanel } from "@/components/price-tape";
 import { PulseAreaMark } from "@/components/logo-marks";
@@ -19,15 +19,6 @@ import { useSettings } from "@/components/providers";
 import { useLocale, useT } from "@/i18n/provider";
 import { tPair } from "@/i18n/store";
 
-function nextHourDate(nowMs: number): Date {
-  const next = new Date(nowMs);
-  next.setMinutes(0, 0, 0);
-  next.setSeconds(0, 0);
-  next.setMilliseconds(0);
-  next.setHours(next.getHours() + 1);
-  return next;
-}
-
 export default function HomePage() {
   const { markets, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarkets();
   const now = useNow(1000);
@@ -36,8 +27,6 @@ export default function HomePage() {
   const { settings } = useSettings();
   const programHref = explorerAccount(settings.programId, settings.cluster);
   const mountedNow = now > 0;
-  const openAt = mountedNow ? nextHourDate(now * 1000) : null;
-  const openUnix = openAt ? Math.floor(openAt.getTime() / 1000) : 0;
 
   const live = useMemo(
     () =>
@@ -46,6 +35,14 @@ export default function HomePage() {
         : [],
     [markets, mountedNow, now]
   );
+  const next = useMemo(
+    () =>
+      mountedNow
+        ? markets.filter((market) => listSection(marketKind(market, now)) === "next").sort((a, b) => a.expiry - b.expiry)
+        : [],
+    [markets, mountedNow, now]
+  );
+  const nextMarket = next[0] ?? null;
   const finished = useMemo(
     () =>
       mountedNow
@@ -247,22 +244,29 @@ export default function HomePage() {
                     <span className="home-kicker">
                       <StableText k="home.next" />
                     </span>
-                    <span className="num text-[18px] text-white">{openAt ? formatStamp(openAt) : "\u2014"}</span>
-                    {mountedNow ? (
-                      <LiveCountdown expiry={openUnix} now={now} className="text-[18px] text-white" />
-                    ) : (
-                      <span className="num font-mono tabular-nums text-[18px] text-white">--:--:--</span>
-                    )}
+                    {nextMarket ? (
+                      <>
+                        <Link
+                          href={`/markets/${nextMarket.address.toBase58()}`}
+                          className="link-accent text-[15px] text-white"
+                        >
+                          {questionTitle(nextMarket)}
+                        </Link>
+                        {mountedNow ? (
+                          <LiveCountdown expiry={nextMarket.expiry} now={now} className="text-[18px] text-white" />
+                        ) : null}
+                      </>
+                    ) : null}
                   </div>
-                  <div className="home-next-bar" aria-hidden>
-                    <div
-                      className="home-next-fill"
-                      style={{ width: `${mountedNow ? (((now % 3600) / 3600) * 100).toFixed(2) : 0}%` }}
-                    />
-                  </div>
-                  <p className="mt-3 text-[13px] text-zinc-500">
-                    <StableText k="home.nextBody" block />
-                  </p>
+                  {nextMarket ? (
+                    <p className="mt-3 text-[13px] text-zinc-500">
+                      <StableText k="home.nextBody" block />
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-[14px] text-zinc-500">
+                      <StableText k="markets.noNext" block />
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -276,25 +280,30 @@ export default function HomePage() {
             <h2 className="home-kicker">
               <StableText k="home.next" />
             </h2>
-            <div className="home-next mt-5">
-              <div className="num text-[22px] text-white">{openAt ? formatStamp(openAt) : "\u2014"}</div>
-              <div className="mt-2">
-                {mountedNow ? (
-                  <LiveCountdown expiry={openUnix} now={now} className="text-[22px] text-white" />
-                ) : (
-                  <span className="num font-mono tabular-nums text-[22px] text-white">--:--:--</span>
-                )}
+            {nextMarket ? (
+              <div className="home-next mt-5">
+                <Link
+                  href={`/markets/${nextMarket.address.toBase58()}`}
+                  className="link-accent block text-[17px] font-medium text-white"
+                >
+                  {questionTitle(nextMarket)}
+                </Link>
+                <div className="mt-2">
+                  {mountedNow ? (
+                    <LiveCountdown expiry={nextMarket.expiry} now={now} className="text-[22px] text-white" />
+                  ) : (
+                    <span className="num font-mono tabular-nums text-[22px] text-white">--:--:--</span>
+                  )}
+                </div>
+                <p className="mt-4 text-[15px] text-zinc-500">
+                  <StableText k="home.nextBody" block />
+                </p>
               </div>
-              <div className="home-next-bar" aria-hidden>
-                <div
-                  className="home-next-fill"
-                  style={{ width: `${mountedNow ? (((now % 3600) / 3600) * 100).toFixed(2) : 0}%` }}
-                />
-              </div>
-              <p className="mt-4 text-[15px] text-zinc-500">
-                <StableText k="home.nextBody" block />
+            ) : (
+              <p className="mt-3 text-[15px] text-zinc-500">
+                <StableText k="markets.noNext" block />
               </p>
-            </div>
+            )}
           </section>
         </Reveal>
       )}
@@ -344,7 +353,7 @@ export default function HomePage() {
             </p>
             <Link
               href="/help#permissionless"
-              className="link-accent mt-3 inline-flex items-center text-xs"
+              className="link-accent mt-auto inline-flex self-start pt-3 items-center text-xs"
             >
               <StableText k="home.whyMore" />
             </Link>
@@ -358,7 +367,7 @@ export default function HomePage() {
             </p>
             <Link
               href="/help#settlement"
-              className="link-accent mt-3 inline-flex items-center text-xs"
+              className="link-accent mt-auto inline-flex self-start pt-3 items-center text-xs"
             >
               <StableText k="home.whyMore" />
             </Link>
@@ -372,7 +381,7 @@ export default function HomePage() {
             </p>
             <Link
               href="/help#pm-amm"
-              className="link-accent mt-3 inline-flex items-center text-xs"
+              className="link-accent mt-auto inline-flex self-start pt-3 items-center text-xs"
             >
               <StableText k="home.whyMore" />
             </Link>

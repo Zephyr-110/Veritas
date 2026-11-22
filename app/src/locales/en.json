@@ -439,7 +439,7 @@
     "pending": "Pending",
     "redemptions": "Redemptions",
     "connect": "Connect a wallet to see your positions, LP shares and redemptions.",
-    "claimOnHelp": "Claim them on the Help page",
+    "claimOnHelp": "Open top-bar Faucet →",
     "emptyPositions": "No inventory.",
     "emptyPending": "No pending LP inventory.",
     "emptyRedeem": "No redemption signatures in the recent history window.",

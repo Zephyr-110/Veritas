@@ -156,11 +156,11 @@ export function PriceChartCard({
           opacity={0.48}
         />
         <text
-          x={padL + plotW - 4}
+          x={padL + 6}
           y={thrTagY}
           fontSize={10.5}
           fill="var(--ink-strong)"
-          textAnchor="end"
+          textAnchor="start"
           stroke="var(--bg)"
           strokeWidth={3}
           paintOrder="stroke"

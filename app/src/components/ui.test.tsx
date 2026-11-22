@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import type { ReactNode } from "react";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { act, render, screen, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PublicKey } from "@solana/web3.js";
 import { LocaleProvider } from "@/i18n/provider";
@@ -52,6 +52,7 @@ const {
   WalletButton,
   WalletConnectModal,
   cx,
+  openFaucetMenu,
 } = await import("@/components/ui");
 
 afterEach(() => {
@@ -230,7 +231,7 @@ describe("ui primitives", () => {
     expect(walletState.select).toHaveBeenCalledWith("Phantom");
   });
 
-  it("HeaderFaucet 浮层展示领水说明并在连接钱包后支持领取 USDT", async () => {
+  it("HeaderFaucet 浮层支持外部调用触发并在连接钱包后领取 USDT", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
     vi.stubGlobal("fetch", fetchMock);
     walletState.publicKey = PublicKey.default;
@@ -241,7 +242,7 @@ describe("ui primitives", () => {
         <HeaderFaucet />
       </LocaleProvider>
     );
-    await userEvent.click(screen.getByRole("button", { name: /Faucet/i }));
+    act(() => openFaucetMenu());
     await userEvent.click(screen.getByRole("button", { name: /Claim 100 test USDT/i }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(bump).toHaveBeenCalledTimes(1);

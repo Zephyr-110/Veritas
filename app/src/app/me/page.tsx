@@ -12,7 +12,7 @@ import { explorerTx, formatUnix, toUi } from "@/lib/format";
 import { kindLabel, marketKind, questionTitle, timeCopy } from "@/lib/display";
 import { useRefresh, useSettings } from "@/components/providers";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, DataFreshness, Reveal, StableText, StateBlock, WalletButton, onSpot } from "@/components/ui";
+import { Button, DataFreshness, Reveal, StableText, StateBlock, WalletButton, onSpot, openFaucetMenu } from "@/components/ui";
 import { useNow } from "@/hooks/use-now";
 import { MeSkeleton } from "@/components/skeletons";
 import { useT } from "@/i18n/provider";
@@ -137,9 +137,13 @@ export default function MePage() {
             <div className="grid gap-3 sm:grid-cols-3">
               <GuideStep n={1} titleKey="help.q1Title" bodyKey="help.q1" />
               <GuideStep n={2} titleKey="help.q2Title" bodyKey="help.q2">
-                <Link href="/help" className="link-accent text-sm">
+                <button
+                  type="button"
+                  onClick={() => openFaucetMenu()}
+                  className="link-accent text-left text-sm"
+                >
                   <StableText k="me.claimOnHelp" />
-                </Link>
+                </button>
               </GuideStep>
               <GuideStep n={3} titleKey="help.q3Title" bodyKey="help.q3">
                 <Link href="/markets" className="link-accent text-sm">

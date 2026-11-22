@@ -749,22 +749,42 @@ function clusterKey(cluster: string): "cluster.mainnet" | "cluster.local" | "clu
   return "cluster.devnet";
 }
 
+let faucetMenuOpen = false;
+const faucetMenuListeners = new Set<() => void>();
+function setFaucetMenuOpen(next: boolean | ((prev: boolean) => boolean)) {
+  faucetMenuOpen = typeof next === "function" ? next(faucetMenuOpen) : next;
+  faucetMenuListeners.forEach((fn) => fn());
+}
+
+export function openFaucetMenu() {
+  setFaucetMenuOpen(true);
+}
+
 export function HeaderFaucet() {
   const { publicKey } = useWallet();
   const { bump } = useRefresh();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(faucetMenuOpen);
   const [state, setState] = useState<"idle" | "busy" | "done" | "cooldown" | "unavailable">("idle");
   const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setOpen(faucetMenuOpen);
+    const sync = () => setOpen(faucetMenuOpen);
+    faucetMenuListeners.add(sync);
+    return () => {
+      faucetMenuListeners.delete(sync);
+    };
+  }, []);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: globalThis.MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
+        setFaucetMenuOpen(false);
       }
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") setFaucetMenuOpen(false);
     };
     document.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
@@ -808,7 +828,7 @@ export function HeaderFaucet() {
     <div ref={wrapRef} className="relative">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setFaucetMenuOpen((v) => !v)}
         aria-expanded={open}
         className="inline-flex h-8 shrink-0 items-center gap-1.5 border border-[var(--hair)] bg-[var(--seg-bg)] px-2.5 text-xs text-[var(--ink)] hover:border-[var(--line)] hover:text-[var(--ink-strong)]"
       >
@@ -825,7 +845,7 @@ export function HeaderFaucet() {
                 </span>
                 <button
                   type="button"
-                  onClick={() => setOpen(false)}
+                  onClick={() => setFaucetMenuOpen(false)}
                   className="text-xs text-zinc-400 transition-colors hover:text-white"
                 >
                   <StableText k="common.close" />
@@ -863,7 +883,7 @@ export function HeaderFaucet() {
                   tone="secondary"
                   className="h-8 w-full px-3 text-xs"
                   onClick={() => {
-                    setOpen(false);
+                    setFaucetMenuOpen(false);
                     setWalletModalOpen(true);
                   }}
                 >

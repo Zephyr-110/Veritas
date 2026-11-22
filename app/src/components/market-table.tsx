@@ -6,7 +6,7 @@ import { formatCents, formatYesNo } from "@/lib/format";
 import type { MarketView } from "@/lib/markets";
 import { useNow } from "@/hooks/use-now";
 import { useFeeds } from "@/hooks/use-feeds";
-import { feedByState, formatFeedPrice } from "@/lib/feeds";
+import { feedByState, formatFeedPrice, thresholdToHuman } from "@/lib/feeds";
 import { useT } from "@/i18n/provider";
 import { LiveCountdown } from "./live";
 import { PriceAge } from "./price-age";
@@ -65,6 +65,10 @@ export function MarketTable({ markets }: { markets: MarketView[] }) {
         }
         const href = `/markets/${market.address.toBase58()}`;
         const title = market.title ? questionTitle(market) : t("common.untitled");
+        const targetSpec = `${market.feedSymbol} ${market.settleAbove ? "≥" : "<"} ${thresholdToHuman(
+          market.threshold,
+          market.priceDecimals
+        )}`;
         return (
           <article
             key={market.address.toBase58()}
@@ -82,16 +86,19 @@ export function MarketTable({ markets }: { markets: MarketView[] }) {
                     <StatusChip market={market} now={now} />
                   </span>
                 </div>
-                <div className="mt-1 text-xs text-zinc-500 md:hidden">{formatYesNo(market.yesPrice)}</div>
-                {spotLine ? (
-                  <div className="mt-1 hidden items-baseline gap-2 text-xs text-zinc-500 md:flex">
-                    <span className="truncate">{spotLine}</span>
-                    <PriceAge
-                      publishTime={spot?.publishTime ?? null}
-                      className="min-w-[4.25rem] shrink-0 text-left text-[10px]"
-                    />
-                  </div>
-                ) : null}
+                <div className="mt-1 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 text-xs text-zinc-500">
+                  <span className="num font-medium text-zinc-300">{targetSpec}</span>
+                  <span className="md:hidden">{formatYesNo(market.yesPrice)}</span>
+                  {spotLine ? (
+                    <span className="hidden items-baseline gap-2 md:inline-flex">
+                      <span className="truncate">{spotLine}</span>
+                      <PriceAge
+                        publishTime={spot?.publishTime ?? null}
+                        className="min-w-[4.25rem] shrink-0 text-left text-[10px]"
+                      />
+                    </span>
+                  ) : null}
+                </div>
               </div>
               <div className="c-yes text-right">
                 <div className="num text-[17px] font-semibold text-zinc-50">{formatCents(market.yesPrice)}</div>

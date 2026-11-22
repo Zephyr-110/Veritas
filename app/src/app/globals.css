@@ -256,7 +256,8 @@
   color: var(--ink-strong);
   background: rgba(9, 9, 11, 0.03);
 }
-[data-theme="light"] .choice-on {
+[data-theme="light"] .choice-on,
+[data-theme="light"] .choice-on:hover {
   border-color: var(--accent);
   background: var(--accent);
   color: var(--on-accent);
@@ -820,6 +821,8 @@ html[lang="zh-CN"] .home-kicker:not(:has([lang])) {
   margin-bottom: 0.5rem;
 }
 .home-why-item {
+  display: flex;
+  flex-direction: column;
   font-size: 15px;
   line-height: 1.55;
   color: var(--ink-2);
