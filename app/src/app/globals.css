@@ -246,7 +246,7 @@ body {
   box-shadow: var(--card-shadow);
   backdrop-filter: blur(28px) saturate(165%);
   -webkit-backdrop-filter: blur(28px) saturate(165%);
-  transition: border-color 220ms ease, box-shadow 220ms ease, background-color 220ms ease;
+  transition: border-color 150ms ease;
 }
 .surface:hover {
   border-color: var(--card-line-hover);
@@ -392,7 +392,6 @@ body {
   font-size: 13px;
   color: var(--ink-2);
   cursor: pointer;
-  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
 }
 .choice:hover {
   border-color: var(--line);
@@ -503,8 +502,8 @@ body {
     row-gap: 0;
   }
   .market-row > .c-meta { display: none; }
-  .market-row > .c-ends { display: block; grid-area: ends; }
-  .market-row > .c-pool { display: block; grid-area: pool; }
+  .market-row > .c-ends { display: flex; grid-area: ends; align-items: center; justify-content: flex-end; }
+  .market-row > .c-pool { display: flex; grid-area: pool; align-items: center; justify-content: flex-end; }
   .market-row > .c-status {
     display: flex;
     grid-area: status;

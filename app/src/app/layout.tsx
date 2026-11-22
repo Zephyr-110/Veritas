@@ -20,7 +20,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "try{var t=localStorage.getItem('veritas-theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t}if(location.pathname==='/'){document.documentElement.dataset.brand='hidden'}}catch(e){}",
+              "try{document.documentElement.dataset.theme='dark';localStorage.removeItem('veritas-theme');if(location.pathname==='/'){document.documentElement.dataset.brand='hidden'}}catch(e){}",
           }}
         />
       </head>

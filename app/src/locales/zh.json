@@ -27,7 +27,14 @@
   },
   "wallet": {
     "connect": "连接钱包",
-    "disconnect": "断开"
+    "disconnect": "断开",
+    "modalTitle": "连接 Solana 钱包",
+    "detected": "已检测到钱包插件，点击即可连接：",
+    "noWalletTitle": "未检测到 Solana 钱包插件",
+    "noWalletBody": "如需下单或创建市场，请先安装 Phantom 或 Solflare 浏览器插件并将网络切至 Devnet。不连接钱包也可直接浏览全部实时与历史市场详情。",
+    "installPhantom": "安装 Phantom 插件",
+    "installSolflare": "安装 Solflare 插件",
+    "browseReadOnly": "先以只读模式浏览市场 →"
   },
   "common": {
     "yes": "YES",
@@ -90,7 +97,7 @@
     "why2": "结算由链上直接验签到期后首份 Chainlink OCR2 报告（相邻轮次或快照认证），任何人都能提交，结果唯一。",
     "why3Title": "流动性留到结算",
     "why3": "压在池子里的钱随到期临近逐步释放，释放的部分随时能领走；手续费全部留池，归在场做市商的分配在后续阶段开放。",
-    "whyMore": "查看原理解析",
+    "whyMore": "查看原理解析 →",
     "live": "本轮进行中",
     "emptyLive": "本轮暂无市场。",
     "next": "下一轮",
@@ -238,7 +245,9 @@
     "notesTitle": "创建须知",
     "noteFinal": "创建后不可更改，提交前请核对上面那句话。",
     "insufficientSol": "SOL 不足（当前 {sol} SOL，创建市场需至少 0.02 SOL 支付账户租金）",
-    "needSolBtn": "SOL 不足（需 ≥ 0.02 SOL）"
+    "needSolBtn": "SOL 不足（需 ≥ 0.02 SOL）",
+    "readOnlyHint": "当前未连接钱包（只读模式）。您可以直接前往市场页查看实时 K 线、金库储备与链上结算面板：",
+    "readOnlyCta": "浏览实时与历史市场 →"
   },
   "market": {
     "back": "← 市场",

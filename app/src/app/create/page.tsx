@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
@@ -113,7 +114,7 @@ export default function CreatePage() {
   const { nonce } = useRefresh();
   const { busy, run } = useTx();
   const { push } = useToasts();
-  const { quotes, ready } = useFeeds();
+  const { quotes } = useFeeds();
   const now = useNow(1000);
   const t = useT();
   const { locale } = useI18n();
@@ -131,7 +132,6 @@ export default function CreatePage() {
   const [attempted, setAttempted] = useState(false);
   const userThreshold = useRef(false);
   const lastAutoFeed = useRef<FeedKey | null>(null);
-  const bytes = utf8Len(title);
 
   useEffect(() => {
     setExpiry((prev) => prev ?? defaultExpiry());
@@ -174,16 +174,19 @@ export default function CreatePage() {
   const maxAmount = walletBalance ? toUi(walletBalance.atoms, walletBalance.decimals, walletBalance.decimals) : null;
   const solShort = Boolean(publicKey && solLamports !== null && solLamports < MIN_CREATE_SOL_LAMPORTS);
 
-  const syncTitle = (nextTitle: string) => {
-    if (!titleLocked) setTitle(nextTitle);
-  };
+  const autoTitle = useMemo(() => {
+    const exp = expiry ?? defaultExpiry();
+    return buildTitle(t(feed.labelKey), human, above, exp, locale);
+  }, [t, feed.labelKey, human, above, expiry, locale]);
+
+  const effectiveTitle = titleLocked ? title : autoTitle;
+  const bytes = utf8Len(effectiveTitle);
 
   const applyPreset = (id: string, ms: number) => {
     setPreset(id);
     const next = new Date(Date.now() + ms);
     next.setSeconds(0, 0);
     setExpiry(next);
-    syncTitle(buildTitle(t(feed.labelKey), human, above, next, locale));
   };
 
   const applyExact = (value: string) => {
@@ -192,23 +195,20 @@ export default function CreatePage() {
     next.setSeconds(0, 0);
     setPreset("custom");
     setExpiry(next);
-    syncTitle(buildTitle(t(feed.labelKey), human, above, next, locale));
   };
 
   const onFeed = (key: FeedKey) => {
     userThreshold.current = false;
-    lastAutoFeed.current = null;
+    const nextFeed = feedByKey(key);
+    const q = quotes[key];
+    const hasSpot = Boolean(q?.available && q.price != null);
+    const nextHuman = hasSpot ? spotInputValue(q!.price!) : nextFeed.defaultHuman;
+    lastAutoFeed.current = hasSpot ? key : null;
     setFeedKey(key);
+    setHuman(nextHuman);
   };
 
   useEffect(() => {
-    if (!titleLocked && expiry) {
-      setTitle(buildTitle(t(feed.labelKey), human, above, expiry, locale));
-    }
-  }, [locale, titleLocked, feed.labelKey, human, above, expiry, t]);
-
-  useEffect(() => {
-    if (!expiry) return;
     if (lastAutoFeed.current === feedKey) return;
     if (userThreshold.current) {
       lastAutoFeed.current = feedKey;
@@ -216,21 +216,14 @@ export default function CreatePage() {
     }
     const q = quotes[feedKey];
     if (q?.available && q.price != null) {
-      const rounded = spotInputValue(q.price);
-      setHuman(rounded);
+      setHuman(spotInputValue(q.price));
       lastAutoFeed.current = feedKey;
-      if (!titleLocked) setTitle(buildTitle(t(feed.labelKey), rounded, above, expiry, locale));
-      return;
     }
-    if (ready) {
-      setHuman(feed.defaultHuman);
-      if (!titleLocked) setTitle(buildTitle(t(feed.labelKey), feed.defaultHuman, above, expiry, locale));
-    }
-  }, [feedKey, quotes, ready, feed.labelKey, feed.defaultHuman, above, expiry, titleLocked, t, locale]);
+  }, [feedKey, quotes]);
 
   const expiryUnix = expiry ? Math.floor(expiry.getTime() / 1000) : 0;
   const seedAtoms = parseSeed(amount);
-  const questionErrorKey = !title.trim()
+  const questionErrorKey = !effectiveTitle.trim()
     ? "create.needQuestionBody"
     : bytes > PREDICTION_BYTES
       ? "create.tooLongBody"
@@ -253,9 +246,7 @@ export default function CreatePage() {
   const applySpot = () => {
     if (!spot?.available || spot.price == null) return;
     userThreshold.current = false;
-    const rounded = spotInputValue(spot.price);
-    setHuman(rounded);
-    syncTitle(buildTitle(t(feed.labelKey), rounded, above, expiry ?? defaultExpiry(), locale));
+    setHuman(spotInputValue(spot.price));
   };
 
   const displayHuman = useMemo(() => {
@@ -287,7 +278,7 @@ export default function CreatePage() {
           collateralMint,
           ocr2State: new PublicKey(feed.state),
           marketId,
-          prediction: encodePrediction(title.trim()),
+          prediction: encodePrediction(effectiveTitle.trim()),
           expiry: expiryUnix,
           collateralAmount,
           threshold,
@@ -326,7 +317,7 @@ export default function CreatePage() {
                   <StableText k="create.question" />
                 </span>
                 <input
-                  value={title}
+                  value={effectiveTitle}
                   onChange={(e) => {
                     setTitleLocked(true);
                     setTitle(e.target.value);
@@ -387,20 +378,14 @@ export default function CreatePage() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        setAbove(true);
-                        syncTitle(buildTitle(t(feed.labelKey), human, true, expiry ?? defaultExpiry(), locale));
-                      }}
+                      onClick={() => setAbove(true)}
                       className={choiceClass(above) + " choice-sm"}
                     >
                       <StableText k="create.directionAbove" align="center" />
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setAbove(false);
-                        syncTitle(buildTitle(t(feed.labelKey), human, false, expiry ?? defaultExpiry(), locale));
-                      }}
+                      onClick={() => setAbove(false)}
                       className={choiceClass(!above) + " choice-sm"}
                     >
                       <StableText k="create.directionBelow" align="center" />
@@ -419,7 +404,6 @@ export default function CreatePage() {
                         onChange={(e) => {
                           userThreshold.current = true;
                           setHuman(e.target.value);
-                          syncTitle(buildTitle(t(feed.labelKey), e.target.value, above, expiry ?? defaultExpiry(), locale));
                         }}
                         className="num text-right"
                       />
@@ -564,6 +548,14 @@ export default function CreatePage() {
               />
             </Button>
           </div>
+          {!publicKey ? (
+            <p className="text-[13px] leading-relaxed text-zinc-400">
+              <StableText k="create.readOnlyHint" />{" "}
+              <Link href="/markets" className="link-accent">
+                <StableText k="create.readOnlyCta" />
+              </Link>
+            </p>
+          ) : null}
         </form>
       </div>
       <aside className="desk-rail stack-3">
@@ -571,7 +563,7 @@ export default function CreatePage() {
           <StableText k="create.preview" />
         </div>
         <FeatureCard
-          title={title}
+          title={effectiveTitle}
           yesPrice={0.5}
           expiry={expiry && Number.isFinite(expiryUnix) ? expiryUnix : undefined}
           liquidity={t("create.previewSeed", { amount: amount || "0", symbol: COLLATERAL_SYMBOL })}

@@ -23,7 +23,7 @@ import { PriceAge } from "@/components/price-age";
 import { Button, Card, CopyText, DataFreshness, Kv, Reveal, SegTabs, StableText, StateBlock, StatusChip, onSpot } from "@/components/ui";
 import { useSettings } from "@/components/providers";
 import { MarketDetailSkeleton } from "@/components/skeletons";
-import { useT } from "@/i18n/provider";
+import { useLocale, useT } from "@/i18n/provider";
 
 type Spot = { price: number; publishTime: number | null } | null;
 
@@ -35,6 +35,7 @@ export default function MarketDetailPage() {
   const now = useNow(1000);
   const { quotes, ready } = useFeeds();
   const t = useT();
+  useLocale();
 
   if (loading && !market) {
     return <MarketDetailSkeleton />;

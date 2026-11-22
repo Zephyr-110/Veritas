@@ -1,7 +1,6 @@
 "use client";
 
 import { useAnchorWallet, useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Check, Droplets, ExternalLink, RefreshCw } from "lucide-react";
@@ -112,7 +111,7 @@ export function Button({
     <button
       data-tone={tone}
       className={cx(
-        "relative inline-flex h-10 items-center justify-center whitespace-nowrap px-4 text-sm transition-all duration-150 enabled:active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50",
+        "relative inline-flex h-10 items-center justify-center whitespace-nowrap px-4 text-sm transition-opacity duration-150 enabled:active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50",
         tones[tone],
         className
       )}
@@ -473,9 +472,28 @@ export function useTx() {
   return { busy, run };
 }
 
+let walletModalOpen = false;
+const walletModalListeners = new Set<() => void>();
+function setWalletModalOpen(next: boolean) {
+  walletModalOpen = next;
+  walletModalListeners.forEach((fn) => fn());
+}
+
+function useWalletModalState(): [boolean, (next: boolean) => void] {
+  const [isOpen, setIsOpen] = useState(walletModalOpen);
+  useEffect(() => {
+    setIsOpen(walletModalOpen);
+    const sync = () => setIsOpen(walletModalOpen);
+    walletModalListeners.add(sync);
+    return () => {
+      walletModalListeners.delete(sync);
+    };
+  }, []);
+  return [isOpen, setWalletModalOpen];
+}
+
 export function WalletButton() {
   const { publicKey, connected, connecting, wallet, select, disconnect } = useWallet();
-  const { setVisible } = useWalletModal();
   if (!connected || !publicKey) {
     return (
       <Button
@@ -484,7 +502,7 @@ export function WalletButton() {
           if (wallet && !connected && !connecting) {
             select(null);
           }
-          setVisible(true);
+          setWalletModalOpen(true);
         }}
         className="h-8 shrink-0 px-3 text-xs sm:h-9 sm:px-4"
       >
@@ -507,61 +525,118 @@ export function WalletButton() {
   );
 }
 
-function ThemeToggle() {
-  const t = useT();
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+function WalletConnectModal() {
+  const [isOpen, setOpen] = useWalletModalState();
+  const { wallets, select } = useWallet();
+
   useEffect(() => {
-    setTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark");
-  }, []);
-  const toggle = () => {
-    const next = theme === "light" ? "dark" : "light";
-    document.documentElement.dataset.theme = next;
-    try {
-      localStorage.setItem("veritas-theme", next);
-    } catch {
-      /* storage unavailable */
-    }
-    setTheme(next);
-  };
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isOpen, setOpen]);
+
+  if (!isOpen) return null;
+
+  const installed = wallets.filter(
+    (w) => w.readyState === "Installed" || w.readyState === "Loadable"
+  );
+
   return (
-    <button
-      type="button"
-      onClick={toggle}
-      aria-label={t("nav.theme")}
-      title={t("nav.theme")}
-      className="grid h-8 w-8 shrink-0 place-items-center border border-[var(--hair)] bg-[var(--seg-bg)] text-zinc-400 transition-colors hover:border-[var(--line)] hover:text-white"
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/75 p-4 backdrop-blur-md"
+      onClick={() => setOpen(false)}
     >
-      {theme === "light" ? (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        >
-          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-        </svg>
-      ) : (
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        >
-          <circle cx="12" cy="12" r="4" />
-          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-        </svg>
-      )}
-    </button>
+      <div
+        className="surface panel-float w-full max-w-md border border-[var(--line)] p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold text-white">
+            <StableText k="wallet.modalTitle" />
+          </h2>
+          <button
+            type="button"
+            className="text-xs text-zinc-400 transition-colors hover:text-white"
+            onClick={() => setOpen(false)}
+          >
+            <StableText k="common.close" />
+          </button>
+        </div>
+
+        {installed.length > 0 ? (
+          <div className="stack-3">
+            <p className="text-xs text-zinc-400">
+              <StableText k="wallet.detected" block />
+            </p>
+            <div className="stack-2">
+              {installed.map((w) => (
+                <button
+                  key={w.adapter.name}
+                  type="button"
+                  onClick={() => {
+                    select(w.adapter.name);
+                    setOpen(false);
+                  }}
+                  className="flex h-11 w-full items-center justify-between border border-[var(--card-line)] bg-[var(--seg-bg)] px-4 text-sm font-medium text-white transition-colors hover:border-[var(--line)] hover:bg-[var(--seg-thumb)]"
+                >
+                  <span className="flex items-center gap-3">
+                    {w.adapter.icon ? (
+                      <img src={w.adapter.icon} alt="" className="h-5 w-5 shrink-0" />
+                    ) : null}
+                    <span>{w.adapter.name}</span>
+                  </span>
+                  <span className="text-xs text-zinc-400">
+                    <StableText k="common.connect" align="end" />
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="stack-3 border border-[var(--hair)] bg-[var(--seg-bg)] p-4">
+            <div className="text-sm font-medium text-white">
+              <StableText k="wallet.noWalletTitle" block />
+            </div>
+            <p className="text-xs leading-relaxed text-zinc-400">
+              <StableText k="wallet.noWalletBody" block />
+            </p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <a
+                href="https://phantom.app/download"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-9 items-center justify-center gap-1.5 border border-[var(--line)] bg-[var(--card-bg)] px-3 text-xs font-medium text-zinc-100 transition-colors hover:border-zinc-500 hover:text-white"
+              >
+                <StableText k="wallet.installPhantom" align="center" />
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+              <a
+                href="https://solflare.com/download"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-9 items-center justify-center gap-1.5 border border-[var(--line)] bg-[var(--card-bg)] px-3 text-xs font-medium text-zinc-100 transition-colors hover:border-zinc-500 hover:text-white"
+              >
+                <StableText k="wallet.installSolflare" align="center" />
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-4 border-t border-[var(--hair)] pt-3">
+          <Link
+            href="/markets"
+            onClick={() => setOpen(false)}
+            className="link-accent inline-flex items-center text-xs"
+          >
+            <StableText k="wallet.browseReadOnly" />
+          </Link>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -569,7 +644,7 @@ function LangSwitch() {
   const { locale, setLocale, t } = useI18n();
   const btnCls = (on: boolean) =>
     cx(
-      "flex h-full min-w-[2.5rem] items-center justify-center px-2 text-[11px] font-medium leading-none transition-colors",
+      "flex h-full min-w-[2.5rem] items-center justify-center px-2 text-[11px] font-medium leading-none",
       on ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-[var(--ink-2)] hover:text-[var(--ink-strong)]"
     );
   return (
@@ -613,7 +688,6 @@ function clusterKey(cluster: string): "cluster.mainnet" | "cluster.local" | "clu
 
 function HeaderFaucet() {
   const { publicKey } = useWallet();
-  const { setVisible } = useWalletModal();
   const { bump } = useRefresh();
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<"idle" | "busy" | "done" | "cooldown" | "unavailable">("idle");
@@ -727,7 +801,7 @@ function HeaderFaucet() {
                   className="h-8 w-full px-3 text-xs"
                   onClick={() => {
                     setOpen(false);
-                    setVisible(true);
+                    setWalletModalOpen(true);
                   }}
                 >
                   <StableText k="wallet.connect" align="center" />
@@ -769,6 +843,12 @@ export function Header() {
   const [open, setOpen] = useState(false);
   const { connection } = useConnection();
   const [ok, setOk] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!window.location.hash) {
+      window.scrollTo(0, 0);
+    }
+  }, [pathname]);
 
   useEffect(() => {
     let alive = true;
@@ -869,7 +949,6 @@ export function Header() {
           >
             <StableText k="nav.settings" align="center" />
           </Button>
-          <ThemeToggle />
           <LangSwitch />
           <HeaderFaucet />
           <WalletButton />
@@ -895,6 +974,7 @@ export function Header() {
         })}
       </nav>
       {open ? <SettingsModal onClose={() => setOpen(false)} /> : null}
+      <WalletConnectModal />
     </header>
   );
 }

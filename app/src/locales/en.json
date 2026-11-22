@@ -27,7 +27,14 @@
   },
   "wallet": {
     "connect": "Connect wallet",
-    "disconnect": "Disconnect"
+    "disconnect": "Disconnect",
+    "modalTitle": "Connect a Solana Wallet",
+    "detected": "Detected wallet extensions — click to connect:",
+    "noWalletTitle": "No Solana wallet extension detected",
+    "noWalletBody": "To place trades or create markets, install the Phantom or Solflare browser extension and switch to Devnet. You can also explore all live and finished markets in read-only mode without a wallet.",
+    "installPhantom": "Install Phantom",
+    "installSolflare": "Install Solflare",
+    "browseReadOnly": "Browse markets in read-only mode →"
   },
   "common": {
     "yes": "YES",
@@ -90,7 +97,7 @@
     "why2": "Settlement is verified on-chain from the first Chainlink OCR2 report after expiry — proven adjacent or snapshot-certified, regardless of who submits it.",
     "why3Title": "Liquidity that stays to settlement",
     "why3": "Exposure is released gradually as expiry approaches and can be claimed at any time. Every fee is collected in the pool; distribution to the makers present opens in a later phase.",
-    "whyMore": "Deep dive",
+    "whyMore": "Deep dive →",
     "live": "Live this round",
     "emptyLive": "No markets this round.",
     "next": "Next round",
@@ -238,7 +245,9 @@
     "notesTitle": "Before you create",
     "noteFinal": "Once created, a market cannot be changed — review the sentence above before submitting.",
     "insufficientSol": "Insufficient SOL ({sol} SOL available; creating a market requires at least 0.02 SOL for account rent)",
-    "needSolBtn": "Insufficient SOL (need ≥ 0.02 SOL)"
+    "needSolBtn": "Insufficient SOL (need ≥ 0.02 SOL)",
+    "readOnlyHint": "Browsing in read-only mode without a wallet. You can still inspect live charts, vault reserves, and on-chain settlement panels:",
+    "readOnlyCta": "Explore live & finished markets →"
   },
   "market": {
     "back": "← Markets",

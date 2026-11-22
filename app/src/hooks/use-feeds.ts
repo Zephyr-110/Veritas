@@ -32,8 +32,14 @@ function notify() {
 }
 
 function emitQuotes(next: Record<FeedKey, FeedQuote>) {
+  const merged = { ...state.quotes };
+  (Object.keys(next) as FeedKey[]).forEach((k) => {
+    if (next[k]?.available) {
+      merged[k] = next[k];
+    }
+  });
   state = {
-    quotes: next,
+    quotes: merged,
     ready: true,
     error: null,
     lastUpdated: Math.floor(Date.now() / 1000),

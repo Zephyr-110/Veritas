@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { money, formatWhen, kindLabelKey, marketKind } from "@/lib/display";
+import { money, formatWhen, kindLabelKey, marketKind, questionTitle } from "@/lib/display";
 import { formatYesNo } from "@/lib/format";
 import type { MarketView } from "@/lib/markets";
 import { useNow } from "@/hooks/use-now";
-import { useT } from "@/i18n/provider";
+import { useLocale, useT } from "@/i18n/provider";
 import { LiveCountdown } from "./live";
 import { onSpot, StableText } from "./ui";
 
@@ -71,11 +71,12 @@ export function FeatureCard({
 
 export function MarketCard({ market }: { market: MarketView }) {
   const now = useNow(1000);
+  useLocale();
   const kind = marketKind(market, now);
   return (
     <FeatureCard
       href={"/markets/" + market.address.toBase58()}
-      title={market.title}
+      title={market.title ? questionTitle(market) : ""}
       yesPrice={market.yesPrice}
       expiry={market.expiry}
       liquidity={money(market.vault, market.decimals)}

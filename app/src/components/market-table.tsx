@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { marketKind, money, questionTitle, timeCopy } from "@/lib/display";
+import { formatWhen, marketKind, money, questionTitle } from "@/lib/display";
 import { formatCents, formatYesNo } from "@/lib/format";
 import type { MarketView } from "@/lib/markets";
 import { useNow } from "@/hooks/use-now";
@@ -107,8 +107,8 @@ export function MarketTable({ markets }: { markets: MarketView[] }) {
                     className="whitespace-nowrap text-[15px] text-zinc-100"
                   />
                 ) : (
-                  <span className="num block whitespace-nowrap text-[13px] text-zinc-500">
-                    {timeCopy(market, now)}
+                  <span className="num block whitespace-nowrap text-[13px] text-zinc-400">
+                    {formatWhen(market.expiry)}
                   </span>
                 )}
               </div>

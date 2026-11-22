@@ -126,10 +126,9 @@ export default function HomePage() {
                 </span>
                 <Link
                   href="/help#settlement"
-                  className="link-accent inline-flex items-center gap-1 text-xs"
+                  className="link-accent inline-flex items-center text-xs"
                 >
                   <StableText k="home.whyMore" />
-                  <span aria-hidden="true">→</span>
                 </Link>
               </div>
             </div>
@@ -345,10 +344,9 @@ export default function HomePage() {
             </p>
             <Link
               href="/help#permissionless"
-              className="link-accent mt-3 inline-flex items-center gap-1 text-xs"
+              className="link-accent mt-3 inline-flex items-center text-xs"
             >
               <StableText k="home.whyMore" />
-              <span aria-hidden="true">→</span>
             </Link>
           </div>
           <div className="home-why-item">
@@ -360,10 +358,9 @@ export default function HomePage() {
             </p>
             <Link
               href="/help#settlement"
-              className="link-accent mt-3 inline-flex items-center gap-1 text-xs"
+              className="link-accent mt-3 inline-flex items-center text-xs"
             >
               <StableText k="home.whyMore" />
-              <span aria-hidden="true">→</span>
             </Link>
           </div>
           <div className="home-why-item">
@@ -375,10 +372,9 @@ export default function HomePage() {
             </p>
             <Link
               href="/help#pm-amm"
-              className="link-accent mt-3 inline-flex items-center gap-1 text-xs"
+              className="link-accent mt-3 inline-flex items-center text-xs"
             >
               <StableText k="home.whyMore" />
-              <span aria-hidden="true">→</span>
             </Link>
           </div>
         </div>
@@ -391,12 +387,21 @@ export default function HomePage() {
           </h2>
           <div className="mt-6 grid gap-6 md:grid-cols-3">
             <div className="home-how-card">
+              <span className="num mb-3 inline-flex h-7 w-7 items-center justify-center border border-[var(--line)] bg-[var(--seg-bg)] text-xs font-semibold text-white">
+                01
+              </span>
               <StableText k="home.how1" block />
             </div>
             <div className="home-how-card">
+              <span className="num mb-3 inline-flex h-7 w-7 items-center justify-center border border-[var(--line)] bg-[var(--seg-bg)] text-xs font-semibold text-white">
+                02
+              </span>
               <StableText k="home.how2" block />
             </div>
             <div className="home-how-card">
+              <span className="num mb-3 inline-flex h-7 w-7 items-center justify-center border border-[var(--line)] bg-[var(--seg-bg)] text-xs font-semibold text-white">
+                03
+              </span>
               <StableText k="home.how3" block />
             </div>
           </div>

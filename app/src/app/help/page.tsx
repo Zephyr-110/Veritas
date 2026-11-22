@@ -16,6 +16,8 @@ import { useMarkets } from "@/hooks/use-markets";
 import { useNow } from "@/hooks/use-now";
 import { LiveCountdown } from "@/components/live";
 import { formatYesNo } from "@/lib/format";
+import { questionTitle } from "@/lib/display";
+import { useLocale } from "@/i18n/provider";
 
 function ValueCard({
   icon: Icon,
@@ -82,34 +84,30 @@ function DeepItem({
           <StableText k={titleKey} />
         </span>
         <ChevronDown
-          className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+          className={`h-4 w-4 shrink-0 text-zinc-500 ${open ? "rotate-180" : ""}`}
         />
       </button>
-      <div
-        className={`grid transition-all duration-200 ${open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}
-      >
-        <div className="overflow-hidden">
-          <div className="stack-3 px-5 pb-5">
-            <div className="stack-1">
-              <div className="text-xs font-medium tracking-wider text-zinc-200 uppercase">
-                <StableText k="help.deepWhyLabel" />
-              </div>
-              <p className="text-[15px] leading-relaxed text-zinc-400">
-                <StableText k={whyKey} block />
-              </p>
+      {open ? (
+        <div className="stack-3 border-t border-[var(--hair)] px-5 pt-4 pb-5">
+          <div className="stack-1">
+            <div className="text-xs font-medium tracking-wider text-zinc-200 uppercase">
+              <StableText k="help.deepWhyLabel" />
             </div>
-            <div className="stack-1">
-              <div className="text-xs font-medium tracking-wider text-zinc-200 uppercase">
-                <StableText k="help.deepHowLabel" />
-              </div>
-              <p className="text-[15px] leading-relaxed text-zinc-400">
-                <StableText k={howKey} block />
-              </p>
-            </div>
-            {children}
+            <p className="text-[15px] leading-relaxed text-zinc-400">
+              <StableText k={whyKey} block />
+            </p>
           </div>
+          <div className="stack-1">
+            <div className="text-xs font-medium tracking-wider text-zinc-200 uppercase">
+              <StableText k="help.deepHowLabel" />
+            </div>
+            <p className="text-[15px] leading-relaxed text-zinc-400">
+              <StableText k={howKey} block />
+            </p>
+          </div>
+          {children}
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -144,6 +142,7 @@ function QuickStep({
 function LiveNowCard() {
   const { markets } = useMarkets();
   const now = useNow(1000);
+  useLocale();
   const live = markets
     .filter((m) => m.status === "open" && m.expiry > now)
     .sort((a, b) => a.expiry - b.expiry)[0];
@@ -159,7 +158,7 @@ function LiveNowCard() {
           <span className="live-dot h-1.5 w-1.5 rounded-full bg-[var(--yes)]" />
           <StableText k="help.liveNow" />
         </span>
-        <span className="truncate font-medium text-white">{live.title}</span>
+        <span className="truncate font-medium text-white">{live.title ? questionTitle(live) : ""}</span>
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1.5 text-right">
         <LiveCountdown expiry={live.expiry} now={now} className="text-lg font-semibold text-white" />
