@@ -1,7 +1,71 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import type { ReactNode } from "react";
+import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Button, Card, Chip, Field, Kv, Reveal, SegTabs, StateBlock, cx } from "@/components/ui";
+import { PublicKey } from "@solana/web3.js";
+import { LocaleProvider } from "@/i18n/provider";
+import { setLocale } from "@/i18n/store";
+
+const walletState = vi.hoisted(() => ({
+  publicKey: null as PublicKey | null,
+  connected: false,
+  connecting: false,
+  wallet: null as unknown,
+  wallets: [] as Array<{ adapter: { name: string; icon?: string }; readyState: string }>,
+  select: vi.fn(),
+  disconnect: vi.fn(),
+}));
+const bump = vi.hoisted(() => vi.fn());
+
+vi.mock("@solana/wallet-adapter-react", () => ({
+  useWallet: () => walletState,
+  useConnection: () => ({ connection: { getEpochInfo: vi.fn() } }),
+  useAnchorWallet: () => null,
+}));
+
+vi.mock("@/components/providers", () => ({
+  useRefresh: () => ({ nonce: 0, bump }),
+  useSettings: () => ({ settings: { rpcUrl: "", cluster: "devnet", programId: "", collateralMint: "" } }),
+  useToasts: () => ({ push: vi.fn() }),
+}));
+
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
+    <a href={typeof href === "string" ? href : "#"} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
+const {
+  Button,
+  Card,
+  Chip,
+  Field,
+  HeaderFaucet,
+  Kv,
+  LangSwitch,
+  Reveal,
+  SegTabs,
+  StateBlock,
+  ThemeToggle,
+  WalletButton,
+  WalletConnectModal,
+  cx,
+} = await import("@/components/ui");
+
+afterEach(() => {
+  cleanup();
+  setLocale("en");
+  localStorage.clear();
+  delete document.documentElement.dataset.theme;
+  walletState.publicKey = null;
+  walletState.connected = false;
+  walletState.wallets = [];
+  walletState.select.mockReset();
+  bump.mockReset();
+  vi.unstubAllGlobals();
+});
 
 describe("ui primitives", () => {
   it("cx 过滤假值并拼接", () => {
@@ -108,5 +172,79 @@ describe("ui primitives", () => {
     } finally {
       (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = original;
     }
+  });
+
+  it("ThemeToggle 在暗色与浅色主题间双向切换并持久化", async () => {
+    render(
+      <LocaleProvider>
+        <ThemeToggle />
+      </LocaleProvider>
+    );
+    const btn = screen.getByRole("button");
+    await userEvent.click(btn);
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(localStorage.getItem("veritas-theme")).toBe("light");
+    await userEvent.click(btn);
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(localStorage.getItem("veritas-theme")).toBe("dark");
+  });
+
+  it("LangSwitch 点击立即同步高亮与语言", async () => {
+    render(
+      <LocaleProvider>
+        <LangSwitch />
+      </LocaleProvider>
+    );
+    const enBtn = screen.getByRole("button", { name: "EN" });
+    const zhBtn = screen.getByRole("button", { name: "中文" });
+    expect(enBtn.className).toContain("bg-[var(--accent)]");
+    await userEvent.click(zhBtn);
+    expect(zhBtn.className).toContain("bg-[var(--accent)]");
+    expect(enBtn.className).not.toContain("bg-[var(--accent)]");
+    expect(document.documentElement.lang).toBe("zh-CN");
+  });
+
+  it("WalletConnectModal 在无钱包插件时显示本地化安装引导，在有插件时可选择连接", async () => {
+    const { rerender } = render(
+      <LocaleProvider>
+        <WalletButton />
+        <WalletConnectModal />
+      </LocaleProvider>
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Connect wallet/i }));
+    expect(screen.getByText(/No Solana wallet extension detected/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Install Phantom/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Browse markets in read-only mode/i })).toHaveAttribute(
+      "href",
+      "/markets"
+    );
+
+    walletState.wallets = [{ adapter: { name: "Phantom" }, readyState: "Installed" }];
+    rerender(
+      <LocaleProvider>
+        <WalletButton />
+        <WalletConnectModal />
+      </LocaleProvider>
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Phantom/i }));
+    expect(walletState.select).toHaveBeenCalledWith("Phantom");
+  });
+
+  it("HeaderFaucet 浮层展示领水说明并在连接钱包后支持领取 USDT", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+    walletState.publicKey = PublicKey.default;
+    walletState.connected = true;
+
+    render(
+      <LocaleProvider>
+        <HeaderFaucet />
+      </LocaleProvider>
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Faucet/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Claim 100 test USDT/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(bump).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/Sent — check your wallet/i)).toBeInTheDocument();
   });
 });

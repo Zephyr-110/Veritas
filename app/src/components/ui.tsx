@@ -4,6 +4,7 @@ import { useAnchorWallet, useConnection, useWallet } from "@solana/wallet-adapte
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Check, Droplets, ExternalLink, RefreshCw } from "lucide-react";
+import { createPortal } from "react-dom";
 import {
   useEffect,
   useRef,
@@ -525,7 +526,7 @@ export function WalletButton() {
   );
 }
 
-function WalletConnectModal() {
+export function WalletConnectModal() {
   const [isOpen, setOpen] = useWalletModalState();
   const { wallets, select } = useWallet();
 
@@ -538,13 +539,13 @@ function WalletConnectModal() {
     return () => window.removeEventListener("keydown", onKey);
   }, [isOpen, setOpen]);
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === "undefined") return null;
 
   const installed = wallets.filter(
     (w) => w.readyState === "Installed" || w.readyState === "Loadable"
   );
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-black/75 p-4 backdrop-blur-md"
       onClick={() => setOpen(false)}
@@ -636,11 +637,73 @@ function WalletConnectModal() {
           </Link>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
-function LangSwitch() {
+export function ThemeToggle() {
+  const t = useT();
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  useEffect(() => {
+    setTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark");
+  }, []);
+  const toggle = () => {
+    const next = theme === "light" ? "dark" : "light";
+    const root = document.documentElement;
+    root.dataset.theme = next;
+    root.style.colorScheme = next;
+    void root.offsetHeight;
+    try {
+      localStorage.setItem("veritas-theme", next);
+    } catch {
+      /* storage unavailable */
+    }
+    setTheme(next);
+  };
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      aria-label={t("nav.theme")}
+      title={t("nav.theme")}
+      className="grid h-8 w-8 shrink-0 place-items-center border border-[var(--hair)] bg-[var(--seg-bg)] text-[var(--ink-2)] hover:border-[var(--line)] hover:text-[var(--ink-strong)]"
+    >
+      {theme === "light" ? (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+        </svg>
+      ) : (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
+export function LangSwitch() {
   const { locale, setLocale, t } = useI18n();
   const btnCls = (on: boolean) =>
     cx(
@@ -686,7 +749,7 @@ function clusterKey(cluster: string): "cluster.mainnet" | "cluster.local" | "clu
   return "cluster.devnet";
 }
 
-function HeaderFaucet() {
+export function HeaderFaucet() {
   const { publicKey } = useWallet();
   const { bump } = useRefresh();
   const [open, setOpen] = useState(false);
@@ -747,9 +810,9 @@ function HeaderFaucet() {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="inline-flex h-8 shrink-0 items-center gap-1.5 border border-[var(--hair)] bg-[var(--seg-bg)] px-2.5 text-xs text-zinc-200 transition-colors hover:border-[var(--line)] hover:text-white"
+        className="inline-flex h-8 shrink-0 items-center gap-1.5 border border-[var(--hair)] bg-[var(--seg-bg)] px-2.5 text-xs text-[var(--ink)] hover:border-[var(--line)] hover:text-[var(--ink-strong)]"
       >
-        <Droplets className="h-3.5 w-3.5 text-zinc-400" />
+        <Droplets className="h-3.5 w-3.5 text-[var(--ink-2)]" />
         <StableText k="nav.faucet" align="center" />
       </button>
       {open ? (
@@ -823,7 +886,7 @@ function HeaderFaucet() {
                 href="https://faucet.solana.com"
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-8 w-full items-center justify-center gap-1.5 border border-[var(--line)] bg-[var(--bg-elev)] px-3 text-xs font-medium text-zinc-200 transition-colors hover:border-zinc-500 hover:text-white"
+                className="inline-flex h-8 w-full items-center justify-center gap-1.5 border border-[var(--line)] bg-[var(--card-bg)] px-3 text-xs font-medium text-[var(--ink)] hover:border-zinc-500 hover:text-[var(--ink-strong)]"
               >
                 <StableText k="help.q2Sol" align="center" />
                 <ExternalLink className="h-3.5 w-3.5" />
@@ -912,10 +975,10 @@ export function Header() {
                   key={item.href}
                   href={item.href}
                   className={cx(
-                    "whitespace-nowrap px-3 py-1.5 text-sm transition-colors",
+                    "whitespace-nowrap px-3 py-1.5 text-sm",
                     active
                       ? "border border-[var(--card-line)] bg-[var(--seg-thumb)] font-medium text-[var(--ink-strong)]"
-                      : "border border-transparent text-zinc-400 hover:text-white"
+                      : "border border-transparent text-[var(--ink-2)] hover:text-[var(--ink-strong)]"
                   )}
                 >
                   <StableText k={item.key} align="center" />
@@ -931,7 +994,7 @@ export function Header() {
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="hidden h-8 items-center gap-2 border border-[var(--hair)] bg-[var(--seg-bg)] px-2.5 text-xs text-zinc-300 transition-colors hover:border-[var(--line)] hover:text-white md:inline-flex"
+            className="hidden h-8 items-center gap-2 border border-[var(--hair)] bg-[var(--seg-bg)] px-2.5 text-xs text-[var(--ink)] hover:border-[var(--line)] hover:text-[var(--ink-strong)] md:inline-flex"
           >
             <span
               className={cx(
@@ -949,6 +1012,7 @@ export function Header() {
           >
             <StableText k="nav.settings" align="center" />
           </Button>
+          <ThemeToggle />
           <LangSwitch />
           <HeaderFaucet />
           <WalletButton />
@@ -1007,7 +1071,9 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
     onClose();
   };
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-md"
       onClick={onClose}
@@ -1079,7 +1145,8 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

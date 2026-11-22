@@ -13,7 +13,7 @@ export type MarketKind =
   | "windowVoid";
 
 const AUTO_TITLE =
-  /^(.+?) (>=|<) ([\d,.]+) @ |^([A-Z0-9]+\/[A-Z0-9]+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+(?:能站上|会跌破)\s+[\d,.]+\s*吗[？?]?$|^([A-Z0-9]+\/[A-Z0-9]+)\s+(?:above|below)\s+[\d,.]+\s+at\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\??$/i;
+  /^(.+?) (>=|<) ([\d,.]+) @ |^([A-Z0-9]+\/[A-Z0-9]+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+(?:能站上|会跌破)\s+[\d,.]+\s*吗[？?]?$|^([A-Z0-9]+\/[A-Z0-9]+)\s+(?:above|below)\s+[\d,.]+\s+at\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\??$|^([A-Z0-9]+\/[A-Z0-9]+)\s+at or (?:above|below)\s+/i;
 
 /** Auto-generated spec titles ("BTC/USD >= 73,479 @ ...") read as questions;
     a creator's custom title is returned untouched. */

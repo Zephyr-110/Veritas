@@ -99,6 +99,18 @@ describe("display", () => {
       setLocale("zh");
       expect(questionTitle(mAbove)).toMatch(/^BTC\/USD \d{4}-\d{2}-\d{2} \d{2}:\d{2} 能站上 73,479 吗？$/);
       expect(questionTitle(mBelow)).toMatch(/^ETH\/USD \d{4}-\d{2}-\d{2} \d{2}:\d{2} 会跌破 2,000 吗？$/);
+
+      const mZhAuto = makeMarket({ title: "BTC/USD 2026-11-22 16:32 能站上 73,479 吗？", settleAbove: true });
+      const mEnAuto = makeMarket({
+        title: "ETH/USD below 2,000 at 2026-11-22 16:32?",
+        ocr2State: new PublicKey(FEEDS[1].state),
+        threshold: 2_000n * 10n ** 8n,
+        settleAbove: false,
+      });
+      setLocale("en");
+      expect(questionTitle(mZhAuto)).toMatch(/^BTC\/USD above 73,479 at \d{4}-\d{2}-\d{2} \d{2}:\d{2}\?$/);
+      setLocale("zh");
+      expect(questionTitle(mEnAuto)).toMatch(/^ETH\/USD \d{4}-\d{2}-\d{2} \d{2}:\d{2} 会跌破 2,000 吗？$/);
     });
   });
 
