@@ -730,9 +730,15 @@ function HeaderTape() {
   const { quotes } = useFeeds();
   const items = FEEDS.filter((f) => f.key === "btc" || f.key === "sol");
   return (
-    <div className="pointer-events-none hidden items-center gap-5 xl:flex">
-      {items.map((f) => (
-        <span key={f.key} className="flex items-baseline gap-1.5 text-[12px]">
+    <div className="pointer-events-none hidden shrink-0 items-center gap-5 whitespace-nowrap xl:flex">
+      {items.map((f, idx) => (
+        <span
+          key={f.key}
+          className={cx(
+            "items-baseline gap-1.5 whitespace-nowrap text-[12px]",
+            idx === 0 ? "flex" : "hidden 2xl:flex"
+          )}
+        >
           <span className="font-medium text-zinc-500">{f.symbol}</span>
           <span className="num text-zinc-200">{formatFeedPrice(quotes[f.key]?.price ?? null)}</span>
           <PriceAge publishTime={quotes[f.key]?.publishTime ?? null} className="min-w-[4.5rem] text-left text-[10px] text-zinc-500" />

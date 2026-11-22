@@ -1,19 +1,17 @@
 "use client";
 
-import { useEffect } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { EMPTY_POSITION, fetchMarket, fetchPosition } from "@/lib/markets";
+import { EMPTY_POSITION, fetchMarket, fetchPosition, type MarketView } from "@/lib/markets";
 import { parseTxError } from "@/lib/errors";
 import { useProgram } from "./use-program";
-import { useRefresh } from "@/components/providers";
+import { marketsQueryKey } from "./use-markets";
 
 export function useMarket(address: string | null) {
   const { connection } = useConnection();
   const { publicKey } = useWallet();
   const program = useProgram();
-  const { nonce } = useRefresh();
   const queryClient = useQueryClient();
   const programId = program?.programId.toBase58() ?? "";
   const wallet = publicKey?.toBase58() ?? "";
@@ -24,6 +22,20 @@ export function useMarket(address: string | null) {
     queryFn: async () => {
       const pk = new PublicKey(address!);
       const next = await fetchMarket(connection, program!, pk);
+      queryClient.setQueryData<MarketView[]>(
+        marketsQueryKey(connection.rpcEndpoint, programId),
+        (prev) => {
+          if (!prev) return prev;
+          const target = next.address.toBase58();
+          let updated = false;
+          const list = prev.map((m) => {
+            if (m.address.toBase58() !== target) return m;
+            updated = true;
+            return next;
+          });
+          return updated ? list : [next, ...list].sort((a, b) => b.expiry - a.expiry);
+        }
+      );
       const position = publicKey
         ? await fetchPosition(connection, program!.programId, next, publicKey)
         : EMPTY_POSITION;
@@ -31,13 +43,6 @@ export function useMarket(address: string | null) {
     },
     enabled: Boolean(program && address),
   });
-
-  useEffect(() => {
-    if (nonce > 0) {
-      void queryClient.invalidateQueries({ queryKey: key });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nonce, queryClient, connection.rpcEndpoint, programId, address, wallet]);
 
   const errorCode = !program
     ? "errors.badAddress"

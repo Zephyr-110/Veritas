@@ -912,6 +912,7 @@ html[lang="zh-CN"] .home-kicker:not(:has([lang])) {
 }
 .home-fin-strip {
   display: flex;
+  align-items: stretch;
   gap: 1rem;
   overflow-x: auto;
   padding-bottom: 0.5rem;
@@ -925,6 +926,8 @@ html[lang="zh-CN"] .home-kicker:not(:has([lang])) {
 }
 .home-fin-item {
   flex: 0 0 17.5rem;
+  display: flex;
+  flex-direction: column;
   scroll-snap-align: start;
 }
 .home-next-bar {

@@ -250,6 +250,9 @@ export default function HelpPage() {
               <pre className="overflow-x-auto border border-[var(--hair)] bg-black/40 px-3 py-2 font-mono text-xs text-zinc-200">
                 <code>node scripts/settle.js &lt;MARKET_PUBKEY&gt;</code>
               </pre>
+              <p className="text-xs leading-relaxed text-zinc-400">
+                <StableText k="help.a2FallbackNote" block />
+              </p>
             </div>
             <div className="stack-2 border border-[var(--hair)] bg-[var(--seg-bg)] p-4 text-sm leading-relaxed text-zinc-400">
               <div className="font-medium text-zinc-200">

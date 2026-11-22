@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useMarkets } from "@/hooks/use-markets";
 import { useProgram } from "@/hooks/use-program";
@@ -10,8 +10,8 @@ import { fetchRedemptions } from "@/lib/history";
 import { localizeError } from "@/lib/errors";
 import { explorerTx, formatUnix, toUi } from "@/lib/format";
 import { kindLabel, marketKind, questionTitle, timeCopy } from "@/lib/display";
-import { useRefresh, useSettings } from "@/components/providers";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSettings } from "@/components/providers";
+import { useQuery } from "@tanstack/react-query";
 import { Button, DataFreshness, Reveal, StableText, StateBlock, WalletButton, onSpot, openFaucetMenu } from "@/components/ui";
 import { useNow } from "@/hooks/use-now";
 import { MeSkeleton } from "@/components/skeletons";
@@ -72,9 +72,7 @@ export default function MePage() {
   const program = useProgram();
   const { markets, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarkets();
   const { settings } = useSettings();
-  const { nonce } = useRefresh();
   const now = useNow(1000);
-  const queryClient = useQueryClient();
   const t = useT();
   const programId = program?.programId.toBase58() ?? "";
   const wallet = publicKey?.toBase58() ?? "";
@@ -105,13 +103,6 @@ export default function MePage() {
     queryFn: () => fetchRedemptions(connection, publicKey!, program!.programId),
     enabled: Boolean(program && publicKey),
   });
-
-  useEffect(() => {
-    if (nonce > 0) {
-      void queryClient.invalidateQueries({ queryKey: ["positions"] });
-      void queryClient.invalidateQueries({ queryKey: ["redemptions"] });
-    }
-  }, [nonce, queryClient]);
 
   const rows: Row[] = positionsQuery.data ?? [];
   const redemptions = redemptionsQuery.data ?? [];

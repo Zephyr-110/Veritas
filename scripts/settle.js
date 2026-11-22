@@ -1,0 +1,648 @@
+#!/usr/bin/env node
+"use strict";
+
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { AnchorProvider, Program, Wallet, utils } = require("@coral-xyz/anchor");
+const {
+  ComputeBudgetProgram,
+  Connection,
+  Keypair,
+  PublicKey,
+  SYSVAR_CLOCK_PUBKEY,
+  Transaction,
+  sendAndConfirmTransaction,
+} = require("@solana/web3.js");
+
+const DEFAULT_RPC = "https://api.devnet.solana.com";
+const DEFAULT_PROGRAM_ID = "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER";
+const CHAINLINK_OCR2_PROGRAM_ID = new PublicKey("cjg3oHmg9uuPsP8D6g29NWvhySJkdYdAo9D25PRbKXJ");
+
+const MARKET_ACCOUNT_SIZE = 409;
+const MARKET_DISCRIMINATOR = [219, 190, 213, 55, 0, 227, 198, 154];
+const MARKET_SNAPSHOT_DISCRIMINATOR = [107, 32, 221, 188, 130, 114, 104, 28];
+const OCR2_STATE_DISCRIMINATOR = [216, 146, 107, 94, 104, 75, 182, 177];
+
+const STATE_F_OFFSET = 272;
+const STATE_DIGEST_OFFSET = 320;
+const STATE_OFFCHAIN_BUF_OFFSET = 376;
+const STATE_OFFCHAIN_CAP = 4096;
+const STATE_OFFCHAIN_LEN_OFFSET = STATE_OFFCHAIN_BUF_OFFSET + STATE_OFFCHAIN_CAP;
+const STATE_MIN_LEN = 6920;
+
+const CONTEXT_LEN = 96;
+const REPORT_LEN = 61;
+const SIGNATURE_LEN = 65;
+const RAW_REPORT_HEADER_LEN = 1 + CONTEXT_LEN + REPORT_LEN;
+
+const MAX_SIGNATURE_PAGES = 20;
+const SIGNATURES_PER_PAGE = 500;
+const TX_BATCH_SIZE = 8;
+
+function usage(exitCode = 0) {
+  const out = exitCode === 0 ? console.log : console.error;
+  out(`Usage:
+  node scripts/settle.js <MARKET_PUBKEY> [options]
+
+Options:
+  --dry-run           Locate straddling OCR2 reports without sending a transaction
+  --keypair <path>    Path to Solana JSON keypair file
+  --rpc <url>         Solana RPC endpoint override
+  -h, --help          Show this help message
+
+Environment variables:
+  SOLANA_RPC / RPC_URL         Solana RPC URL (default: ${DEFAULT_RPC})
+  ANCHOR_WALLET / WALLET_PATH  Keypair JSON path (default: ~/.config/solana/id.json)
+  PROGRAM_ID                   Prediction market program ID (default: ${DEFAULT_PROGRAM_ID})
+`);
+  process.exit(exitCode);
+}
+
+function parseArgs(argv) {
+  const opts = { market: null, dryRun: false, keypair: null, rpc: null };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "-h" || arg === "--help") {
+      usage(0);
+    } else if (arg === "--dry-run") {
+      opts.dryRun = true;
+    } else if (arg === "--keypair") {
+      opts.keypair = argv[++i];
+      if (!opts.keypair) throw new Error("--keypair requires a path");
+    } else if (arg === "--rpc") {
+      opts.rpc = argv[++i];
+      if (!opts.rpc) throw new Error("--rpc requires a URL");
+    } else if (arg.startsWith("-")) {
+      throw new Error(`Unknown option: ${arg}`);
+    } else if (!opts.market) {
+      opts.market = arg;
+    } else {
+      throw new Error(`Unexpected argument: ${arg}`);
+    }
+  }
+  return opts;
+}
+
+function defaultWalletPath() {
+  return path.join(os.homedir(), ".config", "solana", "id.json");
+}
+
+function loadKeypair(cliPath, allowDummy) {
+  const candidate = cliPath || process.env.ANCHOR_WALLET || process.env.WALLET_PATH || defaultWalletPath();
+  if (!fs.existsSync(candidate)) {
+    if (allowDummy) return { payer: Keypair.generate(), path: null };
+    throw new Error(
+      `Wallet keypair file not found: ${candidate}\nSet ANCHOR_WALLET / WALLET_PATH, pass --keypair <path>, or create ~/.config/solana/id.json.`
+    );
+  }
+  const raw = JSON.parse(fs.readFileSync(candidate, "utf8"));
+  if (!Array.isArray(raw)) throw new Error(`Invalid keypair JSON in ${candidate}`);
+  return { payer: Keypair.fromSecretKey(Uint8Array.from(raw)), path: candidate };
+}
+
+function loadIdl(programId) {
+  const repoRoot = path.resolve(__dirname, "..");
+  const candidates = [
+    path.join(repoRoot, "app", "src", "idl", "prediction_market.json"),
+    path.join(repoRoot, "target", "idl", "prediction_market.json"),
+  ];
+  const idlPath = candidates.find((p) => fs.existsSync(p));
+  if (!idlPath) {
+    throw new Error(`Anchor IDL not found. Checked:\n  ${candidates.join("\n  ")}`);
+  }
+  const idl = JSON.parse(fs.readFileSync(idlPath, "utf8"));
+  idl.address = programId.toBase58();
+  return idl;
+}
+
+function pause(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sameDisc(actual, expected) {
+  if (actual.length < expected.length) return false;
+  for (let i = 0; i < expected.length; i += 1) {
+    if (actual[i] !== expected[i]) return false;
+  }
+  return true;
+}
+
+class Cursor {
+  constructor(buf, offset = 0) {
+    this.buf = buf;
+    this.offset = offset;
+  }
+  take(n) {
+    if (this.offset + n > this.buf.length) throw new Error("Unexpected end of account data");
+    const slice = this.buf.subarray(this.offset, this.offset + n);
+    this.offset += n;
+    return slice;
+  }
+  u8() {
+    return this.take(1)[0];
+  }
+  bool() {
+    return this.u8() !== 0;
+  }
+  u16() {
+    return this.take(2).readUInt16LE(0);
+  }
+  u32() {
+    return this.take(4).readUInt32LE(0);
+  }
+  u64() {
+    return this.take(8).readBigUInt64LE(0);
+  }
+  i64() {
+    return this.take(8).readBigInt64LE(0);
+  }
+  i128() {
+    const lo = this.take(8).readBigUInt64LE(0);
+    const hi = this.take(8).readBigInt64LE(0);
+    return (hi << 64n) + lo;
+  }
+  pubkey() {
+    return new PublicKey(this.take(32));
+  }
+  bytes(n) {
+    return Array.from(this.take(n));
+  }
+}
+
+function decodeMarket(data) {
+  if (data.length !== MARKET_ACCOUNT_SIZE || !sameDisc(data, MARKET_DISCRIMINATOR)) {
+    throw new Error("Account is not a valid PredictionMarket Market account");
+  }
+  const c = new Cursor(data, 8);
+  const expiry = Number(c.u64());
+  const creator = c.pubkey();
+  const id = c.bytes(16);
+  const bump = c.u8();
+  const yesMint = c.pubkey();
+  const noMint = c.pubkey();
+  const statusByte = c.u8();
+  const statusMap = ["open", "resolved", "windowBurn", "staleBurn"];
+  const status = statusMap[statusByte];
+  if (!status) throw new Error(`Unknown market status byte: ${statusByte}`);
+  const collateralMint = c.pubkey();
+  const winnerTag = c.u8();
+  const winner = winnerTag === 0 ? null : winnerTag === 1 ? (c.u8() === 0 ? "yes" : "no") : null;
+  const marketCollateralBump = c.u8();
+  const predictionRaw = c.bytes(64);
+  const finishTs = Number(c.u64());
+  c.i128(); // lZero
+  c.i64(); // lastAccrualTs
+  c.i128(); // cumYesPerShare
+  c.i128(); // cumNoPerShare
+  c.u16(); // feeBps
+  c.i128(); // reserveYes
+  c.i128(); // reserveNo
+  c.i128(); // totalLpShares
+  const endTs = Number(c.i64());
+  const ocr2State = c.pubkey();
+  const threshold = c.i64();
+  const priceDecimals = c.u8();
+  const settleAbove = c.bool();
+  const settledPrice = c.i64();
+  const settledPublishTime = Number(c.i64());
+
+  const titleEnd = predictionRaw.indexOf(0);
+  const title = Buffer.from(titleEnd >= 0 ? predictionRaw.slice(0, titleEnd) : predictionRaw).toString("utf8");
+
+  return {
+    expiry,
+    creator,
+    id,
+    bump,
+    yesMint,
+    noMint,
+    status,
+    collateralMint,
+    winner,
+    marketCollateralBump,
+    title,
+    finishTs,
+    endTs,
+    ocr2State,
+    threshold,
+    priceDecimals,
+    settleAbove,
+    settledPrice,
+    settledPublishTime,
+  };
+}
+
+function decodeMarketSnapshot(data) {
+  if (!sameDisc(data, MARKET_SNAPSHOT_DISCRIMINATOR)) return null;
+  const c = new Cursor(data, 8);
+  const len = c.u32();
+  if (len > 16) return null;
+  const entries = [];
+  for (let i = 0; i < len; i += 1) {
+    entries.push({
+      epoch: c.u32(),
+      round: c.u8(),
+      counter: c.u32(),
+      price: c.i128(),
+      ts: Number(c.i64()),
+    });
+  }
+  return { entries };
+}
+
+function snapshotMatches(snapshot, pre, post) {
+  for (let i = 0; i < snapshot.entries.length; i += 1) {
+    const x = snapshot.entries[i];
+    if (x.epoch !== pre.epoch || x.round !== pre.round) continue;
+    const next = snapshot.entries[i + 1];
+    if (!next) return false;
+    return next.counter === x.counter + 1 && next.round === post.round && next.epoch === post.epoch;
+  }
+  return false;
+}
+
+function readVarint(buf, pos) {
+  let value = 0n;
+  for (let shiftIdx = 0; shiftIdx < 10; shiftIdx += 1) {
+    if (pos.i >= buf.length) throw new Error("Invalid OCR2 offchain config varint");
+    const b = buf[pos.i];
+    pos.i += 1;
+    const bits = BigInt(b & 0x7f);
+    if (shiftIdx === 9 && bits > 1n) throw new Error("Invalid OCR2 offchain config varint overflow");
+    value |= bits << BigInt(7 * shiftIdx);
+    if ((b & 0x80) === 0) return value;
+  }
+  throw new Error("Invalid OCR2 offchain config varint");
+}
+
+function readRMax(stateData) {
+  if (stateData.length < STATE_MIN_LEN || !sameDisc(stateData, OCR2_STATE_DISCRIMINATOR)) {
+    throw new Error("Invalid Chainlink OCR2 state account");
+  }
+  const lenBig = stateData.readBigUInt64LE(STATE_OFFCHAIN_LEN_OFFSET);
+  if (lenBig > BigInt(STATE_OFFCHAIN_CAP)) throw new Error("Invalid OCR2 offchain config length");
+  const cfg = stateData.subarray(STATE_OFFCHAIN_BUF_OFFSET, STATE_OFFCHAIN_BUF_OFFSET + Number(lenBig));
+  const pos = { i: 0 };
+  let rMax = null;
+  while (pos.i < cfg.length) {
+    const tag = readVarint(cfg, pos);
+    const wire = Number(tag & 7n);
+    const field = tag >> 3n;
+    if (wire === 0) {
+      const v = readVarint(cfg, pos);
+      if (field === 6n) {
+        if (rMax !== null || v < 1n || v > 255n) throw new Error("Invalid OCR2 rMax field");
+        rMax = Number(v);
+      }
+    } else if (wire === 1) {
+      pos.i += 8;
+    } else if (wire === 2) {
+      const l = Number(readVarint(cfg, pos));
+      pos.i += l;
+    } else if (wire === 5) {
+      pos.i += 4;
+    } else {
+      throw new Error(`Unsupported protobuf wire type ${wire} in OCR2 config`);
+    }
+  }
+  if (rMax === null) throw new Error("OCR2 rMax missing from offchain config");
+  return rMax;
+}
+
+function parseOcr2State(stateData) {
+  return {
+    f: stateData[STATE_F_OFFSET],
+    latestConfigDigest: Buffer.from(stateData.subarray(STATE_DIGEST_OFFSET, STATE_DIGEST_OFFSET + 32)),
+    rMax: readRMax(stateData),
+  };
+}
+
+function readI128BE(buf, offset) {
+  const hi = buf.readBigInt64BE(offset);
+  const lo = buf.readBigUInt64BE(offset + 8);
+  return (hi << 64n) + lo;
+}
+
+function parseOcr2Transmit(rawBytes, expectedDigest, expectedF) {
+  const raw = Buffer.from(rawBytes);
+  if (raw.length <= RAW_REPORT_HEADER_LEN) return null;
+  const sigBytes = raw.length - RAW_REPORT_HEADER_LEN;
+  if (sigBytes % SIGNATURE_LEN !== 0) return null;
+  const sigCount = sigBytes / SIGNATURE_LEN;
+  if (expectedF != null && sigCount !== expectedF + 1) return null;
+
+  const configDigest = Buffer.from(raw.subarray(1, 33));
+  if (expectedDigest && !configDigest.equals(expectedDigest)) return null;
+
+  const epoch = raw.readUInt32BE(1 + 59);
+  const round = raw[1 + 63];
+  const rawReportOffset = 1 + CONTEXT_LEN;
+  const observationsTimestamp = raw.readUInt32BE(rawReportOffset);
+  const observerCount = raw[rawReportOffset + 4];
+  if (expectedF != null && expectedF >= observerCount) return null;
+  const median = readI128BE(raw, rawReportOffset + 37);
+
+  return { raw, configDigest, epoch, round, observationsTimestamp, observerCount, median };
+}
+
+function areReportsAdjacent(pre, post, rMax) {
+  if (pre.round === rMax && post.round === 1 && pre.epoch + 1 === post.epoch) return true;
+  if (pre.round < rMax && post.round === pre.round + 1 && pre.epoch === post.epoch) return true;
+  return false;
+}
+
+function decodeIxData(raw) {
+  if (typeof raw === "string") return Buffer.from(utils.bytes.bs58.decode(raw));
+  return Buffer.from(raw);
+}
+
+function extractOcr2Instructions(tx) {
+  if (!tx) return [];
+  const message = tx.transaction.message;
+  const accountKeys = message.getAccountKeys({
+    accountKeysFromLookups: tx.meta && tx.meta.loadedAddresses ? tx.meta.loadedAddresses : undefined,
+  });
+  const out = [];
+  for (const ix of message.compiledInstructions) {
+    const pid = accountKeys.get(ix.programIdIndex);
+    if (pid && pid.equals(CHAINLINK_OCR2_PROGRAM_ID)) {
+      out.push(decodeIxData(ix.data));
+    }
+  }
+  if (tx.meta && tx.meta.innerInstructions) {
+    for (const group of tx.meta.innerInstructions) {
+      for (const ix of group.instructions) {
+        const pid = accountKeys.get(ix.programIdIndex);
+        if (pid && pid.equals(CHAINLINK_OCR2_PROGRAM_ID)) {
+          out.push(decodeIxData(ix.data));
+        }
+      }
+    }
+  }
+  return out;
+}
+
+async function fetchTxBatch(connection, signatures) {
+  if (!signatures.length) return [];
+  try {
+    return await connection.getTransactions(signatures, {
+      commitment: "confirmed",
+      maxSupportedTransactionVersion: 0,
+    });
+  } catch {
+    const out = [];
+    for (const sig of signatures) {
+      try {
+        out.push(
+          await connection.getTransaction(sig, {
+            commitment: "confirmed",
+            maxSupportedTransactionVersion: 0,
+          })
+        );
+      } catch {
+        out.push(null);
+      }
+      await pause(120);
+    }
+    return out;
+  }
+}
+
+async function collectSignaturesAround(connection, ocr2State, minTime) {
+  const all = [];
+  let before;
+  for (let page = 0; page < MAX_SIGNATURE_PAGES; page += 1) {
+    const batch = await connection.getSignaturesForAddress(
+      ocr2State,
+      { limit: SIGNATURES_PER_PAGE, before },
+      "confirmed"
+    );
+    if (!batch.length) break;
+    all.push(...batch);
+    const oldest = batch[batch.length - 1];
+    if (oldest.blockTime != null && oldest.blockTime < minTime) break;
+    if (batch.length < SIGNATURES_PER_PAGE) break;
+    before = oldest.signature;
+    await pause(80);
+  }
+  return all;
+}
+
+function pickStraddlingPair(reports, endTs, rMax, snapshot) {
+  if (!reports.length) return null;
+  const sorted = [...reports].sort((a, b) => {
+    if (a.epoch !== b.epoch) return a.epoch - b.epoch;
+    if (a.round !== b.round) return a.round - b.round;
+    return a.observationsTimestamp - b.observationsTimestamp;
+  });
+  for (let i = 0; i < sorted.length - 1; i += 1) {
+    const pre = sorted[i];
+    const post = sorted[i + 1];
+    if (pre.observationsTimestamp < endTs && post.observationsTimestamp >= endTs) {
+      const adjacent = areReportsAdjacent(pre, post, rMax);
+      const certified = snapshot ? snapshotMatches(snapshot, pre, post) : false;
+      if (adjacent || certified) {
+        return { pre, post, adjacent, certified, hasSnapshot: Boolean(snapshot) };
+      }
+    }
+  }
+  return null;
+}
+
+async function findStraddlingReports(connection, ocr2State, endTs, snapshot) {
+  const stateInfo = await connection.getAccountInfo(ocr2State, "confirmed");
+  if (!stateInfo) throw new Error(`OCR2 state account not found: ${ocr2State.toBase58()}`);
+  const state = parseOcr2State(Buffer.from(stateInfo.data));
+
+  const lookbackStart = endTs - 900;
+  const sigs = await collectSignaturesAround(connection, ocr2State, lookbackStart);
+  if (!sigs.length) throw new Error("No OCR2 transactions found in RPC history window");
+
+  const sigToReport = new Map();
+  const seenKey = new Set();
+  const collected = [];
+
+  const absorbTxs = async (list) => {
+    for (let i = 0; i < list.length; i += TX_BATCH_SIZE) {
+      const chunk = list.slice(i, i + TX_BATCH_SIZE).filter((s) => !sigToReport.has(s.signature));
+      if (!chunk.length) continue;
+      const txs = await fetchTxBatch(
+        connection,
+        chunk.map((c) => c.signature)
+      );
+      txs.forEach((tx, idx) => {
+        const sig = chunk[idx].signature;
+        for (const ixData of extractOcr2Instructions(tx)) {
+          const parsed = parseOcr2Transmit(ixData, state.latestConfigDigest, state.f);
+          if (!parsed) continue;
+          sigToReport.set(sig, parsed);
+          const id = `${parsed.epoch}:${parsed.round}`;
+          if (!seenKey.has(id)) {
+            seenKey.add(id);
+            collected.push(parsed);
+          }
+        }
+      });
+      const hit = pickStraddlingPair(collected, endTs, state.rMax, snapshot);
+      if (hit) return hit;
+      if (i + TX_BATCH_SIZE < list.length) await pause(90);
+    }
+    return null;
+  };
+
+  const tight = sigs
+    .filter((s) => s.blockTime == null || (s.blockTime >= endTs - 120 && s.blockTime <= endTs + 120))
+    .sort((a, b) => Math.abs((a.blockTime ?? endTs) - endTs) - Math.abs((b.blockTime ?? endTs) - endTs));
+  const hitTight = await absorbTxs(tight);
+  if (hitTight) return hitTight;
+
+  const tightSet = new Set(tight.map((s) => s.signature));
+  const wide = sigs
+    .filter(
+      (s) =>
+        !tightSet.has(s.signature) &&
+        (s.blockTime == null || (s.blockTime >= endTs - 900 && s.blockTime <= endTs + 3600))
+    )
+    .sort((a, b) => Math.abs((a.blockTime ?? endTs) - endTs) - Math.abs((b.blockTime ?? endTs) - endTs))
+    .slice(0, 64);
+  const hitWide = await absorbTxs(wide);
+  if (hitWide) return hitWide;
+
+  const hasPre = collected.some((r) => r.observationsTimestamp < endTs);
+  const hasPost = collected.some((r) => r.observationsTimestamp >= endTs);
+  if (!hasPost) throw new Error("No post-expiry Chainlink OCR2 report found in RPC history");
+  if (!hasPre) throw new Error("No pre-expiry Chainlink OCR2 report found in RPC history");
+  throw new Error("Could not find an adjacent or snapshot-certified OCR2 report pair straddling expiry");
+}
+
+function formatPrice(rawMedian, decimals) {
+  return (Number(rawMedian) / 10 ** decimals).toFixed(decimals > 4 ? 4 : decimals);
+}
+
+async function main() {
+  const opts = parseArgs(process.argv.slice(2));
+  if (!opts.market) usage(1);
+
+  let marketPubkey;
+  try {
+    marketPubkey = new PublicKey(opts.market);
+  } catch {
+    throw new Error(`Invalid market pubkey: ${opts.market}`);
+  }
+
+  const rpcUrl = (opts.rpc || process.env.SOLANA_RPC || process.env.RPC_URL || DEFAULT_RPC).trim();
+  const programId = new PublicKey((process.env.PROGRAM_ID || DEFAULT_PROGRAM_ID).trim());
+  const { payer, path: walletPath } = loadKeypair(opts.keypair, opts.dryRun);
+  const idl = loadIdl(programId);
+
+  const connection = new Connection(rpcUrl, "confirmed");
+  const provider = new AnchorProvider(connection, new Wallet(payer), { commitment: "confirmed" });
+  const program = new Program(idl, provider);
+
+  console.log(`RPC:      ${rpcUrl}`);
+  console.log(`Program:  ${programId.toBase58()}`);
+  console.log(`Market:   ${marketPubkey.toBase58()}`);
+  if (walletPath) console.log(`Signer:   ${payer.publicKey.toBase58()} (${walletPath})`);
+
+  const marketInfo = await connection.getAccountInfo(marketPubkey, "confirmed");
+  if (!marketInfo) throw new Error(`Market account not found: ${marketPubkey.toBase58()}`);
+  if (!marketInfo.owner.equals(programId)) {
+    throw new Error(
+      `Market owner ${marketInfo.owner.toBase58()} does not match program ${programId.toBase58()}`
+    );
+  }
+
+  const market = decodeMarket(Buffer.from(marketInfo.data));
+  console.log(`Title:    ${market.title || "(untitled)"}`);
+  console.log(`Status:   ${market.status}`);
+
+  if (market.status === "resolved") {
+    console.log(
+      `Already resolved: winner=${market.winner}, settledPrice=${formatPrice(
+        market.settledPrice,
+        market.priceDecimals
+      )}`
+    );
+    return;
+  }
+  if (market.status === "windowBurn" || market.status === "staleBurn") {
+    console.log(`Already voided (${market.status}). Tokens redeem at 0.5 collateral.`);
+    return;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (now < market.endTs) {
+    const endIso = new Date(market.endTs * 1000).toISOString();
+    throw new Error(`Market has not expired yet (ends at ${endIso}, ${market.endTs - now}s remaining).`);
+  }
+
+  const [snapshotPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("snapshot"), marketPubkey.toBuffer()],
+    programId
+  );
+  const snapshotInfo = await connection.getAccountInfo(snapshotPda, "confirmed");
+  const snapshot = snapshotInfo ? decodeMarketSnapshot(Buffer.from(snapshotInfo.data)) : null;
+
+  console.log(`Scanning OCR2 state ${market.ocr2State.toBase58()} around endTs=${market.endTs}...`);
+  const found = await findStraddlingReports(connection, market.ocr2State, market.endTs, snapshot);
+
+  const deltaSec = found.post.observationsTimestamp - market.endTs;
+  console.log(
+    `Pre:      epoch=${found.pre.epoch} round=${found.pre.round} ts=${found.pre.observationsTimestamp} price=${formatPrice(
+      found.pre.median,
+      market.priceDecimals
+    )}`
+  );
+  console.log(
+    `Post:     epoch=${found.post.epoch} round=${found.post.round} ts=${found.post.observationsTimestamp} (+${deltaSec}s) price=${formatPrice(
+      found.post.median,
+      market.priceDecimals
+    )}`
+  );
+  console.log(`Proof:    adjacent=${found.adjacent} snapshotCertified=${found.certified}`);
+
+  if (opts.dryRun) {
+    console.log("Dry run complete; no transaction sent.");
+    return;
+  }
+
+  const lamports = await connection.getBalance(payer.publicKey, "confirmed");
+  if (lamports < 10_000) {
+    throw new Error(
+      `Signer ${payer.publicKey.toBase58()} has insufficient SOL (${lamports} lamports) for transaction fees.`
+    );
+  }
+
+  const ix = await program.methods
+    .resolveMarket({
+      rawPre: found.pre.raw,
+      rawPost: found.post.raw,
+    })
+    .accountsPartial({
+      signer: payer.publicKey,
+      market: marketPubkey,
+      snapshot: found.hasSnapshot ? snapshotPda : null,
+      ocr2State: market.ocr2State,
+      clock: SYSVAR_CLOCK_PUBKEY,
+    })
+    .instruction();
+
+  const cuIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 });
+  const tx = new Transaction().add(cuIx, ix);
+  const sig = await sendAndConfirmTransaction(connection, tx, [payer], { commitment: "confirmed" });
+  console.log(`Settled tx: ${sig}`);
+
+  const updatedInfo = await connection.getAccountInfo(marketPubkey, "confirmed");
+  if (updatedInfo) {
+    const updated = decodeMarket(Buffer.from(updatedInfo.data));
+    console.log(
+      `Result:   status=${updated.status}${updated.winner ? ` winner=${updated.winner}` : ""}`
+    );
+  }
+}
+
+main().catch((err) => {
+  console.error("SETTLE_FAIL:", err && err.message ? err.message : err);
+  process.exit(1);
+});

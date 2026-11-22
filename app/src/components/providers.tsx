@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from "react";
 import { ConnectionProvider, WalletProvider } from "@solana/wallet-adapter-react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import { Buffer } from "buffer";
 import {
@@ -107,6 +107,7 @@ function SettingsInner({ children }: { children: ReactNode }) {
   const [settings, setSettingsState] = useState<AppSettings>(fallbackSettings);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [nonce, setNonce] = useState(0);
+  const queryClient = useQueryClient();
   const t = useT();
 
   useEffect(() => {
@@ -132,7 +133,13 @@ function SettingsInner({ children }: { children: ReactNode }) {
     setToasts((prev) => prev.filter((item) => item.id !== id));
   }, []);
 
-  const bump = useCallback(() => setNonce((n) => n + 1), []);
+  const bump = useCallback(() => {
+    setNonce((n) => n + 1);
+    void queryClient.invalidateQueries({ queryKey: ["markets"], refetchType: "all" });
+    void queryClient.invalidateQueries({ queryKey: ["market"], refetchType: "all" });
+    void queryClient.invalidateQueries({ queryKey: ["positions"], refetchType: "all" });
+    void queryClient.invalidateQueries({ queryKey: ["redemptions"], refetchType: "all" });
+  }, [queryClient]);
   const wallets = useMemo(() => [], []);
 
   const onWalletError = useCallback(

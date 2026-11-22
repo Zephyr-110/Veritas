@@ -31,8 +31,10 @@ export function FeatureCard({
   const t = useT();
   const live = expiry != null && now > 0 && expiry > now;
   const body = (
-    <div className="stack-3 p-5">
-      <div className="truncate text-sm font-medium text-white">{title || t("common.untitled")}</div>
+    <div className="stack-3 flex-1 p-5">
+      <div className="line-clamp-2 min-h-[2.5rem] text-sm font-medium leading-5 text-white">
+        {title || t("common.untitled")}
+      </div>
       {threshold ? <div className="num text-right text-xs text-zinc-400">{threshold}</div> : null}
       <div className="num text-right text-sm text-zinc-200">{formatYesNo(yesPrice)}</div>
       <div className="flex items-baseline justify-between gap-3">
@@ -52,13 +54,13 @@ export function FeatureCard({
         <span className="num text-right text-sm text-zinc-200">{liquidity}</span>
       </div>
       {statusKey ? (
-        <div className="text-right text-[11px] text-zinc-500">
+        <div className="mt-auto pt-1 text-right text-[11px] text-zinc-500">
           <StableText k={statusKey} align="end" />
         </div>
       ) : null}
     </div>
   );
-  const cls = "surface block h-full";
+  const cls = "surface flex h-full flex-col";
   return href ? (
     <Link href={href} onMouseMove={onSpot} className={cls}>
       {body}
