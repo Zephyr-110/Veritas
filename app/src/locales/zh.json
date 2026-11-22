@@ -16,7 +16,14 @@
     "language": "语言",
     "en": "EN",
     "zh": "中文",
-    "theme": "切换主题"
+    "theme": "切换主题",
+    "faucet": "领测试币",
+    "faucetTitle": "领取测试币",
+    "faucetSub": "Solana Devnet 演示环境，免费领取测试资金。",
+    "faucetUsdtTitle": "测试 USDT（交易与开盘本金）",
+    "faucetUsdtDesc": "用于买卖 YES/NO 与创建市场，每个钱包每天可领 100 USDT。",
+    "faucetSolTitle": "Devnet SOL（链上手续费）",
+    "faucetSolDesc": "用于支付 Solana 链上交易 Gas，在官方水龙头免费领取。"
   },
   "wallet": {
     "connect": "连接钱包",
@@ -486,7 +493,7 @@
     "q1Title": "连接钱包，切到 Devnet",
     "q1": "用 Phantom 或任意 Solana 钱包，把网络切到 Devnet——Veritas 跑在测试网，这里的一切都不碰真钱。",
     "q2Title": "领测试币",
-    "q2": "devnet SOL 用来付手续费，可在 Solana 官方水龙头免费领取。交易用的测试 USDT，连上钱包后在本页就能领，每天可领 100。",
+    "q2": "连上钱包后，点击顶栏右上角钱包旁的「领测试币」，即可免费领取交易用的 100 测试 USDT（每天一次）以及付手续费用的 Devnet SOL。",
     "q2Claim": "领取 100 测试 USDT",
     "q2Claimed": "已发放，去钱包看看",
     "q2Cooldown": "今天已领过，明天再来",

@@ -11,7 +11,6 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { CopyText, Reveal, StableText, onSpot } from "@/components/ui";
-import { FaucetClaimButton } from "@/components/faucet-claim";
 import { DEFAULT_PROGRAM_ID, GITHUB_REPO } from "@/lib/constants";
 import { useMarkets } from "@/hooks/use-markets";
 import { useNow } from "@/hooks/use-now";
@@ -202,20 +201,7 @@ export default function HelpPage() {
           </h2>
           <div className="grid gap-3 sm:grid-cols-3">
             <QuickStep n={1} titleKey="help.q1Title" bodyKey="help.q1" />
-            <QuickStep n={2} titleKey="help.q2Title" bodyKey="help.q2">
-              <div className="flex flex-col items-start gap-2.5">
-                <FaucetClaimButton />
-                <a
-                  href="https://faucet.solana.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="link-accent inline-flex items-center gap-1 text-sm"
-                >
-                  <StableText k="help.q2Sol" />
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              </div>
-            </QuickStep>
+            <QuickStep n={2} titleKey="help.q2Title" bodyKey="help.q2" />
             <QuickStep n={3} titleKey="help.q3Title" bodyKey="help.q3" />
           </div>
         </section>

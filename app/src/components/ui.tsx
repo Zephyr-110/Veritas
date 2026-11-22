@@ -4,7 +4,7 @@ import { useAnchorWallet, useConnection, useWallet } from "@solana/wallet-adapte
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Check, RefreshCw } from "lucide-react";
+import { Check, Droplets, ExternalLink, RefreshCw } from "lucide-react";
 import {
   useEffect,
   useRef,
@@ -570,11 +570,11 @@ function LangSwitch() {
   const btnCls = (on: boolean) =>
     cx(
       "flex h-full min-w-[2.5rem] items-center justify-center px-2 text-[11px] font-medium leading-none transition-colors",
-      on ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-zinc-400 hover:text-white"
+      on ? "bg-[var(--accent)] text-[var(--on-accent)]" : "text-[var(--ink-2)] hover:text-[var(--ink-strong)]"
     );
   return (
     <div
-      className="inline-grid h-8 shrink-0 grid-cols-2 items-stretch border border-[var(--hair)] bg-[var(--seg-bg)] p-0.5"
+      className="inline-grid h-8 shrink-0 grid-cols-2 items-stretch overflow-hidden border border-[var(--hair)] bg-[var(--seg-bg)]"
       role="group"
       aria-label={t("nav.language")}
     >
@@ -609,6 +609,157 @@ function clusterKey(cluster: string): "cluster.mainnet" | "cluster.local" | "clu
   if (cluster === "localnet") return "cluster.local";
   if (cluster === "testnet") return "cluster.testnet";
   return "cluster.devnet";
+}
+
+function HeaderFaucet() {
+  const { publicKey } = useWallet();
+  const { setVisible } = useWalletModal();
+  const { bump } = useRefresh();
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState<"idle" | "busy" | "done" | "cooldown" | "unavailable">("idle");
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const claim = async () => {
+    if (!publicKey) return;
+    setState("busy");
+    try {
+      const res = await fetch("/api/faucet", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ address: publicKey.toBase58() }),
+      });
+      if (res.ok) {
+        setState("done");
+        bump();
+      } else {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setState(data.error === "cooldown" ? "cooldown" : "unavailable");
+      }
+    } catch {
+      setState("unavailable");
+    }
+  };
+
+  const labelKey =
+    state === "done"
+      ? "help.q2Claimed"
+      : state === "cooldown"
+        ? "help.q2Cooldown"
+        : state === "unavailable"
+          ? "help.q2Unavailable"
+          : "help.q2Claim";
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="inline-flex h-8 shrink-0 items-center gap-1.5 border border-[var(--hair)] bg-[var(--seg-bg)] px-2.5 text-xs text-zinc-200 transition-colors hover:border-[var(--line)] hover:text-white"
+      >
+        <Droplets className="h-3.5 w-3.5 text-zinc-400" />
+        <StableText k="nav.faucet" align="center" />
+      </button>
+      {open ? (
+        <div className="surface panel-float absolute right-0 top-full z-50 mt-2 w-72 border border-[var(--line)] p-4 shadow-2xl sm:w-80">
+          <div className="stack-3">
+            <div className="stack-1">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-white">
+                  <StableText k="nav.faucetTitle" />
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="text-xs text-zinc-400 transition-colors hover:text-white"
+                >
+                  <StableText k="common.close" />
+                </button>
+              </div>
+              <p className="text-xs text-zinc-400">
+                <StableText k="nav.faucetSub" block />
+              </p>
+            </div>
+
+            <div className="stack-2 border border-[var(--hair)] bg-[var(--seg-bg)] p-3">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="font-medium text-white">
+                  <StableText k="nav.faucetUsdtTitle" />
+                </span>
+                <span className="num shrink-0 text-[11px] text-zinc-400">100 / 24h</span>
+              </div>
+              <p className="text-xs leading-relaxed text-zinc-400">
+                <StableText k="nav.faucetUsdtDesc" block />
+              </p>
+              {publicKey ? (
+                <Button
+                  type="button"
+                  tone="primary"
+                  className="h-8 w-full px-3 text-xs"
+                  busy={state === "busy"}
+                  disabled={state === "busy" || state === "done"}
+                  onClick={() => void claim()}
+                >
+                  <StableText k={labelKey} align="center" />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  tone="secondary"
+                  className="h-8 w-full px-3 text-xs"
+                  onClick={() => {
+                    setOpen(false);
+                    setVisible(true);
+                  }}
+                >
+                  <StableText k="wallet.connect" align="center" />
+                </Button>
+              )}
+            </div>
+
+            <div className="stack-2 border border-[var(--hair)] bg-[var(--seg-bg)] p-3">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="font-medium text-white">
+                  <StableText k="nav.faucetSolTitle" />
+                </span>
+                <span className="shrink-0 text-[11px] text-zinc-400">Gas</span>
+              </div>
+              <p className="text-xs leading-relaxed text-zinc-400">
+                <StableText k="nav.faucetSolDesc" block />
+              </p>
+              <a
+                href="https://faucet.solana.com"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-8 w-full items-center justify-center gap-1.5 border border-[var(--line)] bg-[var(--bg-elev)] px-3 text-xs font-medium text-zinc-200 transition-colors hover:border-zinc-500 hover:text-white"
+              >
+                <StableText k="help.q2Sol" align="center" />
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export function Header() {
@@ -720,6 +871,7 @@ export function Header() {
           </Button>
           <ThemeToggle />
           <LangSwitch />
+          <HeaderFaucet />
           <WalletButton />
         </div>
       </div>

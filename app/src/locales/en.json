@@ -16,7 +16,14 @@
     "language": "Language",
     "en": "EN",
     "zh": "中文",
-    "theme": "Toggle theme"
+    "theme": "Toggle theme",
+    "faucet": "Faucet",
+    "faucetTitle": "Testnet Faucet",
+    "faucetSub": "Free test funds for the Solana Devnet demo environment.",
+    "faucetUsdtTitle": "Test USDT (Trading & creation collateral)",
+    "faucetUsdtDesc": "Used to trade YES/NO and create markets. Claim 100 USDT once a day.",
+    "faucetSolTitle": "Devnet SOL (Network gas fees)",
+    "faucetSolDesc": "Pays Solana transaction fees. Claim free from the official faucet."
   },
   "wallet": {
     "connect": "Connect wallet",
@@ -486,7 +493,7 @@
     "q1Title": "Connect a wallet on Devnet",
     "q1": "Use Phantom or any Solana wallet and switch its network to Devnet — Veritas runs on the test network, so nothing here touches real funds.",
     "q2Title": "Pick up test funds",
-    "q2": "Devnet SOL pays the transaction fees — get it free from the official Solana faucet. Test USDT is what you trade with: connect your wallet and claim 100 of it right here, once a day.",
+    "q2": "Once connected, click \"Faucet\" next to the wallet button in the top-right header to claim 100 test USDT (once a day) and free Devnet SOL for transaction fees.",
     "q2Claim": "Claim 100 test USDT",
     "q2Claimed": "Sent — check your wallet",
     "q2Cooldown": "Already claimed today — come back tomorrow",
