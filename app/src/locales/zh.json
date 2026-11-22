@@ -327,6 +327,8 @@
     "withdraw": "提取",
     "addSubmit": "加入流动性",
     "withdrawSubmit": "提取流动性",
+    "finalizedTitle": "撤出流动性与待领",
+    "withdrawnRedeemHint": "已撤出流动性并领回待领的 YES/NO 代币。请前往下方结算台将赢家代币按 1:1 兑付为 {symbol}。",
     "held": "YES / NO 库存",
     "inPool": "金库",
     "feeNote": "费率：进场 0.3% + 出场 0.3%，协议不抽成；实时记给交易时在场的做市商并计入待领，可在本做市界面随时领取。",

@@ -327,6 +327,8 @@
     "withdraw": "Withdraw",
     "addSubmit": "Add liquidity",
     "withdrawSubmit": "Withdraw liquidity",
+    "finalizedTitle": "Withdraw liquidity & pending",
+    "withdrawnRedeemHint": "Liquidity withdrawn and pending YES/NO tokens claimed. Go to the settlement desk below to redeem winning tokens 1:1 for {symbol}.",
     "held": "YES / NO inventory",
     "inPool": "Vault",
     "feeNote": "Fees: 0.3% in + 0.3% out, protocol keeps nothing; fees accrue in real time to the makers present at each trade as pending inventory, claimable right here in the LP desk.",

@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useMarket } from "@/hooks/use-market";
 import { useNow } from "@/hooks/use-now";
@@ -36,6 +36,16 @@ export default function MarketDetailPage() {
   const { quotes, ready } = useFeeds();
   const t = useT();
   useLocale();
+
+  const marketKey = market?.address.toBase58();
+  useEffect(() => {
+    if (!marketKey || typeof window === "undefined" || !window.location.hash) return;
+    const targetId = window.location.hash.slice(1);
+    const raf = window.requestAnimationFrame(() => {
+      document.getElementById(targetId)?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [marketKey]);
 
   if (loading && !market) {
     return <MarketDetailSkeleton />;
@@ -140,7 +150,11 @@ export default function MarketDetailPage() {
           </Reveal>
         </div>
         <aside className="desk-rail stack-4">
-          {live ? <DeskSwitcher market={market} position={position} /> : null}
+          {live ? (
+            <DeskSwitcher market={market} position={position} />
+          ) : isFinalizedStatus(market.status) ? (
+            <LpDesk market={market} position={position} withdrawOnly />
+          ) : null}
           <SettleDesk market={market} position={position} />
         </aside>
       </div>

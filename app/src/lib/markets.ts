@@ -93,6 +93,19 @@ export function isFinalizedStatus(status: MarketStatusName): boolean {
   return status === "resolved" || isVoidedStatus(status);
 }
 
+export function pendingValueOf(
+  market: Pick<MarketView, "status" | "winner">,
+  position: Pick<UserPosition, "pendingYes" | "pendingNo">
+): bigint {
+  if (market.status === "resolved") {
+    return market.winner === "yes" ? position.pendingYes : market.winner === "no" ? position.pendingNo : 0n;
+  }
+  if (isVoidedStatus(market.status)) {
+    return (position.pendingYes + position.pendingNo) / 2n;
+  }
+  return position.pendingYes + position.pendingNo;
+}
+
 export function marketPhase(
   market: { status: MarketStatusName; expiry: number; endTs?: number; finishTs?: number },
   now = Math.floor(Date.now() / 1000)

@@ -16,6 +16,7 @@ import type { PredictionMarket } from "@/idl/prediction_market";
 import {
   isVoidedStatus,
   isFinalizedStatus,
+  pendingValueOf,
   marketPhase,
   fetchMarkets,
   fetchMarket,
@@ -518,5 +519,24 @@ describe("markets RPC 聚合", () => {
     const fallbackPos = await fetchPosition(badLpConn, PROGRAM_ID, market, owner);
     expect(fallbackPos.lpShares).toBe(0n);
     expect(fallbackPos.pendingYes).toBe(0n);
+  });
+});
+
+describe("pendingValueOf", () => {
+  const pending = { pendingYes: 48_060_000n, pendingNo: 52_000_000n };
+
+  it("未终局市场按两边待领合计展示", () => {
+    expect(pendingValueOf({ status: "open", winner: null }, pending)).toBe(100_060_000n);
+  });
+
+  it("已裁决市场只计入赢家边待领金额", () => {
+    expect(pendingValueOf({ status: "resolved", winner: "yes" }, pending)).toBe(48_060_000n);
+    expect(pendingValueOf({ status: "resolved", winner: "no" }, pending)).toBe(52_000_000n);
+    expect(pendingValueOf({ status: "resolved", winner: null }, pending)).toBe(0n);
+  });
+
+  it("作废市场按两边各值一半（0.5 退回）计价", () => {
+    expect(pendingValueOf({ status: "windowBurn", winner: null }, pending)).toBe(50_030_000n);
+    expect(pendingValueOf({ status: "staleBurn", winner: null }, pending)).toBe(50_030_000n);
   });
 });

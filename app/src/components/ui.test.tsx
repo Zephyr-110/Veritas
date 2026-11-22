@@ -19,7 +19,7 @@ const bump = vi.hoisted(() => vi.fn());
 
 vi.mock("@solana/wallet-adapter-react", () => ({
   useWallet: () => walletState,
-  useConnection: () => ({ connection: { getEpochInfo: vi.fn() } }),
+  useConnection: () => ({ connection: { getEpochInfo: vi.fn().mockResolvedValue({ epoch: 1 }) } }),
   useAnchorWallet: () => null,
 }));
 
@@ -27,6 +27,10 @@ vi.mock("@/components/providers", () => ({
   useRefresh: () => ({ nonce: 0, bump }),
   useSettings: () => ({ settings: { rpcUrl: "", cluster: "devnet", programId: "", collateralMint: "" } }),
   useToasts: () => ({ push: vi.fn() }),
+}));
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/markets",
 }));
 
 vi.mock("next/link", () => ({
@@ -42,6 +46,7 @@ const {
   Card,
   Chip,
   Field,
+  Header,
   HeaderFaucet,
   Kv,
   LangSwitch,
@@ -247,5 +252,29 @@ describe("ui primitives", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(bump).toHaveBeenCalledTimes(1);
     expect(screen.getByText(/Sent — check your wallet/i)).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+  });
+
+  it("Header 在未连接与已连接状态下均不渲染顶栏价格带（HeaderTape）且保留核心导航与钱包控件", async () => {
+    vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    const { rerender } = render(
+      <LocaleProvider>
+        <Header />
+      </LocaleProvider>
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: /Connect wallet/i })).toBeInTheDocument());
+    expect(screen.getAllByRole("link", { name: "Markets" }).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/BTC\/USD|SOL\/USD/)).toBeNull();
+
+    walletState.publicKey = PublicKey.default;
+    walletState.connected = true;
+    rerender(
+      <LocaleProvider>
+        <Header />
+      </LocaleProvider>
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: /Disconnect/i })).toBeInTheDocument());
+    expect(screen.getByText("1111…1111")).toBeInTheDocument();
+    expect(screen.queryByText(/BTC\/USD|SOL\/USD/)).toBeNull();
   });
 });

@@ -30,10 +30,7 @@ import { sendIxs, mustWallet } from "@/lib/send";
 import type { ClusterName } from "@/lib/types";
 import { useI18n, useLocale, useT } from "@/i18n/provider";
 import { tPair, type Vars } from "@/i18n/store";
-import { useFeeds } from "@/hooks/use-feeds";
 import { PulseAreaMark } from "./logo-marks";
-import { FEEDS, formatFeedPrice } from "@/lib/feeds";
-import { PriceAge } from "./price-age";
 import { useRefresh, useSettings, useToasts } from "./providers";
 
 export function cx(...parts: Array<string | false | null | undefined>): string {
@@ -726,28 +723,6 @@ export function LangSwitch() {
   );
 }
 
-function HeaderTape() {
-  const { quotes } = useFeeds();
-  const items = FEEDS.filter((f) => f.key === "btc" || f.key === "sol");
-  return (
-    <div className="pointer-events-none hidden shrink-0 items-center gap-5 whitespace-nowrap xl:flex">
-      {items.map((f, idx) => (
-        <span
-          key={f.key}
-          className={cx(
-            "items-baseline gap-1.5 whitespace-nowrap text-[12px]",
-            idx === 0 ? "flex" : "hidden 2xl:flex"
-          )}
-        >
-          <span className="font-medium text-zinc-500">{f.symbol}</span>
-          <span className="num text-zinc-200">{formatFeedPrice(quotes[f.key]?.price ?? null)}</span>
-          <PriceAge publishTime={quotes[f.key]?.publishTime ?? null} className="min-w-[4.5rem] text-left text-[10px] text-zinc-500" />
-        </span>
-      ))}
-    </div>
-  );
-}
-
 function clusterKey(cluster: string): "cluster.mainnet" | "cluster.local" | "cluster.devnet" | "cluster.testnet" {
   if (cluster === "mainnet-beta") return "cluster.mainnet";
   if (cluster === "localnet") return "cluster.local";
@@ -985,15 +960,15 @@ export function Header() {
 
   return (
     <header className="app-header nav-in sticky top-0 z-40">
-      <div className="page-width relative mx-auto flex min-h-14 min-w-0 flex-wrap items-center justify-between gap-2 px-3 py-2 sm:h-14 sm:flex-nowrap sm:px-4 sm:py-0">
-        <div className="flex min-w-0 items-center gap-3 md:gap-6">
+      <div className="page-width relative mx-auto flex min-h-14 min-w-0 flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-4 md:h-14 md:flex-nowrap md:py-0">
+        <div className="flex shrink-0 items-center gap-3 md:gap-6">
           <Link href="/" className="header-brand flex items-center gap-2.5 text-[var(--ink-strong)]">
             <PulseAreaMark size={26} />
             <span className="brand-word font-display hidden text-lg font-semibold sm:inline">
               {t("brand.name")}
             </span>
           </Link>
-          <nav className="hidden items-center gap-1 md:flex">
+          <nav className="hidden items-center gap-1 lg:flex">
             {nav.map((item) => {
               const active = pathname.startsWith(item.href);
               return (
@@ -1013,8 +988,6 @@ export function Header() {
             })}
           </nav>
         </div>
-
-        <HeaderTape />
 
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5 sm:flex-none sm:gap-2">
           <button
@@ -1044,7 +1017,7 @@ export function Header() {
           <WalletButton />
         </div>
       </div>
-      <nav className="page-width mx-auto flex gap-1 overflow-x-auto px-3 pb-2 md:hidden">
+      <nav className="page-width mx-auto flex gap-1 overflow-x-auto px-3 pb-2 sm:px-4 lg:hidden">
         {nav.map((item) => {
           const active = pathname.startsWith(item.href);
           return (

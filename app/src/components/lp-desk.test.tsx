@@ -235,4 +235,35 @@ describe("LpDesk 报价展示与指令提交", () => {
     expect(ixGetLiquidity).toHaveBeenCalledWith({}, market, wallet.publicKey, 3_000_000n);
     expect(ixAddLiquidity).not.toHaveBeenCalled();
   });
+
+  it("已终局市场（withdrawOnly）：隐藏存入选项卡，成功撤出后显示去下方结算台 1:1 兑付指引", async () => {
+    const market = makeMarket({ status: "resolved", winner: "yes", expiry: 1_600_000_000 });
+    const position = makePosition({
+      lpShares: 5_000_000n,
+      pendingYes: 1_200_000n,
+      pendingNo: 800_000n,
+    });
+    run.mockImplementationOnce(async (_label: string, build: () => Promise<unknown>) => {
+      await build();
+      return "5igTxSuccess11111111111111111111111111111111";
+    });
+
+    const { container } = render(
+      <LocaleProvider>
+        <LpDesk market={market} position={position} withdrawOnly />
+      </LocaleProvider>
+    );
+
+    expect(container.querySelector("#lp-withdraw")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Deposit" })).toBeNull();
+    expect(screen.getByText("Withdraw liquidity & pending")).toBeInTheDocument();
+
+    await userEvent.click(submitBtn());
+    await waitFor(() => expect(ixGetLiquidity).toHaveBeenCalledWith({}, market, wallet.publicKey, 2_000_000n));
+    expect(
+      screen.getByText(
+        "Liquidity withdrawn and pending YES/NO tokens claimed. Go to the settlement desk below to redeem winning tokens 1:1 for USDT."
+      )
+    ).toBeInTheDocument();
+  });
 });

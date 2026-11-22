@@ -5,7 +5,7 @@ import { type ReactNode } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useMarkets } from "@/hooks/use-markets";
 import { useProgram } from "@/hooks/use-program";
-import { fetchPosition, isFinalizedStatus, isVoidedStatus, type MarketView, type UserPosition } from "@/lib/markets";
+import { fetchPosition, isFinalizedStatus, isVoidedStatus, pendingValueOf, type MarketView, type UserPosition } from "@/lib/markets";
 import { fetchRedemptions } from "@/lib/history";
 import { localizeError } from "@/lib/errors";
 import { explorerTx, formatUnix, toUi } from "@/lib/format";
@@ -215,7 +215,7 @@ export default function MePage() {
                 <Stat
                   labelKey="me.sumPending"
                   value={rows
-                    .reduce((a, r) => a + Number(toUi(r.position.pendingYes + r.position.pendingNo, r.market.decimals, 4)), 0)
+                    .reduce((a, r) => a + Number(toUi(pendingValueOf(r.market, r.position), r.market.decimals, 4)), 0)
                     .toFixed(4)}
                   accent
                 />
@@ -257,10 +257,14 @@ export default function MePage() {
                               (claimable > 0n || hasLp)
                             ? { key: "me.actionClaim", cls: "text-white font-semibold" }
                             : { key: "markets.view", cls: "text-zinc-400" };
+                  const rowHref =
+                    "/markets/" +
+                    market.address.toBase58() +
+                    (action.key === "me.actionClaim" ? "#lp-withdraw" : "");
                   return (
                     <Link
                       key={market.address.toBase58()}
-                      href={"/markets/" + market.address.toBase58()}
+                      href={rowHref}
                       onMouseMove={onSpot}
                       className="surface flex flex-wrap items-center gap-x-8 gap-y-3 p-5"
                     >
@@ -276,7 +280,7 @@ export default function MePage() {
                       <div className="shrink-0">
                         <Stat
                           labelKey="me.lpPending"
-                          value={toUi(position.pendingYes + position.pendingNo, market.decimals, 4)}
+                          value={toUi(pendingValueOf(market, position), market.decimals, 4)}
                           accent
                         />
                         {position.pendingYes > 0n || position.pendingNo > 0n ? (
