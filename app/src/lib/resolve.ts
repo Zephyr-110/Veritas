@@ -39,7 +39,7 @@ function decodeIxData(raw: Uint8Array | string): Buffer {
   return Buffer.from(raw);
 }
 
-function extractOcr2Instructions(
+export function extractOcr2Instructions(
   tx: Awaited<ReturnType<Connection["getTransaction"]>>
 ): Buffer[] {
   if (!tx) return [];
@@ -67,7 +67,7 @@ function extractOcr2Instructions(
   return out;
 }
 
-async function fetchTxBatch(
+export async function fetchTxBatch(
   connection: Connection,
   signatures: string[]
 ): Promise<Array<Awaited<ReturnType<Connection["getTransaction"]>>>> {

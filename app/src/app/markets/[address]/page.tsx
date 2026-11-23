@@ -20,6 +20,7 @@ import { LpDesk } from "@/components/lp-desk";
 import { SettleDesk } from "@/components/settle-desk";
 import { CountUp, FlashNum, LiveCountdown } from "@/components/live";
 import { PriceAge } from "@/components/price-age";
+import { RulingEvidence } from "@/components/ruling-evidence";
 import { Button, Card, CopyText, DataFreshness, Kv, Reveal, SegTabs, StableText, StateBlock, StatusChip, onSpot } from "@/components/ui";
 import { useGuestSession } from "@/components/guest-session";
 import { useSettings } from "@/components/providers";
@@ -120,29 +121,17 @@ export default function MarketDetailPage() {
 
       <StatusBand market={market} now={now} spot={spot} humanThreshold={humanThreshold} />
 
-      {pair || live ? (
-        <div className="grid gap-4 lg:grid-cols-3">
-          {pair ? (
-            <div className={live ? "lg:col-span-2" : "lg:col-span-3"}>
-              <PriceChartCard
-                pair={pair}
-                symbol={market.feedSymbol}
-                expiry={market.expiry}
-                thresholdValue={Number(market.threshold) * 10 ** -market.priceDecimals}
-                thresholdLabel={humanThreshold}
-              />
-            </div>
-          ) : null}
-          {live ? (
-            <div className={pair ? "" : "lg:col-span-3"}>
-              <LiquidityCard market={market} />
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
+      {market.status === "resolved" && <RulingEvidence market={market} />}
       <div className="split split-detail">
-        <div className="stack-4 stack-tight self-stretch">
+        {pair && <PriceChartCard
+          pair={pair}
+          symbol={market.feedSymbol}
+          expiry={market.expiry}
+          thresholdValue={Number(market.threshold) * 10 ** -market.priceDecimals}
+          thresholdLabel={humanThreshold}
+        />}
+        <div className="order-last stack-4 stack-tight lg:col-start-1">
+          {live && <LiquidityCard market={market} />}
           <Reveal>
             <PositionCard
               market={market}
@@ -156,7 +145,7 @@ export default function MarketDetailPage() {
             <PoolFactsCard market={market} humanThreshold={humanThreshold} />
           </Reveal>
         </div>
-        <aside className="desk-rail stack-4">
+        <aside className="desk-rail stack-4 lg:col-start-2 lg:row-start-1 lg:row-span-2">
           {live ? <DeskSwitcher market={market} position={position} /> : null}
           <SettleDesk market={market} position={position} />
           {!live &&

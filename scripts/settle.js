@@ -5,6 +5,11 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { AnchorProvider, Program, Wallet, utils } = require("@coral-xyz/anchor");
+const { WAKE_SEC, WATCH_AFTER_SEC, tryLock, watchReports } = require(
+  fs.existsSync(path.join(__dirname, "sandbox", "expiry-watch.js"))
+    ? "./sandbox/expiry-watch"
+    : "./expiry-watch"
+);
 const {
   ComputeBudgetProgram,
   Connection,
@@ -47,6 +52,7 @@ function usage(exitCode = 0) {
 
 Options:
   --dry-run           Locate straddling OCR2 reports without sending a transaction
+  --watch <feed>      Watch the expiry window for a strictly adjacent pair
   --keypair <path>    Path to Solana JSON keypair file
   --rpc <url>         Solana RPC endpoint override
   -h, --help          Show this help message
@@ -67,6 +73,8 @@ function parseArgs(argv) {
       usage(0);
     } else if (arg === "--dry-run") {
       opts.dryRun = true;
+    } else if (arg === "--watch") {
+      opts.feed = new PublicKey(argv[++i]);
     } else if (arg === "--keypair") {
       opts.keypair = argv[++i];
       if (!opts.keypair) throw new Error("--keypair requires a path");
@@ -520,6 +528,92 @@ function formatPrice(rawMedian, decimals) {
   return (Number(rawMedian) / 10 ** decimals).toFixed(decimals > 4 ? 4 : decimals);
 }
 
+async function resolveTx(program, payer, marketPubkey, market, pair, snapshot) {
+  const ix = await program.methods.resolveMarket({ rawPre: pair.pre.raw, rawPost: pair.post.raw })
+    .accountsPartial({ signer: payer.publicKey, market: marketPubkey, snapshot,
+      ocr2State: market.ocr2State, clock: SYSVAR_CLOCK_PUBKEY }).instruction();
+  return new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }), ix);
+}
+
+async function runWatch(connection, program, payer, marketPk, market, opts) {
+  const endTs = market.endTs;
+  const log = msg => console.log(`[wake] ${new Date().toISOString()} ${marketPk} ${msg}`);
+  const waitMs = (endTs - WAKE_SEC) * 1000 - Date.now();
+  if (waitMs > 75_000) throw new Error("Market outside keeper scheduling range");
+  if (waitMs > 0) await pause(waitMs);
+  if (Date.now() >= (endTs + WATCH_AFTER_SEC) * 1000) return;
+  log(`awake endTs=${endTs}`);
+  const [stateInfo, latest] = await Promise.all([
+    connection.getAccountInfo(market.ocr2State, "confirmed"), connection.getLatestBlockhash("confirmed"),
+  ]);
+  const state = parseOcr2State(stateInfo.data);
+  const seen = new Set();
+  let newest;
+  const pending = new Set();
+  await watchReports({
+    endTs, log,
+    readHead: async () => {
+      const [feed, config] = await connection.getMultipleAccountsInfo([opts.feed, market.ocr2State], "confirmed");
+      if (!feed || !config) throw new Error("Feed or OCR2 state account unavailable");
+      return { counter: feed.data.readUInt32LE(143), id: config.data.readUInt32LE(276) + "/" + config.data[273] };
+    },
+    collect: async () => {
+      const recent = await connection.getSignaturesForAddress(opts.feed, { limit: newest ? 12 : 4, until: newest }, "confirmed");
+      for (const item of recent) {
+        if (!item.err && !seen.has(item.signature)) pending.add(item.signature);
+      }
+      if (recent.length) newest = recent[0].signature;
+      const collected = [];
+      const batch = [...pending].slice(0, 2);
+      // Rotate missing bodies so an unindexed signature cannot starve later reports.
+      for (const sig of batch) { pending.delete(sig); pending.add(sig); }
+      const reads = await Promise.allSettled(batch.map(async signature => {
+        const tx = await connection.getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+        if (!tx) return; // Indexed signature without transaction body: retry next pass.
+        for (const raw of extractOcr2Instructions(tx)) {
+          const r = parseOcr2Transmit(raw, state.latestConfigDigest, state.f);
+          if (r) collected.push(r);
+        }
+        seen.add(signature);
+        pending.delete(signature);
+      }));
+      if (reads.length && reads.every(r => r.status === "rejected")) throw reads[0].reason;
+      return collected;
+    },
+    pick: reports => pickStraddlingPair(reports, endTs, state.rMax, null),
+    onPair: async (pair, deadline) => {
+      if (opts.dryRun) return log("dry run; pair ready");
+      const tx = await resolveTx(program, payer, marketPk, market, pair, null);
+      tx.feePayer = payer.publicKey;
+      tx.recentBlockhash = latest.blockhash;
+      tx.sign(payer);
+      if (Date.now() >= deadline) return log("submission window ended");
+      const signature = utils.bytes.bs58.encode(tx.signature);
+      try {
+        await connection.sendRawTransaction(tx.serialize(), { skipPreflight: true, maxRetries: 2 });
+        log(`submitted ${signature}`);
+      } catch (e) { log(`send response uncertain ${signature}: ${e.message}`); }
+      // Keep the market lock until confirmation, rejection or blockhash expiry.
+      for (let n = 0; n < 100; n++) {
+        try {
+          const status = (await connection.getSignatureStatuses([signature])).value[0];
+          if (status?.err) return log(`resolve rejected: ${JSON.stringify(status.err)}`);
+          if (status && ["confirmed", "finalized"].includes(status.confirmationStatus)) {
+            const info = await connection.getAccountInfo(marketPk, "confirmed");
+            if (info) {
+              const result = decodeMarket(info.data);
+              if (result.status !== "open") return log(`status=${result.status} finishTs=${result.finishTs} expiryToChain=${result.finishTs - endTs}s tx=${signature}`);
+            }
+          }
+          if (n % 5 === 0 && await connection.getBlockHeight("confirmed") > latest.lastValidBlockHeight && !status) break;
+        } catch (e) { if (n % 10 === 0) log(`recheck: ${e.message}`); }
+        await pause(1200);
+      }
+      log(`result unavailable; global sweep will recheck ${signature}`);
+    },
+  });
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (!opts.market) usage(1);
@@ -531,16 +625,34 @@ async function main() {
     throw new Error(`Invalid market pubkey: ${opts.market}`);
   }
 
+  const release = opts.dryRun ? () => {} : await tryLock(marketPubkey.toBase58());
+  if (!release) return console.log(`[settle] ${marketPubkey} already in flight`);
+  let releaseSlot;
+  try {
+    if (opts.feed) {
+      releaseSlot = await tryLock("expiry-slot-0") || await tryLock("expiry-slot-1");
+      if (!releaseSlot) return console.log("[wake] busy; global sweep will retry");
+    }
+    await settle(opts, marketPubkey);
+  } finally {
+    releaseSlot?.();
+    release();
+  }
+}
+
+async function settle(opts, marketPubkey) {
   const rpcUrl = (opts.rpc || process.env.SOLANA_RPC || process.env.RPC_URL || DEFAULT_RPC).trim();
   const programId = new PublicKey((process.env.PROGRAM_ID || DEFAULT_PROGRAM_ID).trim());
   const { payer, path: walletPath } = loadKeypair(opts.keypair, opts.dryRun);
   const idl = loadIdl(programId);
 
-  const connection = new Connection(rpcUrl, "confirmed");
+  const connection = new Connection(rpcUrl, opts.feed ? {
+    commitment: "confirmed", disableRetryOnRateLimit: true,
+    fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(4000) }),
+  } : "confirmed");
   const provider = new AnchorProvider(connection, new Wallet(payer), { commitment: "confirmed" });
   const program = new Program(idl, provider);
 
-  console.log(`RPC:      ${rpcUrl}`);
   console.log(`Program:  ${programId.toBase58()}`);
   console.log(`Market:   ${marketPubkey.toBase58()}`);
   if (walletPath) console.log(`Signer:   ${payer.publicKey.toBase58()} (${walletPath})`);
@@ -571,6 +683,7 @@ async function main() {
     return;
   }
 
+  if (opts.feed) return await runWatch(connection, program, payer, marketPubkey, market, opts);
   const now = Math.floor(Date.now() / 1000);
   if (now < market.endTs) {
     const endIso = new Date(market.endTs * 1000).toISOString();
@@ -614,22 +727,7 @@ async function main() {
     );
   }
 
-  const ix = await program.methods
-    .resolveMarket({
-      rawPre: found.pre.raw,
-      rawPost: found.post.raw,
-    })
-    .accountsPartial({
-      signer: payer.publicKey,
-      market: marketPubkey,
-      snapshot: found.hasSnapshot ? snapshotPda : null,
-      ocr2State: market.ocr2State,
-      clock: SYSVAR_CLOCK_PUBKEY,
-    })
-    .instruction();
-
-  const cuIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 });
-  const tx = new Transaction().add(cuIx, ix);
+  const tx = await resolveTx(program, payer, marketPubkey, market, found, found.hasSnapshot ? snapshotPda : null);
   const sig = await sendAndConfirmTransaction(connection, tx, [payer], { commitment: "confirmed" });
   console.log(`Settled tx: ${sig}`);
 
@@ -642,7 +740,9 @@ async function main() {
   }
 }
 
-main().catch((err) => {
+if (require.main === module) main().catch((err) => {
   console.error("SETTLE_FAIL:", err && err.message ? err.message : err);
   process.exit(1);
 });
+
+module.exports = { parseOcr2Transmit, pickStraddlingPair };

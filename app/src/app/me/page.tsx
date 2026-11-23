@@ -415,9 +415,19 @@ export default function MePage() {
             <div className="cards-2">
               {redemptions.map((row) => {
                 const href = explorerTx(row.signature, settings.cluster);
+                const address = row.market.toBase58();
+                const market = markets.find(m => m.address.equals(row.market));
+                const symbol = row.mint.toBase58() === settings.collateralMint ? COLLATERAL_SYMBOL : shorten(row.mint.toBase58());
                 return (
-                  <div key={row.signature} onMouseMove={onSpot} className="surface p-4 stack-2">
-                    <div className="text-sm text-zinc-200">{row.label}</div>
+                  <div key={row.id} onMouseMove={onSpot} className="surface p-4 stack-2">
+                    <div className="text-xs text-zinc-400"><StableText k="me.redeemTx" /></div>
+                    <Link className="link-accent" href={`/markets/${address}`}>
+                      {market?.title ? questionTitle(market) : row.title || shorten(address)}
+                    </Link>
+                    <div className="num flex gap-2 text-sm text-zinc-200">
+                      {row.side && <strong>{row.side}</strong>}
+                      {row.payout && <span>{toUi(row.payout.atoms, row.payout.decimals, row.payout.decimals)} {symbol}</span>}
+                    </div>
                     <div className="num text-right text-xs text-zinc-500">
                       {row.when ? formatUnix(row.when) : "\u2014"}
                     </div>

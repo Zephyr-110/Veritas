@@ -79,7 +79,7 @@ export function PriceChartCard({
   const body = useMemo(() => {
     if (!candles || candles.length < 2) return null;
     const W = 720;
-    const H = 252;
+    const H = 152;
     const padL = 6;
     const padR = 64;
     const padT = 14;
@@ -225,14 +225,11 @@ export function PriceChartCard({
           <StableText k="chart.source" align="end" />
         </div>
       </div>
-      {body ??
-        (failed ? (
-          <div className="grid h-[180px] place-items-center text-sm text-zinc-500">
-            <StableText k="chart.unavailable" align="center" />
-          </div>
-        ) : (
-          <div className="sk h-[252px]" />
-        ))}
+      {failed ? (
+        <div className="grid aspect-[720/152] place-items-center text-sm text-zinc-500">
+          <StableText k="chart.unavailable" align="center" />
+        </div>
+      ) : body ?? <div className="sk aspect-[720/152]" />}
     </Card>
   );
 }

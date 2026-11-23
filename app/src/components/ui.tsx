@@ -976,6 +976,7 @@ export function SandboxCapsule() {
     locked,
     lastError,
     clearError,
+    refillNotice,
     refillSandbox,
     resetSandbox,
     exitSandbox,
@@ -1099,6 +1100,7 @@ export function SandboxCapsule() {
               </p>
             ) : null}
 
+            {refillNotice && <p role="status" className="text-sm text-zinc-200"><StableText k={refillNotice} /></p>}
             {lastError ? (
               <p
                 role="alert"

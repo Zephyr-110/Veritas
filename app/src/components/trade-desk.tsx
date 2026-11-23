@@ -22,7 +22,7 @@ const PRESETS = ["1", "2", "5", "10"];
 export function TradeDesk({ market, position }: { market: MarketView; position: UserPosition }) {
   const program = useProgram();
   const { publicKey: realPublicKey } = useWallet();
-  const { isSandbox, effectivePublicKey, enterSandbox, refillSandbox, locked, lastError } =
+  const { isSandbox, effectivePublicKey, enterSandbox, refillSandbox, refillNotice, locked, lastError } =
     useGuestSession();
   const { busy, run } = useTx();
   const { busy: sandboxBusy, runSandbox } = useSandboxTx();
@@ -245,6 +245,7 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
           )}
         </div>
       ) : null}
+      {isSandbox && refillNotice && <p role="status" className="text-xs text-zinc-300"><StableText k={refillNotice} /></p>}
       <div className="cluster-2">
         {PRESETS.map((p) => (
           <button

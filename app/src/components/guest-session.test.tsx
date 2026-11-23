@@ -58,6 +58,7 @@ function Harness() {
       <button type="button" onClick={() => session.exitSandbox()}>
         exit
       </button>
+      <button type="button" onClick={() => void session.refillSandbox()}>refill</button>
       <button type="button" onClick={() => void session.resetSandbox()}>
         reset
       </button>
@@ -259,8 +260,22 @@ describe("GuestSessionProvider state machine", () => {
     unmount();
     renderWithProviders(<Harness />);
     await waitFor(() => expect(screen.getByTestId("mode")).toHaveTextContent("sandbox"));
-    expect(screen.getByTestId("usdt")).toHaveTextContent("30000000");
-    expect(screen.getByTestId("sol")).toHaveTextContent("40000000");
+    expect(screen.getByTestId("usdt")).toHaveTextContent("none");
+    expect(screen.getByTestId("sol")).toHaveTextContent("none");
+  });
+
+  it("shows a target-reached receipt for zero top-ups and keeps the backend reason on failure", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, signature: "seed" }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, skipped: true, signature: null }) })
+      .mockResolvedValueOnce({ ok: false, json: async () => ({ error: "upstream_specific_error" }) });
+    vi.stubGlobal("fetch", fetchMock);
+    renderWithProviders(<Harness />);
+    await userEvent.click(screen.getByRole("button", { name: "enter" }));
+    await userEvent.click(screen.getByRole("button", { name: "refill" }));
+    expect(await screen.findByText("Target balances reached")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "refill" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("upstream_specific_error");
   });
 
   it("exposes localized lastError and alert toast when sandbox faucet fails", async () => {

@@ -5,7 +5,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { spawnSync } = require("child_process");
+const { spawn } = require("child_process");
 const { AnchorProvider, BN, Program, Wallet } = require("@coral-xyz/anchor");
 const {
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -27,6 +27,8 @@ const {
   SystemProgram,
   Transaction,
 } = require("@solana/web3.js");
+
+const { WAKE_SEC, WATCH_AFTER_SEC } = require("./expiry-watch");
 
 const DEFAULT_RPC = "https://api.devnet.solana.com";
 const DEFAULT_PROGRAM_ID = "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER";
@@ -102,7 +104,6 @@ Environment variables:
   SANDBOX_BET_USDT             Opening bot bet size in USDT (default: 2)
   SANDBOX_TITLE                Optional title override when using a single asset
   SANDBOX_STATE_PATH           State JSON file path (default: scripts/sandbox/state.json)
-  SANDBOX_SETTLE_GRACE_SEC     Grace wait seconds around expiry (default: 12)
   SANDBOX_RECYCLE_FUNDS        Recycle settled LP + winnings + empty ATAs (default: true)
   SANDBOX_DAILY_MAX_MARKETS    Max markets created per UTC day, 0=unlimited (default: 0)
   SANDBOX_MIN_SOL_LAMPORTS     Minimum operator SOL balance guard (default: 30000000)
@@ -193,7 +194,6 @@ function getConfig() {
     seedUsdt: Math.max(1.01, envNum("SANDBOX_SEED_USDT", 150)),
     betUsdt: Math.max(0.01, envNum("SANDBOX_BET_USDT", 2)),
     titleOverride,
-    settleGraceSec: Math.max(0, Math.min(30, Math.round(envNum("SANDBOX_SETTLE_GRACE_SEC", 12)))),
     recycleFunds: envBool("SANDBOX_RECYCLE_FUNDS", true),
     dailyMaxMarkets: Math.max(0, Math.round(envNum("SANDBOX_DAILY_MAX_MARKETS", 0))),
     minSolLamports: Math.max(0, Math.round(envNum("SANDBOX_MIN_SOL_LAMPORTS", 30_000_000))),
@@ -662,73 +662,19 @@ async function buildGetCollateralIxs(program, args) {
   ];
 }
 
-function runSettleScript(settleScriptPath, marketAddress, cfg) {
-  const res = spawnSync(
-    process.execPath,
-    [settleScriptPath, marketAddress, "--keypair", cfg.walletPath, "--rpc", cfg.rpcUrl],
-    {
-      env: { ...process.env, PROGRAM_ID: cfg.programId.toBase58() },
-      encoding: "utf8",
-      timeout: 90_000,
-    }
-  );
-  if (res.stdout) process.stdout.write(res.stdout);
-  if (res.stderr) process.stderr.write(res.stderr);
-  return res.status === 0;
-}
-
-async function settleTrackedMarket(connection, cfg, settleScriptPath, entry) {
-  const marketPk = new PublicKey(entry.address);
-  let info = await connection.getAccountInfo(marketPk, "confirmed");
-  if (!info) {
-    entry.status = "closed";
-    entry.recycled = true;
-    return;
-  }
-
-  let market = decodeMarket(Buffer.from(info.data));
-  if (market.status !== "open") {
-    entry.status = market.status;
-    entry.winner = market.winner;
-    return;
-  }
-
-  let nowSec = Math.floor(Date.now() / 1000);
-  if (market.expiry > nowSec) {
-    const secsToExpiry = market.expiry - nowSec;
-    if (secsToExpiry <= 10 && cfg.settleGraceSec > 0) {
-      const waitMs = Math.min(cfg.settleGraceSec, secsToExpiry + 4) * 1000;
-      console.log(
-        `[settle] ${entry.address} expires in ${secsToExpiry}s; waiting ${Math.round(
-          waitMs / 1000
-        )}s for first OCR2 print...`
-      );
-      await pause(waitMs);
-      nowSec = Math.floor(Date.now() / 1000);
-    } else {
-      return;
-    }
-  } else if (nowSec - market.expiry < 4 && cfg.settleGraceSec > 0) {
-    const waitMs = Math.min(cfg.settleGraceSec, 4 - (nowSec - market.expiry) + 1) * 1000;
-    console.log(`[settle] ${entry.address} just expired; waiting ${Math.round(waitMs / 1000)}s...`);
-    await pause(waitMs);
-  }
-
-  console.log(`[settle] invoking settle.js for ${entry.address}...`);
-  let ok = runSettleScript(settleScriptPath, entry.address, cfg);
-  if (!ok && cfg.settleGraceSec > 0) {
-    await pause(4000);
-    ok = runSettleScript(settleScriptPath, entry.address, cfg);
-  }
-
-  info = await connection.getAccountInfo(marketPk, "confirmed");
-  if (info) {
-    market = decodeMarket(Buffer.from(info.data));
-    entry.status = market.status;
-    entry.winner = market.winner;
-    if (market.status !== "open") {
-      entry.settledAt = Math.floor(Date.now() / 1000);
-    }
+function scheduleWatches(cfg, settleScriptPath, entries) {
+  const now = Date.now() / 1000;
+  const due = entries.filter(e => e.status === "open" && e.expiry > now - WATCH_AFTER_SEC
+    && e.expiry <= now + 60 + WAKE_SEC).sort((a, b) => a.expiry - b.expiry);
+  for (const entry of due.slice(0, 2)) {
+    const asset = cfg.assets.find(a => a.key === entry.asset);
+    if (!asset) continue;
+    const child = spawn(process.execPath, [settleScriptPath, entry.address, "--watch", asset.feed.toBase58()], {
+      env: { ...process.env, PROGRAM_ID: cfg.programId.toBase58(), SOLANA_RPC: cfg.rpcUrl, ANCHOR_WALLET: cfg.walletPath },
+      detached: true, windowsHide: true, stdio: ["ignore", "inherit", "inherit"],
+    });
+    child.on("error", err => console.warn(`[wake] ${entry.address}: ${err.message}`));
+    child.unref();
   }
 }
 
@@ -1054,9 +1000,10 @@ async function runTick() {
   const state = loadState(cfg.statePath);
   let nowSec = Math.floor(Date.now() / 1000);
 
-  // 1. Batch-sync open tracked markets and find which staggered asset slots already have a live market
+  // 1. Batch-sync open tracked markets, infer asset keys, and schedule pre-expiry watches
   const liveAssets = await batchSyncOpenMarkets(connection, state, nowSec);
   saveState(cfg.statePath, state);
+  scheduleWatches(cfg, settleScriptPath, state.markets);
 
   // 2. Open missing staggered markets FIRST (guarantees zero gap even if settlement RPC stalls)
   const missingSlots = cfg.assets
@@ -1161,6 +1108,7 @@ async function runTick() {
         recycled: false,
       };
       state.markets.push(entry);
+      scheduleWatches(cfg, settleScriptPath, [entry]);
       state.dailyCounts[today] = todayCount + 1;
       saveState(cfg.statePath, state);
       console.log(
@@ -1193,18 +1141,7 @@ async function runTick() {
     }
   }
 
-  // 3. Fallback-settle any tracked markets that are expired (or within grace window)
-  for (const entry of state.markets) {
-    if (entry.status !== "open") continue;
-    try {
-      await settleTrackedMarket(connection, cfg, settleScriptPath, entry);
-      saveState(cfg.statePath, state);
-    } catch (err) {
-      console.error(`[settle] error on ${entry.address}:`, err.message || err);
-    }
-  }
-
-  // 4. Recycle settled LP + winnings + empty ATAs LAST so collateral & rent roll over
+  // Expiry watchers and the global sweep run independently of fund recycling.
   if (cfg.recycleFunds) {
     await recycleFinalizedEntries(connection, program, payer, cfg, state);
   }

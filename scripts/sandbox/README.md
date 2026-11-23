@@ -8,10 +8,9 @@ Standalone Node 22 scripts (`tick.js` and `settle-all.js`) for running staggered
    - Maintains 4 staggered **15-minute** (`900s`) deep devnet markets (`150 USDT` seed + `2 USDT` alternating initial trade) across `BTC/USD`, `ETH/USD`, `SOL/USD`, and `LINK/USD` at `:00`, `:04`, `:08`, and `:12` offsets (`-5s` before the minute boundary).
    - Because each asset resolves in its staggered slot, one deep 15-minute market finishes every **3–4 minutes** while preserving continuous front-page depth.
    - Execution order per tick:
-     1. Batch-sync status of all tracked `open` markets (`getMultipleAccountsInfo`).
+     1. Batch-sync status of all tracked `open` markets (`getMultipleAccountsInfo`) and detach pre-expiry `settle.js --watch <feed>` workers (~10s before `endTs`, via `expiry-watch.js`) for immediate settlement.
      2. Open any missing staggered markets + place `2 USDT` initial bets **first** (zero gap even if settlement RPC calls stall).
-     3. Fallback-settle tracked expired markets via `scripts/settle.js`.
-     4. Reclaim LP (`get_liquidity`), redeem winning/voided shares (`get_collateral`), and close empty ATAs **last**.
+     3. Reclaim LP (`get_liquidity`), redeem winning/voided shares (`get_collateral`), and close empty ATAs **last** (global settlement runs via `--watch` workers and `settle-all.js`).
 
 2. **`settle-all.js` (Global Permissionless Settler)**
    - Decoupled from `state.json`: scans **all** `open` `Market` accounts (`dataSize: 409`, discriminator filter) owned by `PROGRAM_ID`—including user-created, sandbox-created, or older bot markets.
@@ -31,6 +30,7 @@ If copying outside a full repo checkout onto an Ubuntu VPS:
 │   ├── settle.js
 │   └── sandbox/
 │       ├── tick.js
+│       ├── expiry-watch.js
 │       ├── settle-all.js
 │       └── state.json         # auto-created by tick.js
 └── app/src/idl/prediction_market.json
@@ -57,7 +57,6 @@ node scripts/sandbox/settle-all.js --self-check
 | `SANDBOX_BET_USDT` | `2` | Alternating initial `YES`/`NO` trade in USDT |
 | `SANDBOX_TITLE` | _(per-asset default)_ | Optional title override (single-asset mode only, `<= 64` UTF-8 bytes) |
 | `SANDBOX_STATE_PATH` | `scripts/sandbox/state.json` | JSON file recording markets created by `tick.js` |
-| `SANDBOX_SETTLE_GRACE_SEC` | `12` | Grace wait seconds around expiry (max `30`) |
 | `SANDBOX_RECYCLE_FUNDS` | `true` | Withdraw settled LP, redeem winnings, close empty ATAs |
 | `SANDBOX_DAILY_MAX_MARKETS` | `0` | UTC daily creation cap (`0` = unlimited) |
 | `SANDBOX_MIN_SOL_LAMPORTS` | `30000000` | Minimum SOL guard (`0.03 SOL`); when below threshold, skips creation only while still settling & recycling |
