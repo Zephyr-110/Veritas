@@ -91,17 +91,31 @@ const ixSwap = vi.hoisted(() => vi.fn());
 const ixGetCollateral = vi.hoisted(() => vi.fn());
 const ixAddLiquidity = vi.hoisted(() => vi.fn());
 const ixGetLiquidity = vi.hoisted(() => vi.fn());
+const ixResolveMarket = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/instructions", () => ({
   ixUserBetOn,
   ixSwap,
   ixGetCollateral,
   ixAddLiquidity,
   ixGetLiquidity,
+  ixResolveMarket,
   ixMergeToken: vi.fn(),
   ixTakeSnapshot: vi.fn(),
   ixVoidMarket: vi.fn(),
   ixBurnAccount: vi.fn(),
 }));
+
+const findStraddlingReports = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/resolve", () => ({
+  resolveMarketWithChainlink: vi.fn(),
+  findStraddlingReports,
+}));
+
+const fetchMarketSnapshot = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/markets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/markets")>();
+  return { ...actual, fetchMarketSnapshot };
+});
 
 const realRun = vi.hoisted(() => vi.fn());
 const openWalletModal = vi.hoisted(() => vi.fn());
@@ -204,6 +218,13 @@ beforeEach(() => {
   ixGetCollateral.mockReset().mockResolvedValue([]);
   ixAddLiquidity.mockReset().mockResolvedValue([]);
   ixGetLiquidity.mockReset().mockResolvedValue([]);
+  ixResolveMarket.mockReset().mockResolvedValue([]);
+  fetchMarketSnapshot.mockReset().mockResolvedValue(null);
+  findStraddlingReports.mockReset().mockResolvedValue({
+    pre: { raw: Buffer.from([1]) },
+    post: { raw: Buffer.from([2]) },
+    hasSnapshot: false,
+  });
 });
 
 afterEach(() => {
@@ -253,7 +274,16 @@ describe("Sandbox desks & header integration", () => {
       </LocaleProvider>
     );
     expect(screen.getByText(/Awaiting on-chain settlement/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Submit settlement" })).toBeNull();
+    const manualResolveBtn = screen.getByRole("button", { name: "Submit settlement now" });
+    expect(manualResolveBtn).toBeEnabled();
+    await userEvent.click(manualResolveBtn);
+    await waitFor(() => expect(findStraddlingReports).toHaveBeenCalledTimes(1));
+    expect(ixResolveMarket).toHaveBeenCalledWith(
+      {},
+      expiredOpen,
+      SANDBOX_KEY,
+      expect.objectContaining({ hasSnapshot: false })
+    );
 
     const resolved = makeMarket({ status: "resolved", winner: "yes" });
     rerender(
@@ -322,7 +352,19 @@ describe("Sandbox desks & header integration", () => {
       `https://solscan.io/account/${SANDBOX_KEY.toBase58()}?cluster=devnet`
     );
 
+    // Two-step confirmation for Reset sandbox
     await userEvent.click(screen.getByRole("button", { name: /Reset sandbox/i }));
+    expect(guestMock.resetSandbox).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/Replacing this local keypair permanently discards access/i)
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(guestMock.resetSandbox).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Confirm reset" })).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: /Reset sandbox/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm reset" }));
     expect(guestMock.resetSandbox).toHaveBeenCalledTimes(1);
   });
 });

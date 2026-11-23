@@ -35,20 +35,24 @@ vi.mock("@/components/providers", () => ({
 
 const ixMergeToken = vi.hoisted(() => vi.fn());
 const ixGetCollateral = vi.hoisted(() => vi.fn());
+const ixResolveMarket = vi.hoisted(() => vi.fn());
 const ixTakeSnapshot = vi.hoisted(() => vi.fn());
 const ixVoidMarket = vi.hoisted(() => vi.fn());
 const ixBurnAccount = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/instructions", () => ({
   ixMergeToken,
   ixGetCollateral,
+  ixResolveMarket,
   ixTakeSnapshot,
   ixVoidMarket,
   ixBurnAccount,
 }));
 
 const resolveMarketWithChainlink = vi.hoisted(() => vi.fn());
+const findStraddlingReports = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/resolve", () => ({
   resolveMarketWithChainlink,
+  findStraddlingReports,
 }));
 
 const fetchMarketSnapshot = vi.hoisted(() => vi.fn());

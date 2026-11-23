@@ -29,6 +29,7 @@ import { useI18n, useT } from "@/i18n/provider";
 import type { FeedKey } from "@/lib/types";
 
 const PRESETS = [
+  { id: "5m", key: "create.preset5m" as const, ms: 5 * 60 * 1000 },
   { id: "15m", key: "create.preset15m" as const, ms: 15 * 60 * 1000 },
   { id: "1h", key: "create.preset1h" as const, ms: 60 * 60 * 1000 },
   { id: "4h", key: "create.preset4h" as const, ms: 4 * 60 * 60 * 1000 },

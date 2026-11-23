@@ -12,7 +12,7 @@ import {
 } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseTxError } from "@/lib/errors";
 import { explorerTx } from "@/lib/format";
 import { parsePubkey } from "@/lib/program";
@@ -130,6 +130,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
   const { settings } = useSettings();
   const { push, update } = useToasts();
   const { nonce, bump } = useRefresh();
+  const queryClient = useQueryClient();
   const t = useT();
 
   const [hydrated, setHydrated] = useState(false);
@@ -205,14 +206,48 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
   const sandboxAddr = sandboxPublicKey?.toBase58() ?? "";
   const mintValid = Boolean(parsePubkey(settings.collateralMint));
 
-  const balanceQuery = useQuery<SandboxBalance>({
-    queryKey: [
+  const balanceKeyFor = useCallback(
+    (addr: string) => [
       "sandbox-balance",
       connection?.rpcEndpoint ?? settings.rpcUrl,
       settings.collateralMint,
-      sandboxAddr,
-      nonce,
+      addr,
     ],
+    [connection?.rpcEndpoint, settings.collateralMint, settings.rpcUrl]
+  );
+
+  const seedBalanceFromFaucet = useCallback(
+    (
+      addr: string,
+      data: {
+        solLamports?: number;
+        usdtAtoms?: string | number;
+        usdtDecimals?: number;
+      }
+    ) => {
+      if (
+        typeof data.solLamports !== "number" ||
+        data.usdtAtoms === undefined ||
+        data.usdtAtoms === null
+      ) {
+        return;
+      }
+      try {
+        queryClient.setQueryData<SandboxBalance>(balanceKeyFor(addr), {
+          solLamports: data.solLamports,
+          usdtAtoms: BigInt(data.usdtAtoms),
+          usdtDecimals:
+            typeof data.usdtDecimals === "number" ? data.usdtDecimals : 6,
+        });
+      } catch {
+        // Fallback to live RPC query if response numeric fields cannot be coerced.
+      }
+    },
+    [balanceKeyFor, queryClient]
+  );
+
+  const balanceQuery = useQuery<SandboxBalance>({
+    queryKey: balanceKeyFor(sandboxAddr),
     queryFn: async () => {
       const pk = keypairRef.current!.publicKey;
       const mint = new PublicKey(settings.collateralMint.trim());
@@ -229,21 +264,32 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
     refetchInterval: isSandbox ? 15_000 : false,
   });
 
-  const hasExistingFunds = useCallback(
-    async (pk: PublicKey): Promise<boolean> => {
+  const prevNonceRef = useRef(nonce);
+  useEffect(() => {
+    if (prevNonceRef.current === nonce) return;
+    prevNonceRef.current = nonce;
+    if (isSandbox && sandboxAddr) {
+      void queryClient.invalidateQueries({ queryKey: balanceKeyFor(sandboxAddr) });
+    }
+  }, [balanceKeyFor, isSandbox, nonce, queryClient, sandboxAddr]);
+
+  const inspectExistingFunds = useCallback(
+    async (pk: PublicKey): Promise<SandboxBalance | null> => {
       try {
-        if (!parsePubkey(settings.collateralMint)) return false;
+        if (!parsePubkey(settings.collateralMint)) return null;
         const mint = new PublicKey(settings.collateralMint.trim());
         const [solLamports, meta] = await Promise.all([
           connection.getBalance(pk, "confirmed"),
           fetchMintMeta(connection, mint),
         ]);
-        if (solLamports < MIN_USABLE_SOL_LAMPORTS) return false;
+        if (solLamports < MIN_USABLE_SOL_LAMPORTS) return null;
         const ata = ataOf(mint, pk, meta.tokenProgram);
         const ataInfo = await connection.getAccountInfo(ata, "confirmed");
-        return unpackAmount(ata, ataInfo, meta.tokenProgram) > 0n;
+        const usdtAtoms = unpackAmount(ata, ataInfo, meta.tokenProgram);
+        if (usdtAtoms <= 0n) return null;
+        return { solLamports, usdtAtoms, usdtDecimals: meta.decimals };
       } catch {
-        return false;
+        return null;
       }
     },
     [connection, settings.collateralMint]
@@ -260,6 +306,9 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
         ok?: boolean;
         skipped?: boolean;
         signature?: string | null;
+        solLamports?: number;
+        usdtAtoms?: string;
+        usdtDecimals?: number;
         error?: string;
       };
       return { ok: res.ok, data };
@@ -274,6 +323,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
 
     const hadExistingKey = Boolean(keypairRef.current);
     const kp = keypairRef.current ?? Keypair.generate();
+    const addr = kp.publicKey.toBase58();
     commitKeypair(kp);
     persist(kp, false);
 
@@ -286,8 +336,9 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
     );
 
     try {
-      const { ok, data } = await requestSandboxFaucet(kp.publicKey.toBase58());
+      const { ok, data } = await requestSandboxFaucet(addr);
       if (ok) {
+        seedBalanceFromFaucet(addr, data);
         commitActive(true);
         persist(kp, true);
         const link = data.signature ? explorerTx(data.signature, settings.cluster) : null;
@@ -303,7 +354,9 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
         return true;
       }
 
-      if (hadExistingKey && (await hasExistingFunds(kp.publicKey))) {
+      const existing = hadExistingKey ? await inspectExistingFunds(kp.publicKey) : null;
+      if (existing) {
+        queryClient.setQueryData<SandboxBalance>(balanceKeyFor(addr), existing);
         commitActive(true);
         persist(kp, true);
         update(toastId, {
@@ -328,7 +381,9 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
       });
       return false;
     } catch {
-      if (hadExistingKey && (await hasExistingFunds(kp.publicKey))) {
+      const existing = hadExistingKey ? await inspectExistingFunds(kp.publicKey) : null;
+      if (existing) {
+        queryClient.setQueryData<SandboxBalance>(balanceKeyFor(addr), existing);
         commitActive(true);
         persist(kp, true);
         update(toastId, {
@@ -356,14 +411,17 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
       setEntering(false);
     }
   }, [
+    balanceKeyFor,
     bump,
     commitActive,
     commitKeypair,
-    hasExistingFunds,
+    inspectExistingFunds,
     isRealConnected,
     persist,
     push,
+    queryClient,
     requestSandboxFaucet,
+    seedBalanceFromFaucet,
     settings.cluster,
     t,
     update,
@@ -382,6 +440,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
     enteringRef.current = true;
     setEntering(true);
     const kp = keypairRef.current;
+    const addr = kp.publicKey.toBase58();
 
     const toastId = push(
       "info",
@@ -392,8 +451,9 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
     );
 
     try {
-      const { ok, data } = await requestSandboxFaucet(kp.publicKey.toBase58());
+      const { ok, data } = await requestSandboxFaucet(addr);
       if (ok) {
+        seedBalanceFromFaucet(addr, data);
         const link = data.signature ? explorerTx(data.signature, settings.cluster) : null;
         update(toastId, {
           kind: "ok",
@@ -429,7 +489,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
       enteringRef.current = false;
       setEntering(false);
     }
-  }, [bump, isRealConnected, push, requestSandboxFaucet, settings.cluster, t, update]);
+  }, [bump, isRealConnected, push, requestSandboxFaucet, seedBalanceFromFaucet, settings.cluster, t, update]);
 
   const exitSandbox = useCallback(() => {
     if (enteringRef.current || txPendingRef.current) return;
@@ -445,6 +505,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
     setEntering(true);
 
     const nextKp = Keypair.generate();
+    const nextAddr = nextKp.publicKey.toBase58();
     const toastId = push(
       "info",
       t("sandbox.resettingTitle"),
@@ -454,8 +515,9 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
     );
 
     try {
-      const { ok, data } = await requestSandboxFaucet(nextKp.publicKey.toBase58());
+      const { ok, data } = await requestSandboxFaucet(nextAddr);
       if (ok) {
+        seedBalanceFromFaucet(nextAddr, data);
         commitKeypair(nextKp);
         commitActive(true);
         persist(nextKp, true);
@@ -503,6 +565,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
     persist,
     push,
     requestSandboxFaucet,
+    seedBalanceFromFaucet,
     settings.cluster,
     t,
     update,

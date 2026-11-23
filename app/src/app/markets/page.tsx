@@ -74,21 +74,27 @@ export default function MarketsPage() {
             emptyTitleKey: "markets.emptyLiveTitle",
             emptyBodyKey: "markets.emptyLiveBody",
           },
-          endedPreview
-            ? {
-                key: "ended",
-                titleKey: "markets.ended",
-                rows: groups.ended,
-                emptyTitleKey: "markets.emptyEndedTitle",
-                emptyBodyKey: "markets.emptyEndedBody",
-              }
-            : {
-                key: "next",
-                titleKey: "markets.next",
-                rows: groups.next,
-                emptyTitleKey: "markets.emptyNextTitle",
-                emptyBodyKey: "markets.emptyNextBody",
-              },
+          ...(endedPreview
+            ? [
+                {
+                  key: "ended",
+                  titleKey: "markets.ended" as const,
+                  rows: groups.ended,
+                  emptyTitleKey: "markets.emptyEndedTitle" as const,
+                  emptyBodyKey: "markets.emptyEndedBody" as const,
+                },
+              ]
+            : groups.next.length > 0
+              ? [
+                  {
+                    key: "next",
+                    titleKey: "markets.next" as const,
+                    rows: groups.next,
+                    emptyTitleKey: "markets.emptyNextTitle" as const,
+                    emptyBodyKey: "markets.emptyNextBody" as const,
+                  },
+                ]
+              : []),
         ]
       : [
           {

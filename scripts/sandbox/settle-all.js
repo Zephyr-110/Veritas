@@ -1,0 +1,428 @@
+#!/usr/bin/env node
+"use strict";
+
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { spawnSync } = require("child_process");
+const { utils } = require("@coral-xyz/anchor");
+const { Connection, PublicKey } = require("@solana/web3.js");
+
+const DEFAULT_RPC = "https://api.devnet.solana.com";
+const DEFAULT_PROGRAM_ID = "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER";
+
+const MARKET_ACCOUNT_SIZE = 409;
+const MARKET_DISCRIMINATOR = [219, 190, 213, 55, 0, 227, 198, 154];
+const RESOLVE_WINDOW_SEC = 172_800;
+
+function usage(exitCode = 0) {
+  const out = exitCode === 0 ? console.log : console.error;
+  out(`Usage:
+  node scripts/sandbox/settle-all.js [options]
+
+Options:
+  --self-check     Verify dependencies, settle.js path, filter encoding, and decoding offline
+  --dry-run        Scan program markets and print settle candidates without sending transactions
+  --loop           Continuously sweep every SETTLE_LOOP_INTERVAL_SEC seconds
+  -h, --help       Show this help message
+
+Environment variables:
+  SOLANA_RPC / RPC_URL         Solana RPC endpoint (default: ${DEFAULT_RPC})
+  WALLET_PATH / ANCHOR_WALLET  Operator JSON keypair path (default: ~/.config/solana/id.json)
+  PROGRAM_ID                   Program ID (default: ${DEFAULT_PROGRAM_ID})
+  SETTLE_MIN_AGE_SEC           Minimum seconds past endTs before calling settle.js (default: 4)
+  SETTLE_MAX_PER_RUN           Maximum markets settled per sweep (default: 20)
+  SETTLE_LOOP_INTERVAL_SEC     Seconds between sweeps in --loop mode (default: 15, min: 5)
+  SETTLE_SCRIPT_PATH           Optional explicit path to scripts/settle.js
+`);
+  process.exit(exitCode);
+}
+
+function envStr(names, fallback) {
+  for (const name of names) {
+    const v = process.env[name];
+    if (v && v.trim()) return v.trim();
+  }
+  return fallback;
+}
+
+function envNum(name, fallback) {
+  const raw = process.env[name];
+  if (!raw || !raw.trim()) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function parseFlags(argv) {
+  const flags = { selfCheck: false, dryRun: false, loop: false };
+  for (const arg of argv) {
+    if (arg === "--self-check") flags.selfCheck = true;
+    else if (arg === "--dry-run") flags.dryRun = true;
+    else if (arg === "--loop") flags.loop = true;
+    else if (arg === "-h" || arg === "--help") usage(0);
+    else {
+      console.error(`Unknown argument: ${arg}`);
+      usage(1);
+    }
+  }
+  return flags;
+}
+
+function getConfig() {
+  return {
+    rpcUrl: envStr(["SOLANA_RPC", "RPC_URL"], DEFAULT_RPC),
+    walletPath: envStr(
+      ["WALLET_PATH", "ANCHOR_WALLET"],
+      path.join(os.homedir(), ".config", "solana", "id.json")
+    ),
+    programId: new PublicKey(envStr(["PROGRAM_ID"], DEFAULT_PROGRAM_ID)),
+    settleMinAgeSec: Math.max(1, Math.round(envNum("SETTLE_MIN_AGE_SEC", 4))),
+    maxPerRun: Math.max(1, Math.round(envNum("SETTLE_MAX_PER_RUN", 20))),
+    loopIntervalSec: Math.max(5, Math.round(envNum("SETTLE_LOOP_INTERVAL_SEC", 15))),
+  };
+}
+
+function resolveSettleScript() {
+  const candidates = [
+    process.env.SETTLE_SCRIPT_PATH,
+    path.resolve(__dirname, "..", "settle.js"),
+    path.join(__dirname, "settle.js"),
+    path.join(__dirname, "scripts", "settle.js"),
+  ].filter(Boolean);
+  const hit = candidates.find((p) => fs.existsSync(p));
+  if (!hit) {
+    throw new Error(`scripts/settle.js not found. Checked:\n  ${candidates.join("\n  ")}`);
+  }
+  return hit;
+}
+
+function sameDisc(actual, expected) {
+  if (!actual || actual.length < expected.length) return false;
+  for (let i = 0; i < expected.length; i += 1) {
+    if (actual[i] !== expected[i]) return false;
+  }
+  return true;
+}
+
+class Cursor {
+  constructor(buf, offset = 0) {
+    this.buf = buf;
+    this.offset = offset;
+  }
+  take(n) {
+    if (this.offset + n > this.buf.length) throw new Error("Unexpected end of account data");
+    const slice = this.buf.subarray(this.offset, this.offset + n);
+    this.offset += n;
+    return slice;
+  }
+  u8() {
+    return this.take(1)[0];
+  }
+  bool() {
+    return this.u8() !== 0;
+  }
+  u16() {
+    return this.take(2).readUInt16LE(0);
+  }
+  u64() {
+    return this.take(8).readBigUInt64LE(0);
+  }
+  i64() {
+    return this.take(8).readBigInt64LE(0);
+  }
+  i128() {
+    const lo = this.take(8).readBigUInt64LE(0);
+    const hi = this.take(8).readBigInt64LE(0);
+    return (hi << 64n) + lo;
+  }
+  pubkey() {
+    return new PublicKey(this.take(32));
+  }
+  bytes(n) {
+    return Array.from(this.take(n));
+  }
+}
+
+function decodeTitle(bytes) {
+  const buf = Buffer.from(bytes);
+  const zeroIdx = buf.indexOf(0);
+  const trimmed = zeroIdx >= 0 ? buf.subarray(0, zeroIdx) : buf;
+  return trimmed.toString("utf8").trim() || "(untitled)";
+}
+
+function decodeMarket(data) {
+  if (!data || data.length !== MARKET_ACCOUNT_SIZE || !sameDisc(data, MARKET_DISCRIMINATOR)) {
+    return null;
+  }
+  const c = new Cursor(data, 8);
+  const expiry = Number(c.u64());
+  const creator = c.pubkey();
+  const id = c.bytes(16);
+  const bump = c.u8();
+  const yesMint = c.pubkey();
+  const noMint = c.pubkey();
+  const statusByte = c.u8();
+  const statusMap = ["open", "resolved", "windowBurn", "staleBurn"];
+  const status = statusMap[statusByte];
+  if (!status) throw new Error(`Unknown market status byte: ${statusByte}`);
+  const collateralMint = c.pubkey();
+  const winnerTag = c.u8();
+  const winner = winnerTag === 0 ? null : winnerTag === 1 ? (c.u8() === 0 ? "yes" : "no") : null;
+  c.u8(); // marketCollateralBump
+  const prediction = c.bytes(64);
+  c.u64(); // finishTs
+  c.i128(); // lZero
+  c.i64(); // lastAccrualTs
+  c.i128(); // cumYesPerShare
+  c.i128(); // cumNoPerShare
+  c.u16(); // feeBps
+  c.i128(); // reserveYes
+  c.i128(); // reserveNo
+  c.i128(); // totalLpShares
+  const endTs = Number(c.i64());
+  const ocr2State = c.pubkey();
+  const threshold = c.i64();
+  const priceDecimals = c.u8();
+  const settleAbove = c.bool();
+
+  return {
+    expiry,
+    creator,
+    id,
+    bump,
+    yesMint,
+    noMint,
+    status,
+    collateralMint,
+    winner,
+    title: decodeTitle(prediction),
+    endTs,
+    ocr2State,
+    threshold,
+    priceDecimals,
+    settleAbove,
+  };
+}
+
+function marketDiscriminatorBase58() {
+  return utils.bytes.bs58.encode(Buffer.from(MARKET_DISCRIMINATOR));
+}
+
+function classifyOpenMarket(market, nowSec, minAgeSec) {
+  if (!market || market.status !== "open") return null;
+  const targetEndTs = market.endTs > 0 ? market.endTs : market.expiry;
+  const age = nowSec - targetEndTs;
+  if (age < minAgeSec) {
+    return { kind: "waiting", age, targetEndTs };
+  }
+  if (age >= RESOLVE_WINDOW_SEC) {
+    return { kind: "pastWindow", age, targetEndTs };
+  }
+  return { kind: "ready", age, targetEndTs };
+}
+
+function pause(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function runSettleScript(settleScriptPath, marketAddress, cfg) {
+  const res = spawnSync(
+    process.execPath,
+    [settleScriptPath, marketAddress, "--keypair", cfg.walletPath, "--rpc", cfg.rpcUrl],
+    {
+      env: { ...process.env, PROGRAM_ID: cfg.programId.toBase58() },
+      encoding: "utf8",
+      timeout: 90_000,
+    }
+  );
+  if (res.stdout) process.stdout.write(res.stdout);
+  if (res.stderr) process.stderr.write(res.stderr);
+  return res.status === 0;
+}
+
+function buildSyntheticMarketBuffer({ statusByte = 0, expiry = 1_700_000_000, endTs = 1_700_000_000, title = "BTC/USD test" } = {}) {
+  const buf = Buffer.alloc(MARKET_ACCOUNT_SIZE);
+  Buffer.from(MARKET_DISCRIMINATOR).copy(buf, 0);
+  let off = 8;
+  buf.writeBigUInt64LE(BigInt(expiry), off); off += 8;
+  off += 32; // creator
+  off += 16; // id
+  off += 1;  // bump
+  off += 32; // yesMint
+  off += 32; // noMint
+  buf.writeUInt8(statusByte, off); off += 1;
+  off += 32; // collateralMint
+  buf.writeUInt8(0, off); off += 1; // winner = None
+  off += 1;  // marketCollateralBump
+  const titleBuf = Buffer.from(title, "utf8");
+  titleBuf.copy(buf, off, 0, Math.min(64, titleBuf.length));
+  off += 64; // prediction
+  off += 8;  // finishTs
+  off += 16; // lZero
+  off += 8;  // lastAccrualTs
+  off += 16; // cumYesPerShare
+  off += 16; // cumNoPerShare
+  off += 2;  // feeBps
+  off += 16; // reserveYes
+  off += 16; // reserveNo
+  off += 16; // totalLpShares
+  buf.writeBigInt64LE(BigInt(endTs), off);
+  return buf;
+}
+
+function runSelfCheck(cfg) {
+  const settlePath = resolveSettleScript();
+  const discB58 = marketDiscriminatorBase58();
+  if (!discB58 || typeof discB58 !== "string") {
+    throw new Error("Failed to base58-encode MARKET_DISCRIMINATOR");
+  }
+
+  const endTs = 1_750_000_000;
+  const openBuf = buildSyntheticMarketBuffer({ statusByte: 0, expiry: endTs, endTs, title: "SOL/USD 15 min test" });
+  const resolvedBuf = buildSyntheticMarketBuffer({ statusByte: 1, expiry: endTs, endTs, title: "ETH/USD resolved" });
+
+  const openDecoded = decodeMarket(openBuf);
+  const resolvedDecoded = decodeMarket(resolvedBuf);
+  if (!openDecoded || openDecoded.status !== "open" || openDecoded.endTs !== endTs || openDecoded.title !== "SOL/USD 15 min test") {
+    throw new Error("Synthetic open market decode failed");
+  }
+  if (!resolvedDecoded || resolvedDecoded.status !== "resolved") {
+    throw new Error("Synthetic resolved market decode failed");
+  }
+
+  const waiting = classifyOpenMarket(openDecoded, endTs + 2, cfg.settleMinAgeSec);
+  const ready = classifyOpenMarket(openDecoded, endTs + cfg.settleMinAgeSec, cfg.settleMinAgeSec);
+  const past = classifyOpenMarket(openDecoded, endTs + RESOLVE_WINDOW_SEC, cfg.settleMinAgeSec);
+  if (waiting?.kind !== "waiting" || ready?.kind !== "ready" || past?.kind !== "pastWindow") {
+    throw new Error("Market classification self-check failed");
+  }
+
+  console.log("[self-check] settle.js:", settlePath);
+  console.log("[self-check] program:", cfg.programId.toBase58());
+  console.log("[self-check] discriminatorFilter:", discB58);
+  console.log("[self-check] decode + window classify: OK");
+  console.log("[self-check] PASSED");
+}
+
+async function runSweep(cfg, flags) {
+  const settleScriptPath = resolveSettleScript();
+  if (!flags.dryRun && !fs.existsSync(cfg.walletPath)) {
+    throw new Error(`Operator keypair file not found: ${cfg.walletPath}`);
+  }
+
+  const connection = new Connection(cfg.rpcUrl, "confirmed");
+  const rawAccounts = await connection.getProgramAccounts(cfg.programId, {
+    commitment: "confirmed",
+    filters: [
+      { dataSize: MARKET_ACCOUNT_SIZE },
+      { memcmp: { offset: 0, bytes: marketDiscriminatorBase58() } },
+    ],
+  });
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const ready = [];
+  let openCount = 0;
+  let waitingCount = 0;
+  let pastWindowCount = 0;
+
+  for (const item of rawAccounts) {
+    let market;
+    try {
+      market = decodeMarket(Buffer.from(item.account.data));
+    } catch {
+      continue;
+    }
+    if (!market || market.status !== "open") continue;
+    openCount += 1;
+
+    const cls = classifyOpenMarket(market, nowSec, cfg.settleMinAgeSec);
+    if (!cls) continue;
+    if (cls.kind === "waiting") {
+      waitingCount += 1;
+    } else if (cls.kind === "pastWindow") {
+      pastWindowCount += 1;
+    } else if (cls.kind === "ready") {
+      ready.push({
+        address: item.pubkey.toBase58(),
+        title: market.title,
+        age: cls.age,
+        targetEndTs: cls.targetEndTs,
+      });
+    }
+  }
+
+  // Prioritize the most recently expired markets so active front-page rounds settle immediately.
+  ready.sort((a, b) => b.targetEndTs - a.targetEndTs);
+  const selected = ready.slice(0, cfg.maxPerRun);
+
+  console.log(
+    `[settle-all] total=${rawAccounts.length} open=${openCount} waiting=${waitingCount} pastWindow=${pastWindowCount} ready=${ready.length} processing=${selected.length}`
+  );
+
+  if (flags.dryRun) {
+    for (const m of selected) {
+      console.log(`  [dry-run] ${m.address} age=${m.age}s title="${m.title}"`);
+    }
+    return { attempted: selected.length, settled: 0, failed: 0 };
+  }
+
+  let settled = 0;
+  let failed = 0;
+  for (const m of selected) {
+    console.log(`[settle-all] settling ${m.address} (age=${m.age}s, "${m.title}")...`);
+    let ok = runSettleScript(settleScriptPath, m.address, cfg);
+    if (!ok && m.age < 25) {
+      console.log(`[settle-all] ${m.address} newly expired; retrying once after 3s...`);
+      await pause(3000);
+      ok = runSettleScript(settleScriptPath, m.address, cfg);
+    }
+    if (ok) settled += 1;
+    else {
+      failed += 1;
+      console.warn(`[settle-all] settle.js did not succeed for ${m.address}`);
+    }
+  }
+
+  console.log(`[settle-all] sweep done: settled=${settled} failed=${failed}`);
+  return { attempted: selected.length, settled, failed };
+}
+
+async function main() {
+  const flags = parseFlags(process.argv.slice(2));
+  const cfg = getConfig();
+
+  if (flags.selfCheck) {
+    runSelfCheck(cfg);
+    return;
+  }
+
+  if (!flags.loop) {
+    await runSweep(cfg, flags);
+    return;
+  }
+
+  let stopping = false;
+  const onStop = (sig) => {
+    console.log(`[settle-all] received ${sig}, exiting after current step...`);
+    stopping = true;
+  };
+  process.on("SIGINT", () => onStop("SIGINT"));
+  process.on("SIGTERM", () => onStop("SIGTERM"));
+
+  console.log(`[settle-all] loop started (interval=${cfg.loopIntervalSec}s, minAge=${cfg.settleMinAgeSec}s)`);
+  while (!stopping) {
+    try {
+      await runSweep(cfg, flags);
+    } catch (err) {
+      console.error(`[settle-all] sweep error: ${err?.message || err}`);
+    }
+    if (!stopping) {
+      await pause(cfg.loopIntervalSec * 1000);
+    }
+  }
+}
+
+main().catch((err) => {
+  console.error(`[settle-all] fatal: ${err?.stack || err}`);
+  process.exit(1);
+});

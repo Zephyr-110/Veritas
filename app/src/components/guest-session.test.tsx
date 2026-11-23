@@ -49,6 +49,8 @@ function Harness() {
       <span data-testid="storage">{String(session.storageAvailable)}</span>
       <span data-testid="locked">{String(session.locked)}</span>
       <span data-testid="busy">{String(busy)}</span>
+      <span data-testid="usdt">{session.balance ? session.balance.usdtAtoms.toString() : "none"}</span>
+      <span data-testid="sol">{session.balance ? String(session.balance.solLamports) : "none"}</span>
       <button type="button" onClick={() => void session.enterSandbox()}>
         enter
       </button>
@@ -229,5 +231,27 @@ describe("GuestSessionProvider state machine", () => {
     await userEvent.click(screen.getByRole("button", { name: "enter" }));
     await waitFor(() => expect(screen.getByTestId("mode")).toHaveTextContent("sandbox"));
     expect(screen.getByTestId("sandbox")).not.toHaveTextContent("none");
+  });
+
+  it("seeds sandbox balance immediately from faucet response without waiting on RPC refetch", async () => {
+    connectionMock.getBalance.mockImplementation(() => new Promise(() => {}));
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        skipped: false,
+        signature: "faucet-sig-seeded",
+        solLamports: 40_000_000,
+        usdtAtoms: "30000000",
+        usdtDecimals: 6,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<Harness />);
+    await userEvent.click(screen.getByRole("button", { name: "enter" }));
+    await waitFor(() => expect(screen.getByTestId("mode")).toHaveTextContent("sandbox"));
+    expect(screen.getByTestId("usdt")).toHaveTextContent("30000000");
+    expect(screen.getByTestId("sol")).toHaveTextContent("40000000");
   });
 });

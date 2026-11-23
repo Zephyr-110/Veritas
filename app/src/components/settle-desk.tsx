@@ -16,6 +16,7 @@ import {
   ixBurnAccount,
   ixGetCollateral,
   ixMergeToken,
+  ixResolveMarket,
   ixTakeSnapshot,
   ixVoidMarket,
 } from "@/lib/instructions";
@@ -26,7 +27,7 @@ import {
   type UserPosition,
 } from "@/lib/markets";
 import { parseTxError } from "@/lib/errors";
-import { resolveMarketWithChainlink } from "@/lib/resolve";
+import { findStraddlingReports, resolveMarketWithChainlink } from "@/lib/resolve";
 import { useProgram } from "@/hooks/use-program";
 import { useNow } from "@/hooks/use-now";
 import { useRefresh, useSettings, useToasts } from "./providers";
@@ -142,6 +143,14 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
             <p className="text-sm leading-relaxed text-zinc-400">
               <StableText k="settle.sandboxPollingBody" block />
             </p>
+            <div className="cluster-2">
+              <SandboxResolveButton market={market} disabled={phase.afterWindow} />
+            </div>
+            {phase.afterWindow ? (
+              <p className="text-xs leading-5 text-[var(--warn)]">
+                <StableText k="settle.windowClosed" block />
+              </p>
+            ) : null}
           </Card>
         ) : (
           <Card className="stack-4">
@@ -302,6 +311,45 @@ function ResolveButton({ market, disabled = false }: { market: MarketView; disab
       onClick={() => void onClick()}
     >
       <StableText k="settle.submitResolve" align="center" />
+    </Button>
+  );
+}
+
+function SandboxResolveButton({
+  market,
+  disabled = false,
+}: {
+  market: MarketView;
+  disabled?: boolean;
+}) {
+  const program = useProgram();
+  const { connection } = useConnection();
+  const { effectivePublicKey, isSandbox, locked } = useGuestSession();
+  const { busy: sandboxBusy, runSandbox } = useSandboxTx();
+  const t = useT();
+
+  const onClick = () => {
+    if (!program || !isSandbox || !effectivePublicKey) return;
+    void runSandbox(t("tx.submitResolve"), async () => {
+      const snapshot = await fetchMarketSnapshot(connection, market.pdas.snapshot);
+      const found = await findStraddlingReports(connection, market.ocr2State, market.endTs, snapshot);
+      return ixResolveMarket(program, market, effectivePublicKey, {
+        rawPre: found.pre.raw,
+        rawPost: found.post.raw,
+        hasSnapshot: found.hasSnapshot,
+      });
+    });
+  };
+
+  return (
+    <Button
+      type="button"
+      tone="secondary"
+      busy={sandboxBusy}
+      disabled={sandboxBusy || locked || disabled || !isSandbox || !effectivePublicKey || !program}
+      onClick={onClick}
+    >
+      <StableText k="settle.sandboxManualResolve" align="center" />
     </Button>
   );
 }

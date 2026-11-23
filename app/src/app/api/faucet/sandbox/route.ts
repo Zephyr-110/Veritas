@@ -124,6 +124,7 @@ export async function POST(req: Request) {
         signature: null,
         solLamports: initial.lamports,
         usdtAtoms: initial.usdtAtoms.toString(),
+        usdtDecimals: meta.decimals,
       });
     }
 
@@ -174,6 +175,7 @@ export async function POST(req: Request) {
               signature: lastSig,
               solLamports: settled.lamports,
               usdtAtoms: settled.usdtAtoms.toString(),
+              usdtDecimals: meta.decimals,
             });
           }
         }
@@ -189,6 +191,7 @@ export async function POST(req: Request) {
             signature: lastSig,
             solLamports: stateNow.lamports,
             usdtAtoms: stateNow.usdtAtoms.toString(),
+            usdtDecimals: meta.decimals,
           });
         }
 
@@ -260,6 +263,7 @@ export async function POST(req: Request) {
           signature: lastSig,
           solLamports: stateNow.lamports + stateNow.needSol,
           usdtAtoms: (stateNow.usdtAtoms + stateNow.needUsdt).toString(),
+          usdtDecimals: meta.decimals,
         });
       } catch {
         if (attempt === 0) {

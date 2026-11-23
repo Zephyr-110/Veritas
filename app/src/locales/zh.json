@@ -42,7 +42,9 @@
     "max": "全部",
     "tryAgain": "重试",
     "loading": "加载中",
+    "copy": "复制",
     "copied": "已复制",
+    "cancel": "取消",
     "close": "关闭",
     "save": "保存",
     "reset": "重置",
@@ -205,6 +207,7 @@
     "question": "合约文本",
     "placeholder": "到期时 BTC/USD ≥ 60000",
     "tradingEnds": "截止",
+    "preset5m": "5 分钟",
     "preset15m": "15 分钟",
     "preset1h": "1 小时",
     "preset4h": "4 小时",
@@ -431,7 +434,8 @@
     "burnSubmit": "关闭并回收",
     "sandboxMergeCta": "连接真实钱包以合并 {amount}",
     "sandboxPollingTitle": "等待链上自动结算",
-    "sandboxPollingBody": "市场已到期，页面正每 4 秒自动轮询链上结算状态；结算完成后将在此直接亮起领取按钮。"
+    "sandboxPollingBody": "市场已到期，页面正每 4 秒自动轮询链上结算状态；结算完成后将在此直接亮起领取按钮。",
+    "sandboxManualResolve": "立即提交结算"
   },
   "tx": {
     "view": "查看交易",
@@ -645,6 +649,9 @@
     "refillBtn": "补充测试币",
     "refillShort": "补币",
     "resetBtn": "重置沙盒",
+    "resetConfirmNote": "替换本地沙盒私钥后，原地址尚未领取的持仓将无法通过此浏览器取回，请确认已领取后再继续。",
+    "resetConfirmBtn": "确认重置",
+    "modalSwitchNote": "当前处于沙盒账户（Devnet），连接插件钱包后将直接切换为真实账户。",
     "exitBtn": "退出沙盒",
     "meBarNote": "仅限 Devnet 测试币；私钥只存当前浏览器本地。",
     "enteringTitle": "正在准备沙盒账户（Devnet）…",

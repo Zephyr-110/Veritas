@@ -31,8 +31,42 @@ const {
 const DEFAULT_RPC = "https://api.devnet.solana.com";
 const DEFAULT_PROGRAM_ID = "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER";
 const DEFAULT_COLLATERAL_MINT = "CtiAxpKmXtK2bupa59GN6GPYXQiPPYUfSqnY1pgMD7QG";
-const DEFAULT_BTC_FEED = "6PxBx93S8x3tno1TsFZwT5VqP8drrRCbCXygEXYNkFJe";
-const DEFAULT_BTC_OCR2_STATE = "HCKJKQ8xFfqm5BxTA6LaUCWYXNShYXF4eAwC7NhBYXkj";
+const DEFAULT_ASSETS = "btc,eth,sol,link";
+
+const ASSET_CATALOG = {
+  btc: {
+    key: "btc",
+    symbol: "BTC/USD",
+    feedEnv: "BTC_FEED_ACCOUNT",
+    stateEnv: "BTC_OCR2_STATE",
+    defaultFeed: "6PxBx93S8x3tno1TsFZwT5VqP8drrRCbCXygEXYNkFJe",
+    defaultOcr2State: "HCKJKQ8xFfqm5BxTA6LaUCWYXNShYXF4eAwC7NhBYXkj",
+  },
+  eth: {
+    key: "eth",
+    symbol: "ETH/USD",
+    feedEnv: "ETH_FEED_ACCOUNT",
+    stateEnv: "ETH_OCR2_STATE",
+    defaultFeed: "669U43LNHx7LsVj95uYksnhXUfWKDsdzVqev3V4Jpw3P",
+    defaultOcr2State: "7zDTDDXiMqwbEEE17ZuFE4A6K5uBQo15tG1gkgdKZQB2",
+  },
+  sol: {
+    key: "sol",
+    symbol: "SOL/USD",
+    feedEnv: "SOL_FEED_ACCOUNT",
+    stateEnv: "SOL_OCR2_STATE",
+    defaultFeed: "99B2bTijsU6f1GCT73HmdR7HCFFjGMBcPZY6jZ96ynrR",
+    defaultOcr2State: "EpFp9mhi9cvZL9Lp59S1mt2twv2dtZGgFUvZEQMZ9Ra8",
+  },
+  link: {
+    key: "link",
+    symbol: "LINK/USD",
+    feedEnv: "LINK_FEED_ACCOUNT",
+    stateEnv: "LINK_OCR2_STATE",
+    defaultFeed: "HXoZZBWv25N4fm2vfSKnHXTeDJ31qaAcWZe3ZKeM6dQv",
+    defaultOcr2State: "Ghm1a2c2NGPg6pKGG3PP1GLAuJkHm1RKMPqqJwPM7JpJ",
+  },
+};
 
 const MARKET_ACCOUNT_SIZE = 409;
 const MARKET_DISCRIMINATOR = [219, 190, 213, 55, 0, 227, 198, 154];
@@ -54,7 +88,7 @@ function usage(exitCode = 0) {
   node scripts/sandbox/tick.js [options]
 
 Options:
-  --self-check     Verify dependencies, IDL, settle.js path, feed decoding, and tx encoding offline
+  --self-check     Verify dependencies, IDL, settle.js path, feed decoding, stagger math, and tx encoding offline
   -h, --help       Show this help message
 
 Environment variables:
@@ -62,19 +96,22 @@ Environment variables:
   WALLET_PATH / ANCHOR_WALLET  Operator JSON keypair path (default: ~/.config/solana/id.json)
   PROGRAM_ID                   Program ID (default: ${DEFAULT_PROGRAM_ID})
   COLLATERAL_MINT              Collateral mint (default: ${DEFAULT_COLLATERAL_MINT})
-  BTC_FEED_ACCOUNT             Chainlink BTC/USD Store feed (default: ${DEFAULT_BTC_FEED})
-  BTC_OCR2_STATE               Chainlink BTC/USD OCR2 state (default: ${DEFAULT_BTC_OCR2_STATE})
-  SANDBOX_STATE_PATH           State JSON file path (default: scripts/sandbox/state.json)
-  SANDBOX_DURATION_SEC         Market duration in seconds (default: 120)
+  SANDBOX_ASSETS               Comma-separated staggered feeds (default: ${DEFAULT_ASSETS})
+  SANDBOX_DURATION_SEC         Market duration in seconds (default: 900 = 15 min)
   SANDBOX_SEED_USDT            Initial seed liquidity in USDT (default: 150)
   SANDBOX_BET_USDT             Opening bot bet size in USDT (default: 2)
-  SANDBOX_TITLE                Market title <= 64 UTF-8 bytes
+  SANDBOX_TITLE                Optional title override when using a single asset
+  SANDBOX_STATE_PATH           State JSON file path (default: scripts/sandbox/state.json)
   SANDBOX_SETTLE_GRACE_SEC     Grace wait seconds around expiry (default: 12)
   SANDBOX_RECYCLE_FUNDS        Recycle settled LP + winnings + empty ATAs (default: true)
   SANDBOX_DAILY_MAX_MARKETS    Max markets created per UTC day, 0=unlimited (default: 0)
   SANDBOX_MIN_SOL_LAMPORTS     Minimum operator SOL balance guard (default: 30000000)
   SANDBOX_ACTIVE_FILE          Optional JSON file {lastActiveTs} gating creation to active windows
   SANDBOX_ACTIVE_WINDOW_SEC    Active window duration in seconds (default: 1800)
+  BTC_FEED_ACCOUNT / BTC_OCR2_STATE   Override BTC/USD Chainlink feed/state accounts
+  ETH_FEED_ACCOUNT / ETH_OCR2_STATE   Override ETH/USD Chainlink feed/state accounts
+  SOL_FEED_ACCOUNT / SOL_OCR2_STATE   Override SOL/USD Chainlink feed/state accounts
+  LINK_FEED_ACCOUNT / LINK_OCR2_STATE Override LINK/USD Chainlink feed/state accounts
   SETTLE_SCRIPT_PATH           Optional explicit path to scripts/settle.js
   IDL_PATH                     Optional explicit path to prediction_market.json
 `);
@@ -102,17 +139,46 @@ function envBool(name, fallback) {
   return !/^(0|false|no|off)$/i.test(raw.trim());
 }
 
-function defaultTitleForDuration(durationSec) {
-  if (durationSec === 120) return "BTC/USD at or above opening price in 2 min?";
-  if (durationSec % 60 === 0) {
-    return `BTC/USD at or above opening price in ${durationSec / 60} min?`;
+function parseAssets(rawList) {
+  const keys = String(rawList || DEFAULT_ASSETS)
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (keys.length === 0) {
+    throw new Error("SANDBOX_ASSETS must list at least one asset (btc, eth, sol, link)");
   }
-  return `BTC/USD at or above opening price in ${durationSec} sec?`;
+  const seen = new Set();
+  const out = [];
+  for (const key of keys) {
+    const spec = ASSET_CATALOG[key];
+    if (!spec) {
+      throw new Error(
+        `Unknown asset '${key}' in SANDBOX_ASSETS. Supported: ${Object.keys(ASSET_CATALOG).join(", ")}`
+      );
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      key: spec.key,
+      symbol: spec.symbol,
+      feed: new PublicKey(envStr([spec.feedEnv], spec.defaultFeed)),
+      ocr2State: new PublicKey(envStr([spec.stateEnv], spec.defaultOcr2State)),
+    });
+  }
+  return out;
+}
+
+function defaultTitleForAsset(symbol, durationSec) {
+  if (durationSec % 60 === 0) {
+    return `${symbol} at or above opening price in ${durationSec / 60} min?`;
+  }
+  return `${symbol} at or above opening price in ${durationSec} sec?`;
 }
 
 function getConfig() {
-  const durationSec = Math.max(30, Math.round(envNum("SANDBOX_DURATION_SEC", 120)));
-  const title = envStr(["SANDBOX_TITLE"], defaultTitleForDuration(durationSec));
+  const durationSec = Math.max(30, Math.round(envNum("SANDBOX_DURATION_SEC", 900)));
+  const assets = parseAssets(envStr(["SANDBOX_ASSETS"], DEFAULT_ASSETS));
+  const titleOverride = envStr(["SANDBOX_TITLE"], "");
   return {
     rpcUrl: envStr(["SOLANA_RPC", "RPC_URL"], DEFAULT_RPC),
     walletPath: envStr(
@@ -121,13 +187,12 @@ function getConfig() {
     ),
     programId: new PublicKey(envStr(["PROGRAM_ID"], DEFAULT_PROGRAM_ID)),
     collateralMint: new PublicKey(envStr(["COLLATERAL_MINT"], DEFAULT_COLLATERAL_MINT)),
-    btcFeed: new PublicKey(envStr(["BTC_FEED_ACCOUNT"], DEFAULT_BTC_FEED)),
-    btcOcr2State: new PublicKey(envStr(["BTC_OCR2_STATE"], DEFAULT_BTC_OCR2_STATE)),
+    assets,
     statePath: envStr(["SANDBOX_STATE_PATH"], path.join(__dirname, "state.json")),
     durationSec,
     seedUsdt: Math.max(1.01, envNum("SANDBOX_SEED_USDT", 150)),
     betUsdt: Math.max(0.01, envNum("SANDBOX_BET_USDT", 2)),
-    title,
+    titleOverride,
     settleGraceSec: Math.max(0, Math.min(30, Math.round(envNum("SANDBOX_SETTLE_GRACE_SEC", 12)))),
     recycleFunds: envBool("SANDBOX_RECYCLE_FUNDS", true),
     dailyMaxMarkets: Math.max(0, Math.round(envNum("SANDBOX_DAILY_MAX_MARKETS", 0))),
@@ -135,6 +200,11 @@ function getConfig() {
     activeFile: envStr(["SANDBOX_ACTIVE_FILE"], ""),
     activeWindowSec: Math.max(60, Math.round(envNum("SANDBOX_ACTIVE_WINDOW_SEC", 1800))),
   };
+}
+
+function titleForAsset(cfg, asset) {
+  if (cfg.titleOverride && cfg.assets.length === 1) return cfg.titleOverride;
+  return defaultTitleForAsset(asset.symbol, cfg.durationSec);
 }
 
 function resolveSettleScript() {
@@ -193,12 +263,12 @@ function utcDayKey(nowSec = Math.floor(Date.now() / 1000)) {
 }
 
 function loadState(statePath) {
-  const fallback = { version: 1, nextBetSide: "yes", dailyCounts: {}, markets: [] };
+  const fallback = { version: 2, nextBetSide: "yes", dailyCounts: {}, markets: [] };
   if (!fs.existsSync(statePath)) return fallback;
   try {
     const raw = JSON.parse(fs.readFileSync(statePath, "utf8"));
     return {
-      version: 1,
+      version: Number(raw.version || 2),
       nextBetSide: raw.nextBetSide === "no" ? "no" : "yes",
       dailyCounts:
         raw.dailyCounts && typeof raw.dailyCounts === "object" ? raw.dailyCounts : {},
@@ -762,6 +832,19 @@ async function recycleMarketFunds(connection, program, payer, cfg, entry) {
   entry.recycled = true;
 }
 
+async function recycleFinalizedEntries(connection, program, payer, cfg, state) {
+  for (const entry of state.markets) {
+    if (entry.recycled) continue;
+    if (!["resolved", "windowBurn", "staleBurn"].includes(entry.status)) continue;
+    try {
+      await recycleMarketFunds(connection, program, payer, cfg, entry);
+      saveState(cfg.statePath, state);
+    } catch (err) {
+      console.error(`[recycle] error on ${entry.address}:`, err.message || err);
+    }
+  }
+}
+
 function isActiveWindowOpen(cfg, nowSec) {
   if (!cfg.activeFile) return true;
   if (!fs.existsSync(cfg.activeFile)) return false;
@@ -782,11 +865,94 @@ function computeAlignedExpiry(nowSec, durationSec) {
   return nowSec + durationSec;
 }
 
+function slotOffsetSec(durationSec, slotIndex, totalSlots) {
+  if (totalSlots <= 1) return 0;
+  if (durationSec === 900 && totalSlots === 4) {
+    return [0, 240, 480, 720][slotIndex] || 0;
+  }
+  return Math.floor((slotIndex * durationSec) / totalSlots);
+}
+
+function computeStaggeredExpiry(nowSec, durationSec, slotIndex, totalSlots) {
+  if (durationSec < 120 || totalSlots <= 1) {
+    return computeAlignedExpiry(nowSec, durationSec);
+  }
+  const offset = slotOffsetSec(durationSec, slotIndex, totalSlots);
+  const phase = (offset - 5 + durationSec) % durationSec;
+  const minLead = Math.min(
+    Math.floor(durationSec * 0.4),
+    Math.max(60, Math.floor(durationSec / totalSlots))
+  );
+  const minTarget = nowSec + minLead;
+  const cycle = Math.ceil((minTarget - phase) / durationSec);
+  return cycle * durationSec + phase;
+}
+
+function inferAssetKey(entry, ocr2State) {
+  if (entry.asset && ASSET_CATALOG[entry.asset]) return entry.asset;
+  if (ocr2State) {
+    const stateStr = ocr2State.toBase58();
+    for (const spec of Object.values(ASSET_CATALOG)) {
+      const configured = envStr([spec.stateEnv], spec.defaultOcr2State);
+      if (stateStr === spec.defaultOcr2State || stateStr === configured) return spec.key;
+    }
+  }
+  const title = String(entry.title || "").toUpperCase();
+  for (const spec of Object.values(ASSET_CATALOG)) {
+    if (title.startsWith(spec.symbol)) return spec.key;
+  }
+  return "btc";
+}
+
+async function batchSyncOpenMarkets(connection, state, nowSec) {
+  const openEntries = state.markets.filter((m) => m.status === "open");
+  const liveAssets = new Set();
+  for (let i = 0; i < openEntries.length; i += 100) {
+    const chunk = openEntries.slice(i, i + 100);
+    const pubkeys = chunk.map((e) => new PublicKey(e.address));
+    const infos = await connection.getMultipleAccountsInfo(pubkeys, "confirmed");
+    for (let j = 0; j < chunk.length; j += 1) {
+      const entry = chunk[j];
+      const info = infos[j];
+      if (!info) {
+        entry.status = "closed";
+        entry.recycled = true;
+        continue;
+      }
+      const decoded = decodeMarket(Buffer.from(info.data));
+      entry.asset = inferAssetKey(entry, decoded.ocr2State);
+      if (decoded.status !== "open") {
+        entry.status = decoded.status;
+        entry.winner = decoded.winner;
+        continue;
+      }
+      if (decoded.expiry > nowSec) {
+        liveAssets.add(entry.asset);
+      }
+    }
+  }
+  return liveAssets;
+}
+
 async function runSelfCheck() {
   const cfg = getConfig();
   const { idl, idlPath } = loadIdl(cfg.programId);
   const settleScriptPath = resolveSettleScript();
-  const encodedPred = encodePrediction(cfg.title);
+
+  const titles = cfg.assets.map((asset) => {
+    const t = titleForAsset(cfg, asset);
+    encodePrediction(t);
+    return t;
+  });
+
+  // Check staggered expiry spacing across all configured slots
+  const sampleNow = 1_763_900_000;
+  const expiries = cfg.assets.map((_, idx) =>
+    computeStaggeredExpiry(sampleNow, cfg.durationSec, idx, cfg.assets.length)
+  );
+  if (new Set(expiries).size !== expiries.length) {
+    throw new Error(`Staggered expiries collided: ${expiries.join(", ")}`);
+  }
 
   // Synthetic 232-byte Chainlink feed buffer check
   const synthFeed = Buffer.alloc(FEED_MIN_LEN);
@@ -812,10 +978,10 @@ async function runSelfCheck() {
   const createRes = await buildCreateMarketIxs(program, {
     creator: dummyPayer.publicKey,
     collateralMint: cfg.collateralMint,
-    ocr2State: cfg.btcOcr2State,
+    ocr2State: cfg.assets[0].ocr2State,
     marketId,
-    prediction: encodedPred,
-    expiry: Math.floor(Date.now() / 1000) + cfg.durationSec,
+    prediction: encodePrediction(titles[0]),
+    expiry: expiries[0],
     collateralAmount: 150_000_000n,
     threshold: decoded.answer,
     settleAbove: true,
@@ -852,10 +1018,10 @@ async function runSelfCheck() {
   const tmpStatePath = path.join(os.tmpdir(), `veritas-sandbox-selfcheck-${process.pid}.json`);
   try {
     saveState(tmpStatePath, {
-      version: 1,
+      version: 2,
       nextBetSide: "no",
       dailyCounts: {},
-      markets: [{ address: createRes.pdas.market.toBase58(), status: "open" }],
+      markets: [{ address: createRes.pdas.market.toBase58(), asset: cfg.assets[0].key, status: "open" }],
     });
     const loaded = loadState(tmpStatePath);
     if (loaded.nextBetSide !== "no" || loaded.markets.length !== 1) {
@@ -869,7 +1035,9 @@ async function runSelfCheck() {
     node: process.version,
     idlPath,
     settleScriptPath,
-    titleBytes: Buffer.byteLength(cfg.title, "utf8"),
+    durationSec: cfg.durationSec,
+    assets: cfg.assets.map((a) => a.key),
+    staggeredExpiries: expiries,
     sampleMarketPda: createRes.pdas.market.toBase58(),
   });
 }
@@ -884,8 +1052,138 @@ async function runTick() {
   const program = new Program(idl, provider);
 
   const state = loadState(cfg.statePath);
+  let nowSec = Math.floor(Date.now() / 1000);
 
-  // 1. Settle any tracked markets that are expired (or within grace window)
+  // 1. Batch-sync open tracked markets and find which staggered asset slots already have a live market
+  const liveAssets = await batchSyncOpenMarkets(connection, state, nowSec);
+  saveState(cfg.statePath, state);
+
+  // 2. Open missing staggered markets FIRST (guarantees zero gap even if settlement RPC stalls)
+  const missingSlots = cfg.assets
+    .map((asset, slotIndex) => ({ asset, slotIndex }))
+    .filter(({ asset }) => !liveAssets.has(asset.key));
+
+  if (missingSlots.length === 0) {
+    console.log(`[tick] All staggered assets (${cfg.assets.map((a) => a.key).join(",")}) already live.`);
+  } else if (!isActiveWindowOpen(cfg, nowSec)) {
+    console.log("[tick] Outside SANDBOX_ACTIVE_FILE activity window; skipping creation.");
+  } else {
+    const mintMeta = await fetchMintMeta(connection, cfg.collateralMint);
+    const scale = 10 ** mintMeta.decimals;
+    const seedAtoms = BigInt(Math.round(cfg.seedUsdt * scale));
+    const betAtoms = BigInt(Math.round(cfg.betUsdt * scale));
+    if (seedAtoms <= 1_000_000n) {
+      throw new Error("SANDBOX_SEED_USDT must produce > 1,000,000 raw collateral units");
+    }
+
+    const creatorCollateralAta = ataOf(cfg.collateralMint, payer.publicKey, mintMeta.tokenProgram);
+    let [solLamports, usdtBal] = await Promise.all([
+      connection.getBalance(payer.publicKey, "confirmed"),
+      safeTokenAmount(connection, creatorCollateralAta, mintMeta.tokenProgram),
+    ]);
+
+    // If collateral is tight because resolved markets haven't been reclaimed yet, reclaim once on-demand.
+    if (cfg.recycleFunds && usdtBal.amount < seedAtoms + betAtoms) {
+      await recycleFinalizedEntries(connection, program, payer, cfg, state);
+      usdtBal = await safeTokenAmount(connection, creatorCollateralAta, mintMeta.tokenProgram);
+    }
+
+    if (solLamports < cfg.minSolLamports) {
+      throw new Error(
+        `Operator SOL balance ${solLamports} lamports is below SANDBOX_MIN_SOL_LAMPORTS (${cfg.minSolLamports})`
+      );
+    }
+
+    for (const { asset, slotIndex } of missingSlots) {
+      nowSec = Math.floor(Date.now() / 1000);
+      const today = utcDayKey(nowSec);
+      const todayCount = Number(state.dailyCounts[today] || 0);
+      if (cfg.dailyMaxMarkets > 0 && todayCount >= cfg.dailyMaxMarkets) {
+        console.log(`[tick] Daily cap (${cfg.dailyMaxMarkets}) reached for ${today}; skipping ${asset.key}.`);
+        break;
+      }
+
+      if (usdtBal.amount < seedAtoms + betAtoms) {
+        console.warn(
+          `[tick] Collateral balance ${usdtBal.amount} below ${seedAtoms + betAtoms}; cannot open ${asset.key}.`
+        );
+        break;
+      }
+
+      const feedInfo = await connection.getAccountInfo(asset.feed, "confirmed");
+      if (!feedInfo) {
+        console.warn(`[tick] Chainlink feed account not found for ${asset.symbol}: ${asset.feed.toBase58()}`);
+        continue;
+      }
+
+      const feed = decodeChainlinkFeed(Buffer.from(feedInfo.data));
+      const title = titleForAsset(cfg, asset);
+      const expiry = computeStaggeredExpiry(nowSec, cfg.durationSec, slotIndex, cfg.assets.length);
+      const marketId = Array.from(crypto.randomBytes(MARKET_ID_BYTES));
+      const prediction = encodePrediction(title);
+
+      const { pdas, ixs: createIxs } = await buildCreateMarketIxs(program, {
+        creator: payer.publicKey,
+        collateralMint: cfg.collateralMint,
+        ocr2State: asset.ocr2State,
+        marketId,
+        prediction,
+        expiry,
+        collateralAmount: seedAtoms,
+        threshold: feed.answer,
+        settleAbove: true,
+        tokenProgram: mintMeta.tokenProgram,
+      });
+
+      const createSig = await sendAndConfirm(connection, payer, createIxs);
+      const marketAddr = pdas.market.toBase58();
+      const entry = {
+        address: marketAddr,
+        asset: asset.key,
+        idHex: Buffer.from(marketId).toString("hex"),
+        title,
+        expiry,
+        threshold: feed.answer.toString(),
+        priceDecimals: feed.decimals,
+        status: "open",
+        winner: null,
+        createdAt: nowSec,
+        createTx: createSig,
+        betSide: null,
+        betTx: null,
+        recycled: false,
+      };
+      state.markets.push(entry);
+      state.dailyCounts[today] = todayCount + 1;
+      saveState(cfg.statePath, state);
+      console.log(
+        `[create] (${asset.symbol}) ${marketAddr} expiry=${expiry} threshold=${feed.answer.toString()} tx=${createSig}`
+      );
+
+      // Place alternating 2 USDT opening bet on the new market
+      const side = state.nextBetSide === "no" ? "no" : "yes";
+      const betIxs = await buildUserBetOnIxs(program, {
+        market: pdas.market,
+        pdas,
+        signer: payer.publicKey,
+        collateralMint: cfg.collateralMint,
+        tokenProgram: mintMeta.tokenProgram,
+        collateralAmount: betAtoms,
+        side,
+        minOut: betAtoms / 2n,
+      });
+      const betSig = await sendAndConfirm(connection, payer, betIxs);
+      entry.betSide = side;
+      entry.betTx = betSig;
+      state.nextBetSide = side === "yes" ? "no" : "yes";
+      saveState(cfg.statePath, state);
+      console.log(`[bet] (${asset.symbol}) ${marketAddr} side=${side} amount=${cfg.betUsdt} USDT tx=${betSig}`);
+
+      usdtBal = await safeTokenAmount(connection, creatorCollateralAta, mintMeta.tokenProgram);
+    }
+  }
+
+  // 3. Fallback-settle any tracked markets that are expired (or within grace window)
   for (const entry of state.markets) {
     if (entry.status !== "open") continue;
     try {
@@ -896,18 +1194,9 @@ async function runTick() {
     }
   }
 
-  // 1b. Recycle settled LP + winnings + empty ATAs so collateral & rent roll over
+  // 4. Recycle settled LP + winnings + empty ATAs LAST so collateral & rent roll over
   if (cfg.recycleFunds) {
-    for (const entry of state.markets) {
-      if (entry.recycled) continue;
-      if (!["resolved", "windowBurn", "staleBurn"].includes(entry.status)) continue;
-      try {
-        await recycleMarketFunds(connection, program, payer, cfg, entry);
-        saveState(cfg.statePath, state);
-      } catch (err) {
-        console.error(`[recycle] error on ${entry.address}:`, err.message || err);
-      }
-    }
+    await recycleFinalizedEntries(connection, program, payer, cfg, state);
   }
 
   // Prune old recycled history beyond 200 entries
@@ -919,138 +1208,6 @@ async function runTick() {
     state.markets = [...archivedEntries, ...activeEntries];
     saveState(cfg.statePath, state);
   }
-
-  // 2. Check if any tracked market is currently live
-  let nowSec = Math.floor(Date.now() / 1000);
-  let hasLive = false;
-  for (const entry of state.markets) {
-    if (entry.status !== "open") continue;
-    const info = await connection.getAccountInfo(new PublicKey(entry.address), "confirmed");
-    if (!info) {
-      entry.status = "closed";
-      entry.recycled = true;
-      continue;
-    }
-    const decoded = decodeMarket(Buffer.from(info.data));
-    if (decoded.status !== "open") {
-      entry.status = decoded.status;
-      entry.winner = decoded.winner;
-      continue;
-    }
-    if (decoded.expiry > nowSec) {
-      hasLive = true;
-      break;
-    }
-  }
-  saveState(cfg.statePath, state);
-
-  if (hasLive) {
-    console.log("[tick] Live sandbox short market already exists; done.");
-    return;
-  }
-
-  if (!isActiveWindowOpen(cfg, nowSec)) {
-    console.log("[tick] Outside SANDBOX_ACTIVE_FILE activity window; skipping creation.");
-    return;
-  }
-
-  const today = utcDayKey(nowSec);
-  const todayCount = Number(state.dailyCounts[today] || 0);
-  if (cfg.dailyMaxMarkets > 0 && todayCount >= cfg.dailyMaxMarkets) {
-    console.log(`[tick] Daily cap (${cfg.dailyMaxMarkets}) reached for ${today}; skipping.`);
-    return;
-  }
-
-  const mintMeta = await fetchMintMeta(connection, cfg.collateralMint);
-  const scale = 10 ** mintMeta.decimals;
-  const seedAtoms = BigInt(Math.round(cfg.seedUsdt * scale));
-  const betAtoms = BigInt(Math.round(cfg.betUsdt * scale));
-  if (seedAtoms <= 1_000_000n) {
-    throw new Error("SANDBOX_SEED_USDT must produce > 1,000,000 raw collateral units");
-  }
-
-  const creatorCollateralAta = ataOf(cfg.collateralMint, payer.publicKey, mintMeta.tokenProgram);
-  const [solLamports, usdtBal, feedInfo] = await Promise.all([
-    connection.getBalance(payer.publicKey, "confirmed"),
-    safeTokenAmount(connection, creatorCollateralAta, mintMeta.tokenProgram),
-    connection.getAccountInfo(cfg.btcFeed, "confirmed"),
-  ]);
-
-  if (solLamports < cfg.minSolLamports) {
-    throw new Error(
-      `Operator SOL balance ${solLamports} lamports is below SANDBOX_MIN_SOL_LAMPORTS (${cfg.minSolLamports})`
-    );
-  }
-  if (usdtBal.amount < seedAtoms + betAtoms) {
-    throw new Error(
-      `Operator collateral balance ${usdtBal.amount} is below required ${seedAtoms + betAtoms}`
-    );
-  }
-  if (!feedInfo) {
-    throw new Error(`BTC/USD Chainlink feed account not found: ${cfg.btcFeed.toBase58()}`);
-  }
-
-  const feed = decodeChainlinkFeed(Buffer.from(feedInfo.data));
-  nowSec = Math.floor(Date.now() / 1000);
-  const expiry = computeAlignedExpiry(nowSec, cfg.durationSec);
-  const marketId = Array.from(crypto.randomBytes(MARKET_ID_BYTES));
-  const prediction = encodePrediction(cfg.title);
-
-  const { pdas, ixs: createIxs } = await buildCreateMarketIxs(program, {
-    creator: payer.publicKey,
-    collateralMint: cfg.collateralMint,
-    ocr2State: cfg.btcOcr2State,
-    marketId,
-    prediction,
-    expiry,
-    collateralAmount: seedAtoms,
-    threshold: feed.answer,
-    settleAbove: true,
-    tokenProgram: mintMeta.tokenProgram,
-  });
-
-  const createSig = await sendAndConfirm(connection, payer, createIxs);
-  const marketAddr = pdas.market.toBase58();
-  const entry = {
-    address: marketAddr,
-    idHex: Buffer.from(marketId).toString("hex"),
-    title: cfg.title,
-    expiry,
-    threshold: feed.answer.toString(),
-    priceDecimals: feed.decimals,
-    status: "open",
-    winner: null,
-    createdAt: nowSec,
-    createTx: createSig,
-    betSide: null,
-    betTx: null,
-    recycled: false,
-  };
-  state.markets.push(entry);
-  state.dailyCounts[today] = todayCount + 1;
-  saveState(cfg.statePath, state);
-  console.log(
-    `[create] ${marketAddr} expiry=${expiry} threshold=${feed.answer.toString()} tx=${createSig}`
-  );
-
-  // 3. Place alternating 2 USDT opening bet on the new market
-  const side = state.nextBetSide === "no" ? "no" : "yes";
-  const betIxs = await buildUserBetOnIxs(program, {
-    market: pdas.market,
-    pdas,
-    signer: payer.publicKey,
-    collateralMint: cfg.collateralMint,
-    tokenProgram: mintMeta.tokenProgram,
-    collateralAmount: betAtoms,
-    side,
-    minOut: betAtoms / 2n,
-  });
-  const betSig = await sendAndConfirm(connection, payer, betIxs);
-  entry.betSide = side;
-  entry.betTx = betSig;
-  state.nextBetSide = side === "yes" ? "no" : "yes";
-  saveState(cfg.statePath, state);
-  console.log(`[bet] ${marketAddr} side=${side} amount=${cfg.betUsdt} USDT tx=${betSig}`);
 }
 
 async function main() {

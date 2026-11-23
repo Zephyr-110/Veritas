@@ -22,7 +22,8 @@ import { useLocale, useT } from "@/i18n/provider";
 import { tPair } from "@/i18n/store";
 
 export default function HomePage() {
-  const { mode, effectivePublicKey: publicKey, hasSavedKey, entering, locked, enterSandbox } = useGuestSession();
+  const { hydrated, mode, effectivePublicKey: publicKey, hasSavedKey, entering, locked, enterSandbox } =
+    useGuestSession();
   const { markets, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarkets();
   const now = useNow(1000);
   const t = useT();
@@ -254,7 +255,7 @@ export default function HomePage() {
               <MarketTableSkeleton rows={4} />
             ) : live.length ? (
               <div className="fade-in stack-3">
-                {!publicKey ? (
+                {hydrated && !publicKey ? (
                   <p className="text-xs text-zinc-400">
                     <StableText k="home.simLiveHint" block />
                   </p>
@@ -267,7 +268,7 @@ export default function HomePage() {
                   <p className="text-[15px] text-zinc-400">
                     <StableText k="home.emptyLive" />
                   </p>
-                  {!publicKey ? (
+                  {hydrated && !publicKey ? (
                     <Link href="/markets#sim-preview">
                       <Button type="button" tone="primary" className="h-8 px-3 text-[13px]">
                         <StableText k="home.simCta" align="center" />
@@ -280,71 +281,57 @@ export default function HomePage() {
                     </Button>
                   </Link>
                 </div>
-                <div className="mt-5 border-t border-[var(--hair)] pt-5">
-                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                    <span className="home-kicker">
-                      <StableText k="home.next" />
-                    </span>
-                    {nextMarket ? (
-                      <>
-                        <Link
-                          href={`/markets/${nextMarket.address.toBase58()}`}
-                          className="link-accent text-[15px] text-white"
-                        >
-                          {questionTitle(nextMarket)}
-                        </Link>
-                        {mountedNow ? (
-                          <LiveCountdown expiry={nextMarket.expiry} now={now} className="text-[18px] text-white" />
-                        ) : null}
-                      </>
-                    ) : null}
-                  </div>
-                  {nextMarket ? (
+                {nextMarket ? (
+                  <div className="mt-5 border-t border-[var(--hair)] pt-5">
+                    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                      <span className="home-kicker">
+                        <StableText k="home.next" />
+                      </span>
+                      <Link
+                        href={`/markets/${nextMarket.address.toBase58()}`}
+                        className="link-accent text-[15px] text-white"
+                      >
+                        {questionTitle(nextMarket)}
+                      </Link>
+                      {mountedNow ? (
+                        <LiveCountdown expiry={nextMarket.expiry} now={now} className="text-[18px] text-white" />
+                      ) : null}
+                    </div>
                     <p className="mt-3 text-[13px] text-zinc-500">
                       <StableText k="home.nextBody" block />
                     </p>
-                  ) : (
-                    <p className="mt-2 text-[14px] text-zinc-500">
-                      <StableText k="markets.noNext" block />
-                    </p>
-                  )}
-                </div>
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
         </section>
       </Reveal>
 
-      {merged ? null : (
+      {merged || !nextMarket ? null : (
         <Reveal>
           <section className="home-section">
             <h2 className="home-kicker">
               <StableText k="home.next" />
             </h2>
-            {nextMarket ? (
-              <div className="home-next mt-5">
-                <Link
-                  href={`/markets/${nextMarket.address.toBase58()}`}
-                  className="link-accent block text-[17px] font-medium text-white"
-                >
-                  {questionTitle(nextMarket)}
-                </Link>
-                <div className="mt-2">
-                  {mountedNow ? (
-                    <LiveCountdown expiry={nextMarket.expiry} now={now} className="text-[22px] text-white" />
-                  ) : (
-                    <span className="num font-mono tabular-nums text-[22px] text-white">--:--:--</span>
-                  )}
-                </div>
-                <p className="mt-4 text-[15px] text-zinc-500">
-                  <StableText k="home.nextBody" block />
-                </p>
+            <div className="home-next mt-5">
+              <Link
+                href={`/markets/${nextMarket.address.toBase58()}`}
+                className="link-accent block text-[17px] font-medium text-white"
+              >
+                {questionTitle(nextMarket)}
+              </Link>
+              <div className="mt-2">
+                {mountedNow ? (
+                  <LiveCountdown expiry={nextMarket.expiry} now={now} className="text-[22px] text-white" />
+                ) : (
+                  <span className="num font-mono tabular-nums text-[22px] text-white">--:--:--</span>
+                )}
               </div>
-            ) : (
-              <p className="mt-3 text-[15px] text-zinc-500">
-                <StableText k="markets.noNext" block />
+              <p className="mt-4 text-[15px] text-zinc-500">
+                <StableText k="home.nextBody" block />
               </p>
-            )}
+            </div>
           </section>
         </Reveal>
       )}

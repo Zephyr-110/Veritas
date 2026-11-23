@@ -656,13 +656,19 @@ export function WalletConnectModal() {
         ) : null}
 
         <div className="mt-4 border-t border-[var(--hair)] pt-3">
-          <Link
-            href="/markets"
-            onClick={() => setOpen(false)}
-            className="link-accent inline-flex items-center text-xs"
-          >
-            <StableText k="wallet.browseReadOnly" />
-          </Link>
+          {isSandbox ? (
+            <p className="text-xs leading-relaxed text-zinc-400">
+              <StableText k="sandbox.modalSwitchNote" block />
+            </p>
+          ) : (
+            <Link
+              href="/markets"
+              onClick={() => setOpen(false)}
+              className="link-accent inline-flex items-center text-xs"
+            >
+              <StableText k="wallet.browseReadOnly" />
+            </Link>
+          )}
         </div>
       </div>
     </div>,
@@ -963,10 +969,14 @@ export function SandboxCapsule() {
   const { settings } = useSettings();
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen) {
+      setConfirmReset(false);
+      return;
+    }
     const onDown = (e: globalThis.MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
@@ -1014,7 +1024,7 @@ export function SandboxCapsule() {
       </button>
 
       {menuOpen ? (
-        <div className="faucet-pop absolute right-0 top-full z-50 mt-2 w-80 border border-[var(--line)] bg-zinc-950 p-4 shadow-2xl sm:w-96">
+        <div className="faucet-pop absolute right-0 top-full z-50 mt-2 w-[min(92vw,27rem)] border border-[var(--line)] bg-zinc-950 p-4 shadow-2xl">
           <div className="stack-3">
             <div className="flex items-center justify-between gap-2">
               <span className="text-sm font-semibold text-white">
@@ -1051,8 +1061,13 @@ export function SandboxCapsule() {
                   </a>
                 ) : null}
               </div>
-              <div className="break-all font-mono text-[11px] leading-relaxed text-zinc-200">
-                <CopyText value={addr} label={addr} />
+              <div className="flex items-center justify-between gap-2">
+                <code className="min-w-0 overflow-x-auto whitespace-nowrap font-mono text-[11px] text-zinc-200">
+                  {addr}
+                </code>
+                <div className="shrink-0">
+                  <CopyText value={addr} label={t("common.copy")} />
+                </div>
               </div>
               <div className="hairline" />
               <div className="flex items-center justify-between text-xs">
@@ -1098,7 +1113,7 @@ export function SandboxCapsule() {
                   tone="secondary"
                   className="h-8 px-2 text-xs"
                   disabled={locked}
-                  onClick={() => void resetSandbox()}
+                  onClick={() => setConfirmReset((v) => !v)}
                 >
                   <StableText k="sandbox.resetBtn" align="center" />
                 </Button>
@@ -1115,6 +1130,37 @@ export function SandboxCapsule() {
                   <StableText k="sandbox.exitBtn" align="center" />
                 </Button>
               </div>
+              {confirmReset ? (
+                <div className="stack-2 border border-[var(--warn)]/40 bg-[var(--seg-bg)] p-3">
+                  <p className="text-xs leading-relaxed text-[var(--warn)]">
+                    <StableText k="sandbox.resetConfirmNote" block />
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      tone="secondary"
+                      className="h-8 px-2 text-xs"
+                      disabled={locked}
+                      onClick={() => setConfirmReset(false)}
+                    >
+                      <StableText k="common.cancel" align="center" />
+                    </Button>
+                    <Button
+                      type="button"
+                      tone="primary"
+                      className="h-8 px-2 text-xs"
+                      busy={entering}
+                      disabled={locked}
+                      onClick={() => {
+                        setConfirmReset(false);
+                        void resetSandbox();
+                      }}
+                    >
+                      <StableText k="sandbox.resetConfirmBtn" align="center" />
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -1150,29 +1196,7 @@ export function Header() {
   }, [connection, settings.rpcUrl]);
 
   useEffect(() => {
-    const root = document.documentElement;
-    if (pathname !== "/") {
-      delete root.dataset.brand;
-      return;
-    }
-    const update = () => {
-      const el = document.getElementById("masthead");
-      if (!el) return;
-      if (el.getBoundingClientRect().bottom > 56) root.dataset.brand = "hidden";
-      else delete root.dataset.brand;
-    };
-    update();
-    const raf = requestAnimationFrame(update);
-    const timers = [window.setTimeout(update, 250), window.setTimeout(update, 1000)];
-    window.addEventListener("scroll", update, { passive: true });
-    window.addEventListener("resize", update);
-    return () => {
-      cancelAnimationFrame(raf);
-      timers.forEach((id) => window.clearTimeout(id));
-      window.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
-      delete root.dataset.brand;
-    };
+    delete document.documentElement.dataset.brand;
   }, [pathname]);
 
   const nav = [

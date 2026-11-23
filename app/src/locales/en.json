@@ -42,7 +42,9 @@
     "max": "Max",
     "tryAgain": "Try again",
     "loading": "Loading",
+    "copy": "Copy",
     "copied": "Copied",
+    "cancel": "Cancel",
     "close": "Close",
     "save": "Save",
     "reset": "Reset",
@@ -205,6 +207,7 @@
     "question": "Contract text",
     "placeholder": "BTC/USD ≥ 60000 at expiry",
     "tradingEnds": "Expiry",
+    "preset5m": "5 min",
     "preset15m": "15 min",
     "preset1h": "1 hour",
     "preset4h": "4 hours",
@@ -431,7 +434,8 @@
     "burnSubmit": "Close & sweep",
     "sandboxMergeCta": "Connect real wallet to merge {amount}",
     "sandboxPollingTitle": "Awaiting on-chain settlement",
-    "sandboxPollingBody": "Market expired — polling on-chain settlement every 4s. The Redeem button will light up right here automatically."
+    "sandboxPollingBody": "Market expired — polling on-chain settlement every 4s. The Redeem button will light up right here automatically.",
+    "sandboxManualResolve": "Submit settlement now"
   },
   "tx": {
     "view": "View transaction",
@@ -645,6 +649,9 @@
     "refillBtn": "Refill test funds",
     "refillShort": "Refill",
     "resetBtn": "Reset sandbox",
+    "resetConfirmNote": "Replacing this local keypair permanently discards access to any unredeemed positions on the current address.",
+    "resetConfirmBtn": "Confirm reset",
+    "modalSwitchNote": "Sandbox Account (Devnet) is active — connecting a wallet switches to your real wallet immediately.",
     "exitBtn": "Exit sandbox",
     "meBarNote": "Devnet test funds only; private key stays in browser localStorage.",
     "enteringTitle": "Preparing Sandbox Account (Devnet)…",
