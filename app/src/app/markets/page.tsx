@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { useMarkets } from "@/hooks/use-markets";
 import { useNow } from "@/hooks/use-now";
 import { listSection, marketKind, questionTitle } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
 import { MarketTable } from "@/components/market-table";
 import { MarketsSkeleton } from "@/components/skeletons";
+import { SimOrderPreview } from "@/components/sim-preview";
 import { Button, DataFreshness, Reveal, StableText, StateBlock, onSpot } from "@/components/ui";
 import { LiveCountdown } from "@/components/live";
 import { useT } from "@/i18n/provider";
@@ -16,10 +18,20 @@ import type { MarketView } from "@/lib/markets";
 type Tape = "hot" | "history";
 
 export default function MarketsPage() {
+  const { publicKey } = useWallet();
   const { markets, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarkets();
   const now = useNow(1000);
   const t = useT();
   const [tape, setTape] = useState<Tape>("hot");
+  const showSim = !publicKey && !loading && markets.filter((m) => listSection(marketKind(m, now)) === "live").length === 0;
+
+  useEffect(() => {
+    if (!showSim || typeof window === "undefined" || window.location.hash !== "#sim-preview") return;
+    const raf = window.requestAnimationFrame(() => {
+      document.getElementById("sim-preview")?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [showSim]);
 
   const groups = useMemo(() => {
     const live = markets.filter((m) => listSection(marketKind(m, now)) === "live").sort((a, b) => a.expiry - b.expiry);
@@ -146,6 +158,11 @@ export default function MarketsPage() {
             </section>
           </Reveal>
         ))}
+        {!publicKey && groups.live.length === 0 ? (
+          <Reveal>
+            <SimOrderPreview />
+          </Reveal>
+        ) : null}
       </div>
       <aside className="desk-rail stack-4 enter-side">
         <Reveal>

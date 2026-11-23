@@ -28,6 +28,7 @@ export const CHAINLINK_STORE_PROGRAM_ID = "HEvSKofvBgfaexv23kMabbYqxasxU3mQ4ibBM
 export const OCR2_STATE_DISCRIMINATOR = [216, 146, 107, 94, 104, 75, 182, 177] as const;
 
 export const GITHUB_REPO = "https://github.com/Zephyr-110/Veritas";
+export const DEMO_VIDEO_URL = (process.env.NEXT_PUBLIC_DEMO_VIDEO_URL ?? "").trim();
 
 export const MARKET_ACCOUNT_SIZE = 409;
 export const MARKET_DISCRIMINATOR = [219, 190, 213, 55, 0, 227, 198, 154] as const;

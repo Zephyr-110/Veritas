@@ -21,9 +21,10 @@ const ixGetLiquidity = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/instructions", () => ({ ixAddLiquidity, ixGetLiquidity }));
 
 const run = vi.hoisted(() => vi.fn());
+const openWalletModal = vi.hoisted(() => vi.fn());
 vi.mock("@/components/ui", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/components/ui")>();
-  return { ...actual, useTx: () => ({ busy: false, run }) };
+  return { ...actual, useTx: () => ({ busy: false, run }), openWalletModal };
 });
 
 const { LpDesk } = await import("@/components/lp-desk");
@@ -120,6 +121,7 @@ beforeEach(() => {
   ixGetLiquidity.mockReset();
   ixGetLiquidity.mockResolvedValue([]);
   run.mockReset();
+  openWalletModal.mockReset();
   run.mockImplementation(async (_label: string, build: () => Promise<unknown>) => {
     await build();
     return null;
@@ -129,9 +131,22 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("LpDesk 前置校验", () => {
-  it("未连接钱包：禁用并提示连接", () => {
+  it("未连接钱包：进行中市场进入模拟预览并在提交时引导连钱包，已终局撤出模式保持禁用", async () => {
     wallet.publicKey = null;
     renderDesk();
+    expect(screen.getByText("SIMULATION")).toBeInTheDocument();
+    expect(submitBtn()).toBeEnabled();
+    expect(submitBtn()).toHaveTextContent("Connect wallet to add liquidity (Sim)");
+    await userEvent.click(submitBtn());
+    expect(openWalletModal).toHaveBeenCalledTimes(1);
+    expect(run).not.toHaveBeenCalled();
+
+    cleanup();
+    render(
+      <LocaleProvider>
+        <LpDesk market={makeMarket({ status: "resolved", winner: "yes" })} position={makePosition()} withdrawOnly />
+      </LocaleProvider>
+    );
     expect(submitBtn()).toBeDisabled();
     expect(submitBtn()).toHaveTextContent("Connect a wallet first");
   });

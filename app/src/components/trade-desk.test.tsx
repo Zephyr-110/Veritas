@@ -29,9 +29,10 @@ vi.mock("@/components/faucet-claim", () => ({
 }));
 
 const run = vi.hoisted(() => vi.fn());
+const openWalletModal = vi.hoisted(() => vi.fn());
 vi.mock("@/components/ui", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/components/ui")>();
-  return { ...actual, useTx: () => ({ busy: false, run }) };
+  return { ...actual, useTx: () => ({ busy: false, run }), openWalletModal };
 });
 
 const { TradeDesk } = await import("@/components/trade-desk");
@@ -129,6 +130,7 @@ beforeEach(() => {
   ixSwap.mockReset();
   ixSwap.mockResolvedValue([]);
   run.mockReset();
+  openWalletModal.mockReset();
   // 执行回调，让 submit 里真正的指令构造路径跑到
   run.mockImplementation(async (_label: string, build: () => Promise<unknown>) => {
     await build();
@@ -139,11 +141,20 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("TradeDesk 下单前置校验", () => {
-  it("未连接钱包：禁用并提示连接", () => {
+  it("未连接钱包：进入模拟预览，使用实时储备算报价并在点击提交时引导连钱包", async () => {
     wallet.publicKey = null;
-    renderDesk();
-    expect(submitBtn()).toBeDisabled();
-    expect(submitBtn()).toHaveTextContent("Connect a wallet to trade");
+    const market = makeMarket();
+    const { container } = renderDesk(market);
+    expect(screen.getByText("SIMULATION")).toBeInTheDocument();
+    expect(submitBtn()).toBeEnabled();
+    expect(submitBtn()).toHaveTextContent("Connect wallet to Buy YES (Sim)");
+
+    const expected = toUi(quoteBet(market.reserveYes, market.reserveNo, 2_000_000n, "yes").totalOut, market.decimals, 2);
+    expect(container.querySelector(".desk")!.textContent).toContain(expected);
+
+    await userEvent.click(submitBtn());
+    expect(openWalletModal).toHaveBeenCalledTimes(1);
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("市场已过期：禁用并显示交易关闭", () => {

@@ -23,7 +23,7 @@ import { useProgram } from "@/hooks/use-program";
 import { useRefresh, useSettings, useToasts } from "@/components/providers";
 import { FeatureCard } from "@/components/market-card";
 import { PriceAge } from "@/components/price-age";
-import { Button, Reveal, StableText, TextInput, choiceClass, onSpot, useTx } from "@/components/ui";
+import { Button, Reveal, StableText, TextInput, choiceClass, onSpot, openWalletModal, useTx } from "@/components/ui";
 import { useI18n, useT } from "@/i18n/provider";
 import type { FeedKey } from "@/lib/types";
 
@@ -272,7 +272,10 @@ export default function CreatePage() {
   const submit = async () => {
     setAttempted(true);
     if (!expiry || questionErrorKey || expiryErrorKey || thresholdErrorKey || seedErrorKey || solShort) return;
-    if (!publicKey) return;
+    if (!publicKey) {
+      openWalletModal();
+      return;
+    }
     if (!program) {
       push("err", t("create.createFailed"), t("errors.badAddress"));
       return;
@@ -595,7 +598,7 @@ export default function CreatePage() {
           ) : null}
 
           <div className="max-w-xs">
-            <Button type="submit" className="h-12 w-full" disabled={busy || !publicKey || solShort}>
+            <Button type="submit" className="h-12 w-full" disabled={busy || solShort}>
               <StableText
                 k={
                   busy

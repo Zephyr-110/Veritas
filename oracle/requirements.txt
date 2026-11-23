@@ -1,0 +1,6 @@
+# Python dependencies for Veritas pm-AMM reference math & protocol simulator
+# Run from repo root:
+#   pip install -r oracle/requirements.txt
+#   python oracle/protocol_sim.py
+numpy>=1.26,<3
+scipy>=1.11,<2

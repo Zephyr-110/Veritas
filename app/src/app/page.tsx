@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { useMarkets } from "@/hooks/use-markets";
 import { useNow } from "@/hooks/use-now";
 import { listSection, marketKind, questionTitle } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
 import { explorerAccount, shorten } from "@/lib/format";
 import { GITHUB_REPO } from "@/lib/constants";
+import { DemoVideo } from "@/components/demo-video";
 import { PricePanel } from "@/components/price-tape";
 import { PulseAreaMark } from "@/components/logo-marks";
 import { MarketTable } from "@/components/market-table";
@@ -20,6 +22,7 @@ import { useLocale, useT } from "@/i18n/provider";
 import { tPair } from "@/i18n/store";
 
 export default function HomePage() {
+  const { publicKey } = useWallet();
   const { markets, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarkets();
   const now = useNow(1000);
   const t = useT();
@@ -130,6 +133,15 @@ export default function HomePage() {
               </div>
             </div>
 
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--hair)] bg-[var(--seg-bg)] px-5 py-2.5 text-xs">
+              <span className="text-zinc-400">
+                <StableText k="home.settleCensusLabel" />
+              </span>
+              <span className="num font-semibold text-white">
+                <StableText k="home.settleCensusValue" align="end" />
+              </span>
+            </div>
+
             <div className="grid divide-y divide-[var(--hair)] md:grid-cols-3 md:divide-x md:divide-y-0">
               <div className="flex flex-col gap-1.5 px-5 py-4">
                 <span className="num flex items-center gap-1.5 text-[11px] font-medium tracking-wider text-[var(--yes)]">
@@ -199,6 +211,8 @@ export default function HomePage() {
         </section>
       </Reveal>
 
+      <DemoVideo />
+
       <Reveal>
         <section className="home-section">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -224,7 +238,12 @@ export default function HomePage() {
             ) : loading && !markets.length ? (
               <MarketTableSkeleton rows={4} />
             ) : live.length ? (
-              <div className="fade-in">
+              <div className="fade-in stack-3">
+                {!publicKey ? (
+                  <p className="text-xs text-zinc-400">
+                    <StableText k="home.simLiveHint" block />
+                  </p>
+                ) : null}
                 <MarketTable markets={live} />
               </div>
             ) : (
@@ -233,6 +252,13 @@ export default function HomePage() {
                   <p className="text-[15px] text-zinc-400">
                     <StableText k="home.emptyLive" />
                   </p>
+                  {!publicKey ? (
+                    <Link href="/markets#sim-preview">
+                      <Button type="button" tone="primary" className="h-8 px-3 text-[13px]">
+                        <StableText k="home.simCta" align="center" />
+                      </Button>
+                    </Link>
+                  ) : null}
                   <Link href="/create">
                     <Button type="button" tone="secondary" className="h-8 px-3 text-[13px]">
                       <StableText k="markets.emptyCta" align="center" />

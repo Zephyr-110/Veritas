@@ -477,6 +477,10 @@ function setWalletModalOpen(next: boolean) {
   walletModalListeners.forEach((fn) => fn());
 }
 
+export function openWalletModal() {
+  setWalletModalOpen(true);
+}
+
 function useWalletModalState(): [boolean, (next: boolean) => void] {
   const [isOpen, setIsOpen] = useState(walletModalOpen);
   useEffect(() => {

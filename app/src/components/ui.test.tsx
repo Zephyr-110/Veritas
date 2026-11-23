@@ -264,6 +264,7 @@ describe("ui primitives", () => {
     );
     await waitFor(() => expect(screen.getByRole("button", { name: /Connect wallet/i })).toBeInTheDocument());
     expect(screen.getAllByRole("link", { name: "Markets" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "Docs" }).length).toBeGreaterThan(0);
     expect(screen.queryByText(/BTC\/USD|SOL\/USD/)).toBeNull();
 
     walletState.publicKey = PublicKey.default;

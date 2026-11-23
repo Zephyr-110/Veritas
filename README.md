@@ -24,7 +24,7 @@ Instead of a static constant-product curve, the pool uses the pm-AMM invariant (
 
 $$L_{\text{eff}} = L_0 \sqrt{T - t}$$
 
-As expiry $T$ approaches, effective pool depth shrinks smoothly and released inventory accrues to LPs via per-share cumulative checkpoints (`cum_yes_per_share`, `cum_no_per_share`). Swaps charge a **30 bps (`0.3%`)** fee that remains inside the pool.
+As expiry $T$ approaches, effective pool depth shrinks smoothly and released inventory accrues to LPs via per-share cumulative checkpoints (`cum_yes_per_share`, `cum_no_per_share`). Swaps apply a **30 bps per leg (~0.6% combined)** fee that accrues 100% to active LPs with zero protocol take.
 
 ### 3. Trustless Chainlink OCR2 Settlement & Snapshot Backstop
 Every market binds to an allowlisted Chainlink OCR2 `State` account (`decimals == 8`), a target `threshold`, a comparison direction (`settle_above`), and an expiry (`end_ts`).
@@ -35,8 +35,8 @@ After expiry, anyone can submit two raw Chainlink OCR2 `transmit` payloads (`pre
   1. **Adjacent OCR2 rounds** (`round + 1` in the same epoch, or `(e, r_max) -> (e + 1, 1)` where `r_max` is parsed from `offchain_config`), **or**
   2. **Snapshot-certified**: Certified by two consecutive entries (`next.counter == prev.counter + 1`) recorded in the market's `MarketSnapshot` PDA via `take_snapshot` when Chainlink rounds skip across expiry.
 - **Outcomes**:
-  - `post` lands within **10 seconds** of expiry (`post.ts <= end_ts + 10`) → **`Resolved`**: winning side redeems 1:1; `settled_price` and `settled_publish_time` are stored on-chain.
-  - `post` lands more than **10 seconds** late → **`StaleBurn`**: late price is discarded; both YES and NO redeem at $\lfloor \text{amount} / 2 \rfloor$.
+  - `post` lands within the configurable post-expiry tolerance (currently **10 seconds** in the devnet pilot, `post.ts <= end_ts + 10`) → **`Resolved`**: winning side redeems 1:1; `settled_price` and `settled_publish_time` are stored on-chain.
+  - `post` lands past the configurable tolerance (currently > **10 seconds** in devnet pilot) → **`StaleBurn`**: stale pricing is discarded; both YES and NO redeem at $\lfloor \text{amount} / 2 \rfloor$.
   - No resolution within **48 hours** of expiry → anyone can call `void_market` → **`WindowBurn`**: same $\lfloor \text{amount} / 2 \rfloor$ redemption.
 
 ### 4. Claim Window & Account Cleanup
@@ -89,9 +89,9 @@ create_market (creates Market + MarketSnapshot PDAs, binds OCR2 State)
 
 | Constant | Value | Meaning |
 | :--- | :--- | :--- |
-| `SERVICE_FEE` | `30` bps | Swap fee (`0.3%`) retained in the pool for LPs. |
-| `RESOLVE_WINDOW` | `172,800` s | 48-hour post-expiry window for `resolve_market`. |
-| `MAX_SETTLE_DELAY` | `10` s | Maximum delay after `end_ts` before a report triggers `StaleBurn`. |
+| `SERVICE_FEE` | `30` bps | Per-leg swap fee (~0.6% combined across both legs), 100% to LPs, zero protocol take. |
+| `RESOLVE_WINDOW` | `172,800` s | 48-hour post-expiry window for permissionless `resolve_market`. |
+| `MAX_SETTLE_DELAY` | `10` s (pilot) | Configurable post-expiry delay threshold (currently 10 s in devnet pilot) before triggering `StaleBurn`. |
 | `SNAPSHOT_WINDOW` | `±10` s | Open window `(end_ts - 10, end_ts + 10)` for `take_snapshot`. |
 | `SNAPSHOT_MAX_ENTRIES` | `16` | Maximum number of snapshot entries stored per market. |
 | `CLAIM_WINDOW` | `2,592,000` s | 30-day redemption window after `finish_ts` before `burn_account`. |
@@ -126,7 +126,7 @@ prediction_market/
 │   └── tests/                     # LiteSVM integration, econ-security, and captured OCR2 suites
 ├── oracle/                        # Python pm-AMM math & protocol simulator reference vectors
 ├── app/                           # Next.js 15 frontend client & Vitest suite (see app/README.md)
-├── scripts/                       # Devnet deployment, status, and test-token utilities
+├── scripts/                       # Permissionless settle.js CLI, Devnet deploy, status, and faucet scripts
 └── .github/workflows/             # CI pipelines (contract-tests.yml & frontend-tests.yml)
 ```
 
@@ -145,7 +145,7 @@ prediction_market/
 
 ### 1. On-Chain Program & LiteSVM Suite
 
-Requires **Rust 1.89.0**, **Solana CLI (`cargo-build-sbf`)**, **Anchor**, and **Python 3** (for `oracle/protocol_sim.py` cross-checks).
+Requires **Rust 1.89.0**, **Solana CLI (`cargo-build-sbf`)**, **Anchor**, and **Python 3** with `pip install -r oracle/requirements.txt` (for `oracle/protocol_sim.py` cross-checks).
 
 ```bash
 # Build the SBF program binary (required by LiteSVM tests)
@@ -180,3 +180,12 @@ The client IDL under `app/src/idl/` is generated via `node app/scripts/gen-idl.j
 
 - [`.github/workflows/contract-tests.yml`](.github/workflows/contract-tests.yml) — Builds the SBF binary and executes the full Cargo + LiteSVM test net (`--lib`, `spec_scenarios`, `econ_settlement`, `ocr2_settle`).
 - [`.github/workflows/frontend-tests.yml`](.github/workflows/frontend-tests.yml) — Runs `npm run typecheck` and `npm run test:coverage` with enforced coverage gates.
+
+---
+
+## Acknowledgments & Attribution
+
+- **pm-AMM Invariant**: Liquidity pricing, dynamic time-decay scaling ($L_{\text{eff}} = L_0\sqrt{T - t}$), and LVR intuition build on Paradigm's pm-AMM research paper by **Ciamac Moallemi & Dan Robinson (2024)** — [pm-AMMs](https://www.paradigm.xyz/2024/11/pm-amms).
+- **Chainlink Solana Infrastructure**: Price feeds and oracle reports rely on **Chainlink** official open-source Solana OCR2 & Store programs and Devnet Data Feeds. On settlement, the smart contract **directly verifies signed OCR2 reports** on-chain (`secp256k1` oracle multi-signatures, config digest, and report bytes) without any trusted intermediary.
+- **Original Veritas Implementation**: Veritas's core state machine (`Open` → `Resolved` / `StaleBurn` / `WindowBurn` + 30-day claim and cleanup lifecycle), the permissionless adjacent-report-number settlement engine (straddling round continuity checks, rollover across epochs via `r_max`, and failed-transaction payload extraction), and the `MarketSnapshot` monotonic-counter witness backstop (`take_snapshot`) are original to this project.
+

@@ -10,7 +10,7 @@ import { ixAddLiquidity, ixGetLiquidity } from "@/lib/instructions";
 import { isFinalizedStatus, marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
 import { useProgram } from "@/hooks/use-program";
 import { useNow } from "@/hooks/use-now";
-import { Button, Card, Chip, PopNum, SegTabs, StableText, TextInput, useTx } from "./ui";
+import { Button, Card, Chip, PopNum, SegTabs, StableText, TextInput, openWalletModal, useTx } from "./ui";
 import { useT } from "@/i18n/provider";
 
 export function LpDesk({
@@ -29,6 +29,7 @@ export function LpDesk({
   const t = useT();
   const live = marketPhase(market, now).live;
   const onlyWithdraw = withdrawOnly || isFinalizedStatus(market.status);
+  const sim = !publicKey && !onlyWithdraw;
   const [tab, setTab] = useState<"add" | "withdraw">("add");
   const activeTab = onlyWithdraw ? "withdraw" : tab;
   const [amount, setAmount] = useState("2");
@@ -52,23 +53,32 @@ export function LpDesk({
     position.pendingNo
   );
 
-  const disabledReasonKey: { key: string; vars?: Record<string, string | number> } | null = !publicKey
-    ? { key: "lpDisable.connect" }
-    : parsed.invalid
-      ? { key: "lpDisable.invalid" }
-      : parsed.value <= 0n
-        ? { key: "lpDisable.enter" }
-        : activeTab === "add" && !live
-          ? { key: "lpDisable.notLive" }
-          : activeTab === "add" && parsed.value > position.collateral
-            ? { key: "lpDisable.noCollateral", vars: { symbol: COLLATERAL_SYMBOL } }
-            : activeTab === "withdraw" && parsed.value > position.lpShares
-              ? { key: "lpDisable.noShares" }
-              : !program
-                ? { key: "errors.badAddress" }
-                : null;
+  const disabledReasonKey: { key: string; vars?: Record<string, string | number> } | null =
+    onlyWithdraw && !publicKey
+      ? { key: "lpDisable.connect" }
+      : parsed.invalid
+        ? { key: "lpDisable.invalid" }
+        : parsed.value <= 0n
+          ? { key: "lpDisable.enter" }
+          : activeTab === "add" && !live
+            ? { key: "lpDisable.notLive" }
+            : sim
+              ? null
+              : !publicKey
+                ? { key: "lpDisable.connect" }
+                : activeTab === "add" && parsed.value > position.collateral
+                  ? { key: "lpDisable.noCollateral", vars: { symbol: COLLATERAL_SYMBOL } }
+                  : activeTab === "withdraw" && parsed.value > position.lpShares
+                    ? { key: "lpDisable.noShares" }
+                    : !program
+                      ? { key: "errors.badAddress" }
+                      : null;
 
   const submit = async () => {
+    if (sim) {
+      openWalletModal();
+      return;
+    }
     if (!publicKey || !program) return;
     if (activeTab === "add") {
       await run(t("tx.addPool"), () => ixAddLiquidity(program, market, publicKey, parsed.value));
@@ -84,6 +94,15 @@ export function LpDesk({
         {onlyWithdraw ? (
           <div className="text-base font-medium text-white">
             <StableText k="lp.finalizedTitle" />
+          </div>
+        ) : sim ? (
+          <div className="flex items-start gap-2.5 border border-[var(--line)] bg-[var(--seg-bg)] px-3 py-2 text-xs leading-5 text-zinc-300">
+            <span className="shrink-0 border border-[var(--line)] bg-[var(--card-bg)] px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-white">
+              <StableText k="trade.simBadge" align="center" />
+            </span>
+            <span className="min-w-0">
+              <StableText k="lp.simBanner" block />
+            </span>
           </div>
         ) : null}
         <div className="stack-1">
@@ -120,7 +139,7 @@ export function LpDesk({
             ]}
           />
         )}
-        {activeTab === "add" ? (
+        {!sim && activeTab === "add" ? (
           <div className="text-right text-xs text-zinc-500">
             <StableText
               k="common.balance"
@@ -154,6 +173,8 @@ export function LpDesk({
         <Button type="button" busy={busy} disabled={busy || !!disabledReasonKey} onClick={() => void submit()}>
           {disabledReasonKey ? (
             <StableText k={disabledReasonKey.key} vars={disabledReasonKey.vars} align="center" />
+          ) : sim ? (
+            <StableText k="lp.simSubmit" align="center" />
           ) : (
             <StableText k={activeTab === "add" ? "lp.addSubmit" : "lp.withdrawSubmit"} align="center" />
           )}

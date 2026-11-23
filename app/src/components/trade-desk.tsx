@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { COLLATERAL_SYMBOL, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
 import { formatCents, fromUi, toUi } from "@/lib/format";
+import { money } from "@/lib/display";
 import { thresholdToHuman } from "@/lib/feeds";
 import { applySlippage, pmAmmAccrue, quoteBet, quoteSwapOut } from "@/lib/quote";
 import { ixSwap, ixUserBetOn } from "@/lib/instructions";
@@ -12,7 +13,7 @@ import { useProgram } from "@/hooks/use-program";
 import { useNow } from "@/hooks/use-now";
 import type { Side } from "@/lib/types";
 import { useT } from "@/i18n/provider";
-import { Button, Card, Field, Kv, PopNum, SegTabs, StableText, TextInput, useTx } from "./ui";
+import { Button, Card, Field, Kv, PopNum, SegTabs, StableText, TextInput, openWalletModal, useTx } from "./ui";
 import { FaucetClaimButton } from "./faucet-claim";
 
 const PRESETS = ["1", "2", "5", "10"];
@@ -24,6 +25,7 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
   const now = useNow();
   const t = useT();
   const phase = marketPhase(market, now);
+  const sim = !publicKey;
 
   const [tab, setTab] = useState<"bet" | "swap">("bet");
   const [side, setSide] = useState<Side>("yes");
@@ -68,14 +70,14 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
   const sideLabel = side === "yes" ? t("common.yes") : t("common.no");
   const otherLabel = side === "yes" ? t("common.no") : t("common.yes");
 
-  const disabledReasonKey: { key: string; vars?: Record<string, string | number> } | null = !publicKey
-    ? { key: "tradeDisable.connect" }
-    : !phase.live
-      ? { key: "tradeDisable.ended" }
-      : parsed.invalid
-        ? { key: "tradeDisable.invalid" }
-        : parsed.value <= 0n
-          ? { key: "tradeDisable.enter" }
+  const disabledReasonKey: { key: string; vars?: Record<string, string | number> } | null = !phase.live
+    ? { key: "tradeDisable.ended" }
+    : parsed.invalid
+      ? { key: "tradeDisable.invalid" }
+      : parsed.value <= 0n
+        ? { key: "tradeDisable.enter" }
+        : sim
+          ? null
           : tab === "bet" && parsed.value > position.collateral
             ? { key: "tradeDisable.noCollateral", vars: { symbol: COLLATERAL_SYMBOL } }
             : tab === "swap" && parsed.value > sellBalance
@@ -85,6 +87,10 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
                 : null;
 
   const submit = async () => {
+    if (sim) {
+      openWalletModal();
+      return;
+    }
     if (!publicKey || !program) return;
     if (tab === "bet") {
       await run(side === "yes" ? t("tx.buyYes") : t("tx.buyNo"), () =>
@@ -105,8 +111,31 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
     }
   };
 
+  const outShares = tab === "bet" ? betQuote.totalOut : swapOut;
+  const submitLabelKey = sim
+    ? tab === "bet"
+      ? side === "yes"
+        ? "trade.simSubmitBuyYes"
+        : "trade.simSubmitBuyNo"
+      : "trade.simSubmitSwap"
+    : tab === "bet"
+      ? side === "yes"
+        ? "trade.buyYes"
+        : "trade.buyNo"
+      : "trade.switch";
+
   return (
     <Card className="desk flex flex-col gap-4">
+      {sim ? (
+        <div className="flex items-start gap-2.5 border border-[var(--line)] bg-[var(--seg-bg)] px-3 py-2 text-xs leading-5 text-zinc-300">
+          <span className="shrink-0 border border-[var(--line)] bg-[var(--card-bg)] px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-white">
+            <StableText k="trade.simBadge" align="center" />
+          </span>
+          <span className="min-w-0">
+            <StableText k="trade.simBanner" block />
+          </span>
+        </div>
+      ) : null}
       <SegTabs
         value={tab}
         onChange={setTab}
@@ -152,19 +181,21 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
           className="font-mono tabular-nums"
         />
       </Field>
-      <div className="-mt-2 text-right text-xs text-zinc-500">
-        <StableText
-          k="common.balance"
-          vars={{
-            amount:
-              tab === "bet"
-                ? `${toUi(position.collateral, market.decimals, 2)} ${COLLATERAL_SYMBOL}`
-                : `${toUi(sellBalance, market.decimals, 2)} ${otherLabel}`,
-          }}
-          align="end"
-        />
-      </div>
-      {tab === "bet" && position.collateral === 0n ? (
+      {sim ? null : (
+        <div className="-mt-2 text-right text-xs text-zinc-500">
+          <StableText
+            k="common.balance"
+            vars={{
+              amount:
+                tab === "bet"
+                  ? `${toUi(position.collateral, market.decimals, 2)} ${COLLATERAL_SYMBOL}`
+                  : `${toUi(sellBalance, market.decimals, 2)} ${otherLabel}`,
+            }}
+            align="end"
+          />
+        </div>
+      )}
+      {!sim && tab === "bet" && position.collateral === 0n ? (
         <div className="-mt-2 flex justify-end">
           <FaucetClaimButton className="h-8 px-3 text-xs" />
         </div>
@@ -180,23 +211,31 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
             {p}
           </button>
         ))}
-        <button
-          type="button"
-          className="border border-[var(--hair)] px-3 py-1 text-xs text-zinc-400 transition hover:border-[var(--line)] hover:text-white active:scale-95"
-          onClick={() => setAmount(toUi(tab === "bet" ? position.collateral : sellBalance, market.decimals, 6))}
-        >
-          <StableText k="common.max" align="center" />
-        </button>
+        {sim ? null : (
+          <button
+            type="button"
+            className="border border-[var(--hair)] px-3 py-1 text-xs text-zinc-400 transition hover:border-[var(--line)] hover:text-white active:scale-95"
+            onClick={() => setAmount(toUi(tab === "bet" ? position.collateral : sellBalance, market.decimals, 6))}
+          >
+            <StableText k="common.max" align="center" />
+          </button>
+        )}
       </div>
       <div className="stack-2 text-sm">
         <Kv
-          k={<StableText k="trade.youGet" />}
-          v={<PopNum text={`${toUi(tab === "bet" ? betQuote.totalOut : swapOut, market.decimals, 2)} ${sideLabel}`} />}
+          k={<StableText k={sim ? "trade.simYouGet" : "trade.youGet"} />}
+          v={<PopNum text={`${toUi(outShares, market.decimals, 2)} ${sideLabel}`} />}
         />
         {tab === "bet" && betQuote.totalOut > 0n && parsed.value > 0n ? (
           <Kv
-            k={<StableText k="trade.avgPrice" />}
+            k={<StableText k={sim ? "trade.simAvgPrice" : "trade.avgPrice"} />}
             v={<PopNum text={formatCents(Number(parsed.value) / Number(betQuote.totalOut))} />}
+          />
+        ) : null}
+        {sim && outShares > 0n ? (
+          <Kv
+            k={<StableText k="trade.simPayout" />}
+            v={<PopNum text={money(outShares, market.decimals)} />}
           />
         ) : null}
         {tab === "swap" ? (
@@ -230,10 +269,8 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
       <Button type="button" busy={busy} disabled={busy || !!disabledReasonKey} onClick={() => void submit()}>
         {disabledReasonKey ? (
           <StableText k={disabledReasonKey.key} vars={disabledReasonKey.vars} align="center" />
-        ) : tab === "bet" ? (
-          <StableText k={side === "yes" ? "trade.buyYes" : "trade.buyNo"} align="center" />
         ) : (
-          <StableText k="trade.switch" align="center" />
+          <StableText k={submitLabelKey} align="center" />
         )}
       </Button>
     </Card>
