@@ -76,6 +76,7 @@ export default function MePage() {
     storageAvailable,
     entering,
     locked,
+    lastError,
     enterSandbox,
   } = useGuestSession();
   const { connection } = useConnection();
@@ -125,17 +126,27 @@ export default function MePage() {
           title={<StableText k="state.connectWallet" />}
           body={<StableText k="me.connect" block />}
           action={
-            <div className="cluster-2">
-              <WalletButton />
-              <Button
-                type="button"
-                tone="secondary"
-                busy={entering}
-                disabled={locked}
-                onClick={() => void enterSandbox()}
-              >
-                <StableText k={hasSavedKey ? "sandbox.resumeAction" : "sandbox.enterAction"} align="center" />
-              </Button>
+            <div className="stack-2 w-full">
+              <div className="cluster-2 justify-center">
+                <WalletButton />
+                <Button
+                  type="button"
+                  tone="secondary"
+                  busy={entering}
+                  disabled={locked}
+                  onClick={() => void enterSandbox()}
+                >
+                  <StableText k={hasSavedKey ? "sandbox.resumeAction" : "sandbox.enterAction"} align="center" />
+                </Button>
+              </div>
+              {lastError ? (
+                <p
+                  role="alert"
+                  className="mx-auto max-w-md border border-[var(--no)]/45 bg-[var(--no-soft)] px-3 py-2 text-xs leading-relaxed text-[var(--no)]"
+                >
+                  {lastError}
+                </p>
+              ) : null}
             </div>
           }
         />

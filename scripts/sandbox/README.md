@@ -60,7 +60,7 @@ node scripts/sandbox/settle-all.js --self-check
 | `SANDBOX_SETTLE_GRACE_SEC` | `12` | Grace wait seconds around expiry (max `30`) |
 | `SANDBOX_RECYCLE_FUNDS` | `true` | Withdraw settled LP, redeem winnings, close empty ATAs |
 | `SANDBOX_DAILY_MAX_MARKETS` | `0` | UTC daily creation cap (`0` = unlimited) |
-| `SANDBOX_MIN_SOL_LAMPORTS` | `30000000` | Minimum operator SOL guard (`0.03 SOL`) |
+| `SANDBOX_MIN_SOL_LAMPORTS` | `30000000` | Minimum SOL guard (`0.03 SOL`); when below threshold, skips creation only while still settling & recycling |
 | `SANDBOX_ACTIVE_FILE` | _(empty)_ | Optional JSON `{ "lastActiveTs": <unix_sec> }` gating creation |
 | `SANDBOX_ACTIVE_WINDOW_SEC` | `1800` | Activity window duration if `SANDBOX_ACTIVE_FILE` is set |
 | `SETTLE_SCRIPT_PATH` | `../settle.js` | Explicit path to `scripts/settle.js` |
@@ -103,3 +103,5 @@ Environment=WALLET_PATH=/opt/veritas/operator.json
 Restart=always
 RestartSec=5
 ```
+
+If you also want longer-horizon markets (e.g., 1 hour) with full LP + collateral recycling instead of legacy scripts, reuse `tick.js` with a separate `SANDBOX_STATE_PATH` and `SANDBOX_DURATION_SEC=3600` (e.g. `SANDBOX_DURATION_SEC=3600 SANDBOX_STATE_PATH=/opt/veritas/state-1h.json SANDBOX_SEED_USDT=150 node /opt/veritas/scripts/sandbox/tick.js`).

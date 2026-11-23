@@ -51,6 +51,7 @@ function Harness() {
       <span data-testid="busy">{String(busy)}</span>
       <span data-testid="usdt">{session.balance ? session.balance.usdtAtoms.toString() : "none"}</span>
       <span data-testid="sol">{session.balance ? String(session.balance.solLamports) : "none"}</span>
+      <span data-testid="err">{session.lastError ?? "none"}</span>
       <button type="button" onClick={() => void session.enterSandbox()}>
         enter
       </button>
@@ -248,10 +249,35 @@ describe("GuestSessionProvider state machine", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    renderWithProviders(<Harness />);
+    const { unmount } = renderWithProviders(<Harness />);
     await userEvent.click(screen.getByRole("button", { name: "enter" }));
     await waitFor(() => expect(screen.getByTestId("mode")).toHaveTextContent("sandbox"));
     expect(screen.getByTestId("usdt")).toHaveTextContent("30000000");
     expect(screen.getByTestId("sol")).toHaveTextContent("40000000");
+
+    // Simulate full page reload (fresh QueryClient + Providers, RPC still hanging)
+    unmount();
+    renderWithProviders(<Harness />);
+    await waitFor(() => expect(screen.getByTestId("mode")).toHaveTextContent("sandbox"));
+    expect(screen.getByTestId("usdt")).toHaveTextContent("30000000");
+    expect(screen.getByTestId("sol")).toHaveTextContent("40000000");
+  });
+
+  it("exposes localized lastError and alert toast when sandbox faucet fails", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({ error: "empty" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<Harness />);
+    await userEvent.click(screen.getByRole("button", { name: "enter" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("err")).toHaveTextContent(/faucet reserves are depleted/i)
+    );
+    expect(screen.getByTestId("mode")).toHaveTextContent("none");
+    expect(screen.getByRole("alert")).toHaveTextContent(/faucet reserves are depleted/i);
   });
 });

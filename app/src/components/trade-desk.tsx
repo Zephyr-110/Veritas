@@ -22,7 +22,8 @@ const PRESETS = ["1", "2", "5", "10"];
 export function TradeDesk({ market, position }: { market: MarketView; position: UserPosition }) {
   const program = useProgram();
   const { publicKey: realPublicKey } = useWallet();
-  const { isSandbox, effectivePublicKey, enterSandbox, refillSandbox, locked } = useGuestSession();
+  const { isSandbox, effectivePublicKey, enterSandbox, refillSandbox, locked, lastError } =
+    useGuestSession();
   const { busy, run } = useTx();
   const { busy: sandboxBusy, runSandbox } = useSandboxTx();
   const now = useNow();
@@ -156,6 +157,14 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
             >
               <StableText k="sandbox.tryInline" />
             </button>
+            {lastError ? (
+              <p
+                role="alert"
+                className="mt-2 border border-[var(--no)]/45 bg-[var(--no-soft)] px-2.5 py-1.5 text-xs leading-relaxed text-[var(--no)]"
+              >
+                {lastError}
+              </p>
+            ) : null}
           </div>
         </div>
       ) : null}

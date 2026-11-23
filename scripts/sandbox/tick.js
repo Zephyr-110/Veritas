@@ -1082,20 +1082,27 @@ async function runTick() {
       safeTokenAmount(connection, creatorCollateralAta, mintMeta.tokenProgram),
     ]);
 
-    // If collateral is tight because resolved markets haven't been reclaimed yet, reclaim once on-demand.
-    if (cfg.recycleFunds && usdtBal.amount < seedAtoms + betAtoms) {
+    // If SOL or collateral is tight because resolved markets haven't been reclaimed yet, reclaim once on-demand.
+    if (
+      cfg.recycleFunds &&
+      (usdtBal.amount < seedAtoms + betAtoms || solLamports < cfg.minSolLamports)
+    ) {
       await recycleFinalizedEntries(connection, program, payer, cfg, state);
-      usdtBal = await safeTokenAmount(connection, creatorCollateralAta, mintMeta.tokenProgram);
-    }
-
-    if (solLamports < cfg.minSolLamports) {
-      throw new Error(
-        `Operator SOL balance ${solLamports} lamports is below SANDBOX_MIN_SOL_LAMPORTS (${cfg.minSolLamports})`
-      );
+      [solLamports, usdtBal] = await Promise.all([
+        connection.getBalance(payer.publicKey, "confirmed"),
+        safeTokenAmount(connection, creatorCollateralAta, mintMeta.tokenProgram),
+      ]);
     }
 
     for (const { asset, slotIndex } of missingSlots) {
       nowSec = Math.floor(Date.now() / 1000);
+      if (solLamports < cfg.minSolLamports) {
+        console.warn(
+          `[tick] Operator SOL balance ${solLamports} lamports is below SANDBOX_MIN_SOL_LAMPORTS (${cfg.minSolLamports}); skipping creation and continuing settlement & recycling.`
+        );
+        break;
+      }
+
       const today = utcDayKey(nowSec);
       const todayCount = Number(state.dailyCounts[today] || 0);
       if (cfg.dailyMaxMarkets > 0 && todayCount >= cfg.dailyMaxMarkets) {
@@ -1105,7 +1112,7 @@ async function runTick() {
 
       if (usdtBal.amount < seedAtoms + betAtoms) {
         console.warn(
-          `[tick] Collateral balance ${usdtBal.amount} below ${seedAtoms + betAtoms}; cannot open ${asset.key}.`
+          `[tick] Collateral balance ${usdtBal.amount} below ${seedAtoms + betAtoms}; cannot open ${asset.key}; continuing settlement & recycling.`
         );
         break;
       }
@@ -1179,7 +1186,10 @@ async function runTick() {
       saveState(cfg.statePath, state);
       console.log(`[bet] (${asset.symbol}) ${marketAddr} side=${side} amount=${cfg.betUsdt} USDT tx=${betSig}`);
 
-      usdtBal = await safeTokenAmount(connection, creatorCollateralAta, mintMeta.tokenProgram);
+      [solLamports, usdtBal] = await Promise.all([
+        connection.getBalance(payer.publicKey, "confirmed"),
+        safeTokenAmount(connection, creatorCollateralAta, mintMeta.tokenProgram),
+      ]);
     }
   }
 

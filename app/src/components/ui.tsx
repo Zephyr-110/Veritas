@@ -531,10 +531,14 @@ export function WalletButton() {
 export function WalletConnectModal() {
   const [isOpen, setOpen] = useWalletModalState();
   const { wallets, select } = useWallet();
-  const { isReal, isSandbox, hasSavedKey, entering, locked, enterSandbox } = useGuestSession();
+  const { isReal, isSandbox, hasSavedKey, entering, locked, lastError, clearError, enterSandbox } =
+    useGuestSession();
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      clearError?.();
+      return;
+    }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
@@ -652,6 +656,14 @@ export function WalletConnectModal() {
             >
               <StableText k={hasSavedKey ? "sandbox.resumeAction" : "sandbox.enterAction"} align="center" />
             </Button>
+            {lastError ? (
+              <p
+                role="alert"
+                className="border border-[var(--no)]/45 bg-[var(--no-soft)] px-2.5 py-2 text-xs leading-relaxed text-[var(--no)]"
+              >
+                {lastError}
+              </p>
+            ) : null}
           </div>
         ) : null}
 
@@ -962,6 +974,8 @@ export function SandboxCapsule() {
     entering,
     txPending,
     locked,
+    lastError,
+    clearError,
     refillSandbox,
     resetSandbox,
     exitSandbox,
@@ -975,6 +989,7 @@ export function SandboxCapsule() {
   useEffect(() => {
     if (!menuOpen) {
       setConfirmReset(false);
+      clearError?.();
       return;
     }
     const onDown = (e: globalThis.MouseEvent) => {
@@ -1081,6 +1096,15 @@ export function SandboxCapsule() {
             {txPending ? (
               <p className="text-xs text-[var(--warn)]">
                 <StableText k="sandbox.txLockedHint" block />
+              </p>
+            ) : null}
+
+            {lastError ? (
+              <p
+                role="alert"
+                className="border border-[var(--no)]/45 bg-[var(--no-soft)] px-2.5 py-2 text-xs leading-relaxed text-[var(--no)]"
+              >
+                {lastError}
               </p>
             ) : null}
 

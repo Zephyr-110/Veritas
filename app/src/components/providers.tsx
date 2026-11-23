@@ -292,17 +292,27 @@ function ToastViewport({
       {toasts.map((item) => (
         <div
           key={item.id}
+          role={item.kind === "err" ? "alert" : "status"}
+          aria-live={item.kind === "err" ? "assertive" : "polite"}
           className={`toast-in pointer-events-auto border px-4 py-3 text-left shadow-glow backdrop-blur-2xl ${
             item.kind === "ok"
               ? "border-[var(--yes-line)] bg-[var(--float-bg)] text-[var(--yes)]"
               : item.kind === "err"
-                ? "border-[var(--no-line)] bg-[var(--float-bg)] text-[var(--no)]"
+                ? "border-[var(--no)]/60 bg-[var(--float-bg)] text-[var(--no)]"
                 : "border-[var(--card-line)] bg-[var(--float-bg)] text-[var(--ink)]"
           }`}
         >
           <button type="button" className="w-full text-left" onClick={() => dismiss(item.id)}>
             <div className="font-medium">{item.title}</div>
-            {item.detail && !item.href ? <div className="mt-1 text-xs text-mute">{item.detail}</div> : null}
+            {item.detail && !item.href ? (
+              <div
+                className={
+                  item.kind === "err" ? "mt-1 text-xs text-[var(--no)]/90" : "mt-1 text-xs text-mute"
+                }
+              >
+                {item.detail}
+              </div>
+            ) : null}
           </button>
           {item.href ? (
             <a

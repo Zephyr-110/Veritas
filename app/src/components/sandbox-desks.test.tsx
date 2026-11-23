@@ -23,6 +23,8 @@ const guestMock = vi.hoisted(() => ({
   locked: false,
   balance: { solLamports: 40_000_000, usdtAtoms: 30_000_000n, usdtDecimals: 6 },
   balanceLoading: false,
+  lastError: null as string | null,
+  clearError: vi.fn(),
   enterSandbox: vi.fn(),
   refillSandbox: vi.fn(),
   exitSandbox: vi.fn(),
@@ -203,6 +205,8 @@ beforeEach(() => {
   guestMock.sandboxPublicKey = SANDBOX_KEY;
   guestMock.locked = false;
   guestMock.txPending = false;
+  guestMock.lastError = null;
+  guestMock.clearError.mockReset();
   guestMock.enterSandbox.mockReset().mockResolvedValue(true);
   guestMock.refillSandbox.mockReset().mockResolvedValue(true);
   guestMock.exitSandbox.mockReset();
@@ -366,5 +370,17 @@ describe("Sandbox desks & header integration", () => {
     await userEvent.click(screen.getByRole("button", { name: /Reset sandbox/i }));
     await userEvent.click(screen.getByRole("button", { name: "Confirm reset" }));
     expect(guestMock.resetSandbox).toHaveBeenCalledTimes(1);
+
+    cleanup();
+    guestMock.lastError = "Devnet sandbox faucet reserves are depleted.";
+    render(
+      <LocaleProvider>
+        <Header />
+      </LocaleProvider>
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Sandbox · .* · 30 USDT/i }));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Devnet sandbox faucet reserves are depleted."
+    );
   });
 });

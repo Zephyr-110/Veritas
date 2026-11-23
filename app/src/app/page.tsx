@@ -22,8 +22,16 @@ import { useLocale, useT } from "@/i18n/provider";
 import { tPair } from "@/i18n/store";
 
 export default function HomePage() {
-  const { hydrated, mode, effectivePublicKey: publicKey, hasSavedKey, entering, locked, enterSandbox } =
-    useGuestSession();
+  const {
+    hydrated,
+    mode,
+    effectivePublicKey: publicKey,
+    hasSavedKey,
+    entering,
+    locked,
+    lastError,
+    enterSandbox,
+  } = useGuestSession();
   const { markets, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarkets();
   const now = useNow(1000);
   const t = useT();
@@ -122,6 +130,14 @@ export default function HomePage() {
                   </Button>
                 </Link>
               </div>
+              {mode === "none" && lastError ? (
+                <p
+                  role="alert"
+                  className="mt-3 max-w-lg border border-[var(--no)]/45 bg-[var(--no-soft)] px-3 py-2 text-xs leading-relaxed text-[var(--no)] lg:text-left"
+                >
+                  {lastError}
+                </p>
+              ) : null}
             </div>
           </div>
           <PricePanel />
