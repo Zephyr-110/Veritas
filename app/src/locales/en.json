@@ -254,7 +254,9 @@
     "insufficientSol": "Insufficient SOL ({sol} SOL available; creating a market requires at least 0.02 SOL for account rent)",
     "needSolBtn": "Insufficient SOL (need ≥ 0.02 SOL)",
     "readOnlyHint": "Browsing in read-only mode without a wallet. You can still inspect live charts, vault reserves, and on-chain settlement panels:",
-    "readOnlyCta": "Explore live & finished markets →"
+    "readOnlyCta": "Explore live & finished markets →",
+    "sandboxSubmit": "Connect real wallet to create market",
+    "sandboxHint": "Sandbox Account (Devnet) supports trading and redemption only. Connect a real wallet to create a market."
   },
   "market": {
     "back": "← Markets",
@@ -295,7 +297,10 @@
     "history": "Contract",
     "yesReserve": "YES reserve",
     "noReserve": "NO reserve",
-    "feedNote": "Chainlink OCR2 state · used for settlement"
+    "feedNote": "Chainlink OCR2 state · used for settlement",
+    "positionSpotLead": "Spot {spot} · {side} currently ahead of Target Price",
+    "awaitingPoll": "Expired — polling on-chain settlement status automatically…",
+    "redeemableLabel": "Redeemable"
   },
   "trade": {
     "title": "Trade",
@@ -320,7 +325,8 @@
     "simPayout": "Simulated 1:1 Payout",
     "simSubmitBuyYes": "Connect wallet to Buy YES (Sim)",
     "simSubmitBuyNo": "Connect wallet to Buy NO (Sim)",
-    "simSubmitSwap": "Connect wallet to Swap (Sim)"
+    "simSubmitSwap": "Connect wallet to Swap (Sim)",
+    "sandboxSwapCta": "Connect real wallet to swap"
   },
   "tradeDisable": {
     "connect": "Connect a wallet to trade",
@@ -349,6 +355,8 @@
     "feeNote": "Fees: 30 bps per leg (~0.6% combined), zero protocol take; accruing in real time to active makers as pending inventory, claimable right here in the LP desk.",
     "simBanner": "No wallet connected — share math below is a live-reserve simulation preview. No transaction is sent.",
     "simSubmit": "Connect wallet to add liquidity (Sim)",
+    "sandboxAddSubmit": "Connect real wallet to add liquidity",
+    "sandboxWithdrawSubmit": "Connect real wallet to withdraw liquidity",
     "riskNote": "Risk warning: providing liquidity is not risk-free — adverse selection can cause losses (see the risk note in Docs)."
   },
   "lpDisable": {
@@ -420,7 +428,10 @@
     "snapshotCount": "{count} / {max} entries recorded",
     "burnTitle": "Close market",
     "burnBody": "The 30-day claim window has ended. As creator, you can close the market accounts and sweep leftover vault collateral.",
-    "burnSubmit": "Close & sweep"
+    "burnSubmit": "Close & sweep",
+    "sandboxMergeCta": "Connect real wallet to merge {amount}",
+    "sandboxPollingTitle": "Awaiting on-chain settlement",
+    "sandboxPollingBody": "Market expired — polling on-chain settlement every 4s. The Redeem button will light up right here automatically."
   },
   "tx": {
     "view": "View transaction",
@@ -478,7 +489,8 @@
     "sumYes": "YES total",
     "sumNo": "NO total",
     "sumShares": "LP shares total",
-    "sumPending": "Pending total"
+    "sumPending": "Pending total",
+    "lpRequiresReal": "Requires real wallet"
   },
   "help": {
     "title": "Veritas: a fast, permissionless prediction market",
@@ -608,7 +620,51 @@
     "noIxs": "No instructions to send.",
     "mintNotFound": "Collateral mint not found. Check Settings.",
     "decode": "On-chain data could not be read. Retry, or check the program address in Settings.",
-    "wallet": "Wallet error. Reconnect and retry."
+    "wallet": "Wallet error. Reconnect and retry.",
+    "sandboxIpLimit": "This IP has reached the 24h Sandbox Account (Devnet) claim limit (5). Connect a real wallet to continue.",
+    "sandboxDailyCap": "Daily Devnet SOL sandbox disbursement limit reached. Connect a real wallet or retry tomorrow.",
+    "sandboxLocked": "Faucet request already processed recently. Retry in 10 seconds.",
+    "sandboxEmpty": "Devnet sandbox faucet reserves are depleted. Connect a real wallet to continue.",
+    "sandboxDisabled": "Sandbox faucet is not configured on this server. Connect a real wallet instead.",
+    "sandboxFaucetFailed": "Sandbox funding request failed. Retry shortly or connect a real wallet."
+  },
+  "sandbox": {
+    "title": "Sandbox Account (Devnet)",
+    "enterShort": "Sandbox",
+    "resumeShort": "Sandbox",
+    "enterAction": "Open Sandbox Account (Devnet)",
+    "resumeAction": "Resume Sandbox Account (Devnet)",
+    "tryInline": "Open Sandbox Account (Devnet) for real on-chain trades →",
+    "capsule": "Sandbox · {addr} · {usdt} USDT",
+    "modalBody": "Generates a local Devnet keypair in your browser and atomically funds 0.04 SOL + 30 test USDT for real on-chain betting and redemption.",
+    "localKeyNote": "Devnet test funds only. The sandbox private key is stored solely in this browser's localStorage — never transfer real funds.",
+    "memoryOnlyNote": "Browser localStorage is unavailable; the sandbox private key exists only in this tab's memory and resets on reload.",
+    "addressLabel": "Sandbox Address",
+    "txLockedHint": "Transaction in progress — mode switching and reset are locked until confirmation.",
+    "connectReal": "Connect real wallet",
+    "refillBtn": "Refill test funds",
+    "refillShort": "Refill",
+    "resetBtn": "Reset sandbox",
+    "exitBtn": "Exit sandbox",
+    "meBarNote": "Devnet test funds only; private key stays in browser localStorage.",
+    "enteringTitle": "Preparing Sandbox Account (Devnet)…",
+    "enteringBody": "Funding 0.04 SOL + test USDT ATA + 30 USDT in one atomic transaction.",
+    "readyTitle": "Sandbox Account (Devnet) ready",
+    "readyReused": "Existing funded sandbox account activated.",
+    "enterFailedTitle": "Could not initialize Sandbox Account (Devnet)",
+    "refillPendingTitle": "Refilling Sandbox Account (Devnet)…",
+    "refillOkTitle": "Sandbox test funds refilled",
+    "alreadyFundedTitle": "Sandbox balance already sufficient",
+    "alreadyFundedBody": "Current SOL and test USDT balances already meet the minimum.",
+    "refillFailedTitle": "Sandbox refill failed",
+    "resettingTitle": "Resetting Sandbox Account (Devnet)…",
+    "resetOkTitle": "New Sandbox Account (Devnet) ready",
+    "resetFailedTitle": "Sandbox reset failed",
+    "txSigningTitle": "{label} · Signing locally",
+    "txSigningBody": "Signing transaction with browser sandbox keypair…",
+    "txBroadcastTitle": "{label} · Broadcasted",
+    "txBroadcastBody": "Sent to Solana Devnet — inspect on Solscan while confirming",
+    "txConfirmedTitle": "{label} · Confirmed"
   },
   "footer": {
     "program": "Program",

@@ -1,8 +1,11 @@
 "use client";
 
+import { useEffect } from "react";
 import { PublicKey } from "@solana/web3.js";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { useConnection } from "@solana/wallet-adapter-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffectivePublicKey } from "@/components/guest-session";
+import { RESOLVE_WINDOW } from "@/lib/constants";
 import { EMPTY_POSITION, fetchMarket, fetchPosition, type MarketView } from "@/lib/markets";
 import { parseTxError } from "@/lib/errors";
 import { useProgram } from "./use-program";
@@ -10,7 +13,7 @@ import { marketsQueryKey } from "./use-markets";
 
 export function useMarket(address: string | null) {
   const { connection } = useConnection();
-  const { publicKey } = useWallet();
+  const publicKey = useEffectivePublicKey();
   const program = useProgram();
   const queryClient = useQueryClient();
   const programId = program?.programId.toBase58() ?? "";
@@ -42,7 +45,26 @@ export function useMarket(address: string | null) {
       return { market: next, position };
     },
     enabled: Boolean(program && address),
+    refetchInterval: (q) => {
+      const m = q.state.data?.market;
+      if (!m || m.status !== "open") return false;
+      const nowSec = Math.floor(Date.now() / 1000);
+      return nowSec >= m.expiry && nowSec <= m.expiry + RESOLVE_WINDOW ? 4000 : false;
+    },
   });
+
+  const market = query.data?.market ?? null;
+  const refetch = query.refetch;
+  useEffect(() => {
+    if (!market || market.status !== "open") return;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const deltaMs = (market.expiry - nowSec + 1) * 1000;
+    if (deltaMs <= 0 || deltaMs > 3_600_000) return;
+    const timer = window.setTimeout(() => {
+      void refetch();
+    }, deltaMs);
+    return () => window.clearTimeout(timer);
+  }, [market, refetch]);
 
   const errorCode = !program
     ? "errors.badAddress"
@@ -51,7 +73,7 @@ export function useMarket(address: string | null) {
       : null;
 
   return {
-    market: query.data?.market ?? null,
+    market,
     position: query.data?.position ?? EMPTY_POSITION,
     loading: program && address ? query.isPending : false,
     refreshing: program && address ? query.isFetching && !query.isPending : false,

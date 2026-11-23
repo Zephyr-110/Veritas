@@ -1,18 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { type ReactNode } from "react";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { useState, type ReactNode } from "react";
+import { useConnection } from "@solana/wallet-adapter-react";
+import { ExternalLink } from "lucide-react";
 import { useMarkets } from "@/hooks/use-markets";
 import { useProgram } from "@/hooks/use-program";
-import { fetchPosition, isFinalizedStatus, isVoidedStatus, pendingValueOf, type MarketView, type UserPosition } from "@/lib/markets";
+import { fetchPositionsBatch, isFinalizedStatus, isVoidedStatus, pendingValueOf, type MarketView, type UserPosition } from "@/lib/markets";
 import { fetchRedemptions } from "@/lib/history";
 import { localizeError } from "@/lib/errors";
-import { explorerTx, formatUnix, toUi } from "@/lib/format";
+import { explorerAccount, explorerTx, formatUnix, shorten, toUi } from "@/lib/format";
 import { kindLabel, marketKind, questionTitle, timeCopy } from "@/lib/display";
 import { useSettings } from "@/components/providers";
+import { useGuestSession } from "@/components/guest-session";
 import { useQuery } from "@tanstack/react-query";
-import { Button, DataFreshness, Reveal, StableText, StateBlock, WalletButton, onSpot, openFaucetMenu } from "@/components/ui";
+import { Button, CopyText, DataFreshness, Reveal, StableText, StateBlock, WalletButton, onSpot, openFaucetMenu, openWalletModal } from "@/components/ui";
 import { useNow } from "@/hooks/use-now";
 import { MeSkeleton } from "@/components/skeletons";
 import { useT } from "@/i18n/provider";
@@ -67,26 +69,30 @@ function Stat({ labelKey, value, accent }: { labelKey: string; value: string; ac
 }
 
 export default function MePage() {
-  const { publicKey } = useWallet();
+  const {
+    effectivePublicKey,
+    isSandbox,
+    hasSavedKey,
+    storageAvailable,
+    entering,
+    locked,
+    enterSandbox,
+  } = useGuestSession();
   const { connection } = useConnection();
   const program = useProgram();
   const { markets, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarkets();
   const { settings } = useSettings();
   const now = useNow(1000);
   const t = useT();
+  const [guideOpen, setGuideOpen] = useState(false);
   const programId = program?.programId.toBase58() ?? "";
-  const wallet = publicKey?.toBase58() ?? "";
+  const wallet = effectivePublicKey?.toBase58() ?? "";
   const marketIds = markets.map((m) => m.address.toBase58()).join(",");
 
   const positionsQuery = useQuery({
     queryKey: ["positions", connection.rpcEndpoint, programId, wallet, marketIds],
     queryFn: async () => {
-      const all = await Promise.all(
-        markets.map(async (market) => ({
-          market,
-          position: await fetchPosition(connection, program!.programId, market, publicKey!),
-        }))
-      );
+      const all = await fetchPositionsBatch(connection, program!.programId, markets, effectivePublicKey!);
       return all.filter(
         (r) =>
           r.position.yes > 0n ||
@@ -96,19 +102,19 @@ export default function MePage() {
           r.position.pendingNo > 0n
       );
     },
-    enabled: Boolean(program && publicKey && markets.length),
+    enabled: Boolean(program && effectivePublicKey && markets.length),
   });
   const redemptionsQuery = useQuery({
     queryKey: ["redemptions", connection.rpcEndpoint, programId, wallet],
-    queryFn: () => fetchRedemptions(connection, publicKey!, program!.programId),
-    enabled: Boolean(program && publicKey),
+    queryFn: () => fetchRedemptions(connection, effectivePublicKey!, program!.programId),
+    enabled: Boolean(program && effectivePublicKey),
   });
 
   const rows: Row[] = positionsQuery.data ?? [];
   const redemptions = redemptionsQuery.data ?? [];
-  const busy = (Boolean(publicKey) && positionsQuery.isPending) || redemptionsQuery.isPending;
+  const busy = (Boolean(effectivePublicKey) && positionsQuery.isPending) || redemptionsQuery.isPending;
 
-  if (!publicKey) {
+  if (!effectivePublicKey) {
     return (
       <div className="stack-6 fade-in">
         <h1 className="page-title">
@@ -118,30 +124,51 @@ export default function MePage() {
           kind="wallet"
           title={<StableText k="state.connectWallet" />}
           body={<StableText k="me.connect" block />}
-          action={<WalletButton />}
+          action={
+            <div className="cluster-2">
+              <WalletButton />
+              <Button
+                type="button"
+                tone="secondary"
+                busy={entering}
+                disabled={locked}
+                onClick={() => void enterSandbox()}
+              >
+                <StableText k={hasSavedKey ? "sandbox.resumeAction" : "sandbox.enterAction"} align="center" />
+              </Button>
+            </div>
+          }
         />
         <Reveal>
           <section className="stack-3">
-            <h2 className="section-title">
+            <button
+              type="button"
+              onClick={() => setGuideOpen((v) => !v)}
+              aria-expanded={guideOpen}
+              className="section-title flex items-center gap-2 text-left transition-colors hover:text-white"
+            >
               <StableText k="help.quickTitle" />
-            </h2>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <GuideStep n={1} titleKey="help.q1Title" bodyKey="help.q1" />
-              <GuideStep n={2} titleKey="help.q2Title" bodyKey="help.q2">
-                <button
-                  type="button"
-                  onClick={() => openFaucetMenu()}
-                  className="link-accent text-left text-sm"
-                >
-                  <StableText k="me.claimOnHelp" />
-                </button>
-              </GuideStep>
-              <GuideStep n={3} titleKey="help.q3Title" bodyKey="help.q3">
-                <Link href="/markets" className="link-accent text-sm">
-                  <StableText k="me.emptyCta" />
-                </Link>
-              </GuideStep>
-            </div>
+              <span className={`text-xs transition-transform ${guideOpen ? "rotate-180" : ""}`}>▾</span>
+            </button>
+            {guideOpen ? (
+              <div className="grid gap-3 sm:grid-cols-3">
+                <GuideStep n={1} titleKey="help.q1Title" bodyKey="help.q1" />
+                <GuideStep n={2} titleKey="help.q2Title" bodyKey="help.q2">
+                  <button
+                    type="button"
+                    onClick={() => openFaucetMenu()}
+                    className="link-accent text-left text-sm"
+                  >
+                    <StableText k="me.claimOnHelp" />
+                  </button>
+                </GuideStep>
+                <GuideStep n={3} titleKey="help.q3Title" bodyKey="help.q3">
+                  <Link href="/markets" className="link-accent text-sm">
+                    <StableText k="me.emptyCta" />
+                  </Link>
+                </GuideStep>
+              </div>
+            ) : null}
           </section>
         </Reveal>
       </div>
@@ -177,6 +204,8 @@ export default function MePage() {
     ({ position }) => position.lpShares > 0n || position.pendingYes > 0n || position.pendingNo > 0n
   );
 
+  const solscanAccount = explorerAccount(wallet, settings.cluster);
+
   return (
     <div className="stack-6 fade-in">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -194,6 +223,43 @@ export default function MePage() {
           }}
         />
       </div>
+
+      {isSandbox ? (
+        <div
+          onMouseMove={onSpot}
+          className="surface flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-xs"
+        >
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="font-medium text-white">
+              <StableText k="sandbox.title" />
+            </span>
+            <CopyText value={wallet} label={shorten(wallet, 6, 6)} />
+            {solscanAccount ? (
+              <a
+                href={solscanAccount}
+                target="_blank"
+                rel="noreferrer"
+                className="link-accent inline-flex items-center gap-1"
+              >
+                <span>Solscan</span>
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            ) : null}
+            <span className="text-zinc-400">
+              <StableText k={storageAvailable ? "sandbox.meBarNote" : "sandbox.memoryOnlyNote"} />
+            </span>
+          </div>
+          <Button
+            type="button"
+            tone="secondary"
+            className="h-7 px-2.5 text-xs"
+            disabled={locked}
+            onClick={() => openWalletModal()}
+          >
+            <StableText k="sandbox.connectReal" align="center" />
+          </Button>
+        </div>
+      ) : null}
 
       <Reveal>
         <section className="stack-3">
@@ -276,7 +342,14 @@ export default function MePage() {
                       </div>
                       <Stat labelKey="me.yes" value={toUi(position.yes, market.decimals, 2)} />
                       <Stat labelKey="me.no" value={toUi(position.no, market.decimals, 2)} />
-                      <Stat labelKey="me.shares" value={toUi(position.lpShares, market.decimals, 2)} />
+                      <div className="shrink-0">
+                        <Stat labelKey="me.shares" value={toUi(position.lpShares, market.decimals, 2)} />
+                        {isSandbox ? (
+                          <div className="mt-0.5 text-[11px] text-zinc-500">
+                            <StableText k="me.lpRequiresReal" />
+                          </div>
+                        ) : null}
+                      </div>
                       <div className="shrink-0">
                         <Stat
                           labelKey="me.lpPending"

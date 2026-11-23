@@ -32,12 +32,16 @@ import { useNow } from "@/hooks/use-now";
 import { useRefresh, useSettings, useToasts } from "./providers";
 import type { Side } from "@/lib/types";
 import { useT } from "@/i18n/provider";
-import { Button, Card, Field, SegTabs, StableText, TextInput, useTx } from "./ui";
+import { Button, Card, Field, SegTabs, StableText, TextInput, openWalletModal, useTx } from "./ui";
+import { useGuestSession, useSandboxTx } from "./guest-session";
 
 export function SettleDesk({ market, position }: { market: MarketView; position: UserPosition }) {
   const program = useProgram();
-  const { publicKey } = useWallet();
+  const { publicKey: realPublicKey } = useWallet();
+  const { effectivePublicKey, isSandbox, locked } = useGuestSession();
   const { busy, run } = useTx();
+  const { busy: sandboxBusy, runSandbox } = useSandboxTx();
+  const anyBusy = busy || sandboxBusy;
   const now = useNow();
   const t = useT();
   const phase = marketPhase(market, now);
@@ -51,9 +55,9 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
   const canMerge = market.status === "open" && mergeable > 0n;
   const canClaimWinner = market.status === "resolved" && winningAmount > 0n;
   const canClaimVoid = isMarketVoided(market) && (position.yes > 1n || position.no > 1n);
-  const showSnapshot = phase.inSnapshotWindow;
+  const showSnapshot = phase.inSnapshotWindow && !isSandbox;
   const showResolve = market.status === "open" && phase.expired;
-  const isCreator = Boolean(publicKey && publicKey.equals(market.creator));
+  const isCreator = Boolean(realPublicKey && realPublicKey.equals(market.creator));
   const showBurn = phase.canBurn && isCreator;
 
   return (
@@ -65,36 +69,54 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
               <p className="text-sm text-zinc-400">
                 <StableText k="settle.mergeBody" vars={{ symbol: COLLATERAL_SYMBOL }} block />
               </p>
-              <Button
-                type="button"
-                busy={busy}
-                disabled={busy || !publicKey || !program}
-                onClick={() =>
-                  publicKey &&
-                  program &&
-                  run(t("tx.cashOut"), () => ixMergeToken(program, market, publicKey, mergeable))
-                }
-              >
-                <StableText
-                  k="settle.cashOut"
-                  vars={{ amount: money(mergeable, market.decimals) }}
-                  align="center"
-                />
-              </Button>
+              {isSandbox ? (
+                <Button
+                  type="button"
+                  tone="secondary"
+                  disabled={locked}
+                  onClick={() => openWalletModal()}
+                >
+                  <StableText
+                    k="settle.sandboxMergeCta"
+                    vars={{ amount: money(mergeable, market.decimals) }}
+                    align="center"
+                  />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  busy={busy}
+                  disabled={busy || !realPublicKey || !program}
+                  onClick={() =>
+                    realPublicKey &&
+                    program &&
+                    run(t("tx.cashOut"), () => ixMergeToken(program, market, realPublicKey, mergeable))
+                  }
+                >
+                  <StableText
+                    k="settle.cashOut"
+                    vars={{ amount: money(mergeable, market.decimals) }}
+                    align="center"
+                  />
+                </Button>
+              )}
             </>
           ) : null}
           {canClaimWinner && program ? (
             <Button
               type="button"
               tone={market.winner === "yes" ? "yes" : "no"}
-              busy={busy}
-              disabled={busy || !publicKey}
+              busy={anyBusy}
+              disabled={anyBusy || (isSandbox && locked) || !effectivePublicKey}
               onClick={() => {
-                if (!publicKey) return;
+                if (!effectivePublicKey) return;
                 const mint = market.winner === "yes" ? market.pdas.yesMint : market.pdas.noMint;
-                return run(t("tx.collectWinnings"), () =>
-                  ixGetCollateral(program, market, publicKey, mint, winningAmount)
-                );
+                const build = () =>
+                  ixGetCollateral(program, market, effectivePublicKey, mint, winningAmount);
+                if (isSandbox) {
+                  return runSandbox(t("tx.collectWinnings"), build);
+                }
+                return run(t("tx.collectWinnings"), build);
               }}
             >
               <StableText
@@ -111,41 +133,53 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
       {showSnapshot ? <SnapshotCard market={market} now={now} /> : null}
 
       {showResolve ? (
-        <Card className="stack-4">
-          <div>
-            <div className="text-base font-medium text-white">
-              <StableText k={phase.afterWindow ? "settle.cancelRefund" : "settle.resolveTitle"} />
+        isSandbox ? (
+          <Card className="stack-3">
+            <div className="flex items-center gap-2 text-base font-medium text-white">
+              <span className="live-dot h-1.5 w-1.5 rounded-full bg-[var(--warn)]" />
+              <StableText k="settle.sandboxPollingTitle" />
             </div>
-            <p className="mt-1 text-sm text-zinc-500">
-              <StableText
-                k="settle.resolveBody"
-                vars={{ hours: resolveHours(), delay: MAX_SETTLE_DELAY }}
-                block
-              />
+            <p className="text-sm leading-relaxed text-zinc-400">
+              <StableText k="settle.sandboxPollingBody" block />
             </p>
-          </div>
-          <div className="cluster-2">
-            <ResolveButton market={market} disabled={phase.afterWindow} />
-            <Button
-              type="button"
-              tone={phase.afterWindow ? "primary" : "secondary"}
-              busy={busy}
-              disabled={busy || !phase.afterWindow || !publicKey || !program}
-              onClick={() =>
-                publicKey &&
-                program &&
-                run(t("tx.cancelMarket"), () => ixVoidMarket(program, market, publicKey))
-              }
-            >
-              <StableText k="settle.cancelRefund" align="center" />
-            </Button>
-          </div>
-          {phase.afterWindow ? (
-            <p className="text-xs leading-5 text-[var(--warn)]">
-              <StableText k="settle.windowClosed" block />
-            </p>
-          ) : null}
-        </Card>
+          </Card>
+        ) : (
+          <Card className="stack-4">
+            <div>
+              <div className="text-base font-medium text-white">
+                <StableText k={phase.afterWindow ? "settle.cancelRefund" : "settle.resolveTitle"} />
+              </div>
+              <p className="mt-1 text-sm text-zinc-500">
+                <StableText
+                  k="settle.resolveBody"
+                  vars={{ hours: resolveHours(), delay: MAX_SETTLE_DELAY }}
+                  block
+                />
+              </p>
+            </div>
+            <div className="cluster-2">
+              <ResolveButton market={market} disabled={phase.afterWindow} />
+              <Button
+                type="button"
+                tone={phase.afterWindow ? "primary" : "secondary"}
+                busy={busy}
+                disabled={busy || !phase.afterWindow || !realPublicKey || !program}
+                onClick={() =>
+                  realPublicKey &&
+                  program &&
+                  run(t("tx.cancelMarket"), () => ixVoidMarket(program, market, realPublicKey))
+                }
+              >
+                <StableText k="settle.cancelRefund" align="center" />
+              </Button>
+            </div>
+            {phase.afterWindow ? (
+              <p className="text-xs leading-5 text-[var(--warn)]">
+                <StableText k="settle.windowClosed" block />
+              </p>
+            ) : null}
+          </Card>
+        )
       ) : null}
 
       {showBurn ? (
@@ -162,11 +196,11 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
             type="button"
             tone="secondary"
             busy={busy}
-            disabled={busy || !publicKey || !program}
+            disabled={busy || !realPublicKey || !program}
             onClick={() =>
-              publicKey &&
+              realPublicKey &&
               program &&
-              run(t("tx.burnAccount"), () => ixBurnAccount(program, market, publicKey))
+              run(t("tx.burnAccount"), () => ixBurnAccount(program, market, realPublicKey))
             }
           >
             <StableText k="settle.burnSubmit" align="center" />
@@ -274,8 +308,10 @@ function ResolveButton({ market, disabled = false }: { market: MarketView; disab
 
 function VoidClaim({ market, position }: { market: MarketView; position: UserPosition }) {
   const program = useProgram();
-  const { publicKey } = useWallet();
+  const { effectivePublicKey, isSandbox, locked } = useGuestSession();
   const { busy, run } = useTx();
+  const { busy: sandboxBusy, runSandbox } = useSandboxTx();
+  const anyBusy = busy || sandboxBusy;
   const t = useT();
   const [side, setSide] = useState<Side>(position.yes >= position.no ? "yes" : "no");
   const max = side === "yes" ? position.yes : position.no;
@@ -318,16 +354,25 @@ function VoidClaim({ market, position }: { market: MarketView; position: UserPos
       </Field>
       <Button
         type="button"
-        busy={busy}
+        busy={anyBusy}
         disabled={
-          busy || !publicKey || !program || parsed.invalid || parsed.value < 2n || parsed.value > max
+          anyBusy ||
+          (isSandbox && locked) ||
+          !effectivePublicKey ||
+          !program ||
+          parsed.invalid ||
+          parsed.value < 2n ||
+          parsed.value > max
         }
         onClick={() => {
-          if (!publicKey || !program) return;
+          if (!effectivePublicKey || !program) return;
           const mint = side === "yes" ? market.pdas.yesMint : market.pdas.noMint;
-          return run(t("tx.collectRefund"), () =>
-            ixGetCollateral(program, market, publicKey, mint, parsed.value)
-          );
+          const build = () =>
+            ixGetCollateral(program, market, effectivePublicKey, mint, parsed.value);
+          if (isSandbox) {
+            return runSandbox(t("tx.collectRefund"), build);
+          }
+          return run(t("tx.collectRefund"), build);
         }}
       >
         <StableText

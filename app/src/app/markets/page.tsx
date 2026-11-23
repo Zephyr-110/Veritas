@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
 import { useMarkets } from "@/hooks/use-markets";
 import { useNow } from "@/hooks/use-now";
 import { listSection, marketKind, questionTitle } from "@/lib/display";
@@ -12,13 +11,14 @@ import { MarketsSkeleton } from "@/components/skeletons";
 import { SimOrderPreview } from "@/components/sim-preview";
 import { Button, DataFreshness, Reveal, StableText, StateBlock, onSpot } from "@/components/ui";
 import { LiveCountdown } from "@/components/live";
+import { useEffectivePublicKey } from "@/components/guest-session";
 import { useT } from "@/i18n/provider";
 import type { MarketView } from "@/lib/markets";
 
 type Tape = "hot" | "history";
 
 export default function MarketsPage() {
-  const { publicKey } = useWallet();
+  const publicKey = useEffectivePublicKey();
   const { markets, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarkets();
   const now = useNow(1000);
   const t = useT();

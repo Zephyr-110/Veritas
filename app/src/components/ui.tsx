@@ -3,7 +3,7 @@
 import { useAnchorWallet, useConnection, useWallet } from "@solana/wallet-adapter-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Check, Droplets, ExternalLink, RefreshCw } from "lucide-react";
+import { Check, ChevronDown, Droplets, ExternalLink, RefreshCw } from "lucide-react";
 import { createPortal } from "react-dom";
 import {
   useEffect,
@@ -23,7 +23,7 @@ import {
   GITHUB_REPO,
 } from "@/lib/constants";
 import { kindLabelKey, kindTone, marketKind } from "@/lib/display";
-import { explorerAccount, explorerTx, shorten } from "@/lib/format";
+import { explorerAccount, explorerTx, shorten, toUi } from "@/lib/format";
 import type { MarketView } from "@/lib/markets";
 import { parseTxError } from "@/lib/errors";
 import { sendIxs, mustWallet } from "@/lib/send";
@@ -32,6 +32,7 @@ import { useI18n, useLocale, useT } from "@/i18n/provider";
 import { tPair, type Vars } from "@/i18n/store";
 import { PulseAreaMark } from "./logo-marks";
 import { useRefresh, useSettings, useToasts } from "./providers";
+import { useGuestSession } from "./guest-session";
 
 export function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
@@ -530,6 +531,7 @@ export function WalletButton() {
 export function WalletConnectModal() {
   const [isOpen, setOpen] = useWalletModalState();
   const { wallets, select } = useWallet();
+  const { isReal, isSandbox, hasSavedKey, entering, locked, enterSandbox } = useGuestSession();
 
   useEffect(() => {
     if (!isOpen) return;
@@ -578,11 +580,12 @@ export function WalletConnectModal() {
                 <button
                   key={w.adapter.name}
                   type="button"
+                  disabled={locked}
                   onClick={() => {
                     select(w.adapter.name);
                     setOpen(false);
                   }}
-                  className="flex h-11 w-full items-center justify-between border border-[var(--card-line)] bg-[var(--seg-bg)] px-4 text-sm font-medium text-white transition-colors hover:border-[var(--line)] hover:bg-[var(--seg-thumb)]"
+                  className="flex h-11 w-full items-center justify-between border border-[var(--card-line)] bg-[var(--seg-bg)] px-4 text-sm font-medium text-white transition-colors hover:border-[var(--line)] hover:bg-[var(--seg-thumb)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <span className="flex items-center gap-3">
                     {w.adapter.icon ? (
@@ -627,6 +630,30 @@ export function WalletConnectModal() {
             </div>
           </div>
         )}
+
+        {!isReal && !isSandbox ? (
+          <div className="mt-4 stack-2 border border-[var(--hair)] bg-[var(--seg-bg)] p-3.5">
+            <div className="text-xs font-medium text-white">
+              <StableText k="sandbox.title" />
+            </div>
+            <p className="text-xs leading-relaxed text-zinc-400">
+              <StableText k="sandbox.modalBody" block />
+            </p>
+            <Button
+              type="button"
+              tone="primary"
+              className="h-9 w-full text-xs"
+              busy={entering}
+              disabled={locked}
+              onClick={async () => {
+                const ok = await enterSandbox();
+                if (ok) setOpen(false);
+              }}
+            >
+              <StableText k={hasSavedKey ? "sandbox.resumeAction" : "sandbox.enterAction"} align="center" />
+            </Button>
+          </div>
+        ) : null}
 
         <div className="mt-4 border-t border-[var(--hair)] pt-3">
           <Link
@@ -904,6 +931,198 @@ export function HeaderFaucet() {
   );
 }
 
+export function SandboxEnterButton() {
+  const { hasSavedKey, entering, locked, enterSandbox } = useGuestSession();
+  return (
+    <Button
+      type="button"
+      tone="secondary"
+      busy={entering}
+      disabled={locked}
+      onClick={() => void enterSandbox()}
+      className="h-8 shrink-0 px-2.5 text-xs sm:h-9 sm:px-3"
+    >
+      <StableText k={hasSavedKey ? "sandbox.resumeShort" : "sandbox.enterShort"} align="center" />
+    </Button>
+  );
+}
+
+export function SandboxCapsule() {
+  const {
+    isSandbox,
+    sandboxPublicKey,
+    balance,
+    storageAvailable,
+    entering,
+    txPending,
+    locked,
+    refillSandbox,
+    resetSandbox,
+    exitSandbox,
+  } = useGuestSession();
+  const { settings } = useSettings();
+  const t = useT();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
+
+  if (!isSandbox || !sandboxPublicKey) return null;
+
+  const addr = sandboxPublicKey.toBase58();
+  const usdtText = balance ? toUi(balance.usdtAtoms, balance.usdtDecimals, 2) : "—";
+  const solText = balance ? (balance.solLamports / 1e9).toFixed(4) : "—";
+  const solscanHref = explorerAccount(addr, settings.cluster);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setMenuOpen((v) => !v)}
+        aria-expanded={menuOpen}
+        className="inline-flex h-8 shrink-0 items-center gap-1.5 border border-[var(--hair)] bg-[var(--seg-bg)] px-2.5 text-xs text-[var(--ink)] hover:border-[var(--line)] hover:text-[var(--ink-strong)] sm:h-9"
+      >
+        <span
+          className={cx(
+            "h-1.5 w-1.5 rounded-full",
+            locked ? "live-dot bg-[var(--warn)]" : "bg-[var(--ink-2)]"
+          )}
+        />
+        <span className="num whitespace-nowrap">
+          {t("sandbox.capsule", { addr: shorten(addr, 4, 4), usdt: usdtText })}
+        </span>
+        <ChevronDown
+          className={cx("h-3 w-3 text-zinc-400 transition-transform", menuOpen && "rotate-180")}
+          aria-hidden
+        />
+      </button>
+
+      {menuOpen ? (
+        <div className="faucet-pop absolute right-0 top-full z-50 mt-2 w-80 border border-[var(--line)] bg-zinc-950 p-4 shadow-2xl sm:w-96">
+          <div className="stack-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-semibold text-white">
+                <StableText k="sandbox.title" />
+              </span>
+              <button
+                type="button"
+                onClick={() => setMenuOpen(false)}
+                className="text-xs text-zinc-400 transition-colors hover:text-white"
+              >
+                <StableText k="common.close" />
+              </button>
+            </div>
+
+            <p className="text-xs leading-relaxed text-zinc-400">
+              <StableText
+                k={storageAvailable ? "sandbox.localKeyNote" : "sandbox.memoryOnlyNote"}
+                block
+              />
+            </p>
+
+            <div className="stack-2 border border-[var(--hair)] bg-[var(--seg-bg)] p-3">
+              <div className="flex items-center justify-between gap-2 text-[11px] uppercase tracking-wider text-zinc-500">
+                <StableText k="sandbox.addressLabel" />
+                {solscanHref ? (
+                  <a
+                    href={solscanHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="link-accent inline-flex items-center gap-1 normal-case tracking-normal text-xs"
+                  >
+                    <span>Solscan</span>
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                ) : null}
+              </div>
+              <div className="break-all font-mono text-[11px] leading-relaxed text-zinc-200">
+                <CopyText value={addr} label={addr} />
+              </div>
+              <div className="hairline" />
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-zinc-500">USDT / SOL</span>
+                <span className="num font-medium text-white">
+                  {usdtText} USDT · {solText} SOL
+                </span>
+              </div>
+            </div>
+
+            {txPending ? (
+              <p className="text-xs text-[var(--warn)]">
+                <StableText k="sandbox.txLockedHint" block />
+              </p>
+            ) : null}
+
+            <div className="stack-2">
+              <Button
+                type="button"
+                tone="primary"
+                className="h-8 w-full text-xs"
+                disabled={locked}
+                onClick={() => {
+                  setMenuOpen(false);
+                  setWalletModalOpen(true);
+                }}
+              >
+                <StableText k="sandbox.connectReal" align="center" />
+              </Button>
+              <div className="grid grid-cols-3 gap-2">
+                <Button
+                  type="button"
+                  tone="secondary"
+                  className="h-8 px-2 text-xs"
+                  busy={entering}
+                  disabled={locked}
+                  onClick={() => void refillSandbox()}
+                >
+                  <StableText k="sandbox.refillShort" align="center" />
+                </Button>
+                <Button
+                  type="button"
+                  tone="secondary"
+                  className="h-8 px-2 text-xs"
+                  disabled={locked}
+                  onClick={() => void resetSandbox()}
+                >
+                  <StableText k="sandbox.resetBtn" align="center" />
+                </Button>
+                <Button
+                  type="button"
+                  tone="secondary"
+                  className="h-8 px-2 text-xs"
+                  disabled={locked}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    exitSandbox();
+                  }}
+                >
+                  <StableText k="sandbox.exitBtn" align="center" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function Header() {
   const pathname = usePathname();
   const { settings } = useSettings();
@@ -911,6 +1130,7 @@ export function Header() {
   const [open, setOpen] = useState(false);
   const { connection } = useConnection();
   const [ok, setOk] = useState<boolean | null>(null);
+  const { mode } = useGuestSession();
 
   useEffect(() => {
     if (!window.location.hash) {
@@ -1017,8 +1237,20 @@ export function Header() {
           </Button>
           <ThemeToggle />
           <LangSwitch />
-          <HeaderFaucet />
-          <WalletButton />
+          {mode === "sandbox" ? (
+            <SandboxCapsule />
+          ) : mode === "real" ? (
+            <>
+              <HeaderFaucet />
+              <WalletButton />
+            </>
+          ) : (
+            <>
+              <HeaderFaucet />
+              <SandboxEnterButton />
+              <WalletButton />
+            </>
+          )}
         </div>
       </div>
       <nav className="page-width mx-auto flex gap-1 overflow-x-auto px-3 pb-2 sm:px-4 lg:hidden">

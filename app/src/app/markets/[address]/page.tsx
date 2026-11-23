@@ -3,16 +3,16 @@
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
 import { useMarket } from "@/hooks/use-market";
 import { useNow } from "@/hooks/use-now";
 import { useFeeds } from "@/hooks/use-feeds";
 import { formatWhen, hasBet, isMarketVoided, marketKind, money, questionTitle } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
 import { feedByState, formatFeedPrice, thresholdToHuman } from "@/lib/feeds";
-import { countdown, explorerAccount, formatUnix, formatYesNo, marketIdHex, shorten, toUi } from "@/lib/format";
-import { RESOLVE_WINDOW } from "@/lib/constants";
+import { countdown, explorerAccount, formatCents, formatUnix, formatYesNo, marketIdHex, shorten, toUi } from "@/lib/format";
+import { COLLATERAL_SYMBOL, RESOLVE_WINDOW } from "@/lib/constants";
 import { isFinalizedStatus, marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
+import { pmAmmAccrue } from "@/lib/quote";
 import { TradeDesk } from "@/components/trade-desk";
 import { LiquidityCard, PriceChartCard } from "@/components/market-visuals";
 import { chartPair } from "@/lib/chart";
@@ -21,6 +21,7 @@ import { SettleDesk } from "@/components/settle-desk";
 import { CountUp, FlashNum, LiveCountdown } from "@/components/live";
 import { PriceAge } from "@/components/price-age";
 import { Button, Card, CopyText, DataFreshness, Kv, Reveal, SegTabs, StableText, StateBlock, StatusChip, onSpot } from "@/components/ui";
+import { useGuestSession } from "@/components/guest-session";
 import { useSettings } from "@/components/providers";
 import { MarketDetailSkeleton } from "@/components/skeletons";
 import { useLocale, useT } from "@/i18n/provider";
@@ -31,7 +32,7 @@ export default function MarketDetailPage() {
   const params = useParams<{ address: string }>();
   const address = params.address;
   const { market, position, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarket(address);
-  const { publicKey } = useWallet();
+  const { effectivePublicKey, isSandbox } = useGuestSession();
   const now = useNow(1000);
   const { quotes, ready } = useFeeds();
   const t = useT();
@@ -143,19 +144,26 @@ export default function MarketDetailPage() {
       <div className="split split-detail">
         <div className="stack-4 stack-tight self-stretch">
           <Reveal>
-            <PositionCard market={market} position={position} connected={!!publicKey} />
+            <PositionCard
+              market={market}
+              position={position}
+              connected={!!effectivePublicKey}
+              spot={spot}
+              now={now}
+            />
           </Reveal>
           <Reveal className="flex-1">
             <PoolFactsCard market={market} humanThreshold={humanThreshold} />
           </Reveal>
         </div>
         <aside className="desk-rail stack-4">
-          {live ? (
-            <DeskSwitcher market={market} position={position} />
-          ) : isFinalizedStatus(market.status) ? (
+          {live ? <DeskSwitcher market={market} position={position} /> : null}
+          <SettleDesk market={market} position={position} />
+          {!live &&
+          isFinalizedStatus(market.status) &&
+          !(isSandbox && position.lpShares === 0n && position.pendingYes === 0n && position.pendingNo === 0n) ? (
             <LpDesk market={market} position={position} withdrawOnly />
           ) : null}
-          <SettleDesk market={market} position={position} />
         </aside>
       </div>
 
@@ -438,13 +446,50 @@ function PositionCard({
   market,
   position,
   connected,
+  spot,
+  now,
 }: {
   market: MarketView;
   position: UserPosition;
   connected: boolean;
+  spot: Spot;
+  now: number;
 }) {
   const empty =
     !hasBet(position) && position.lpShares === 0n && position.pendingYes === 0n && position.pendingNo === 0n;
+
+  const hasPmAmm = Boolean(market.lZero && market.lZero > 0n);
+  const accrued =
+    market.status === "open" && hasPmAmm
+      ? pmAmmAccrue(market, now > 0 ? now : market.lastAccrualTs)
+      : null;
+  const liveYesPrice = accrued ? accrued.yesPrice : market.yesPrice;
+  const liveNoPrice = 1 - liveYesPrice;
+
+  const thresholdNum = Number(market.threshold) * 10 ** -market.priceDecimals;
+  const yesFavored =
+    spot && Number.isFinite(thresholdNum) && thresholdNum > 0
+      ? market.settleAbove
+        ? spot.price >= thresholdNum
+        : spot.price < thresholdNum
+      : null;
+
+  const estValueOf = (shares: bigint, price: number) => {
+    const num = (Number(shares) / 10 ** market.decimals) * price;
+    return Number.isFinite(num) ? `~${num.toFixed(2)} ${COLLATERAL_SYMBOL}` : "";
+  };
+
+  const finalizedClaimable =
+    market.status === "resolved"
+      ? market.winner === "yes"
+        ? position.yes
+        : position.no
+      : isMarketVoided(market)
+        ? position.yes / 2n + position.no / 2n
+        : 0n;
+
+  const isExpiredOpen = market.status === "open" && now > 0 && now >= market.expiry;
+
   return (
     <Card className="stack-3">
       <div className="section-title">
@@ -460,8 +505,60 @@ function PositionCard({
         </p>
       ) : (
         <>
-          {position.yes > 0n ? <Kv k={<StableText k="common.yes" />} v={toUi(position.yes, market.decimals, 2)} /> : null}
-          {position.no > 0n ? <Kv k={<StableText k="common.no" />} v={toUi(position.no, market.decimals, 2)} /> : null}
+          {position.yes > 0n ? (
+            <Kv
+              k={<StableText k="common.yes" />}
+              v={
+                <span className="inline-flex flex-wrap items-baseline justify-end gap-2">
+                  <span>{toUi(position.yes, market.decimals, 2)}</span>
+                  {market.status === "open" ? (
+                    <span className="text-xs font-normal text-zinc-400">
+                      {estValueOf(position.yes, liveYesPrice)} · {formatCents(liveYesPrice)}
+                    </span>
+                  ) : null}
+                </span>
+              }
+            />
+          ) : null}
+          {position.no > 0n ? (
+            <Kv
+              k={<StableText k="common.no" />}
+              v={
+                <span className="inline-flex flex-wrap items-baseline justify-end gap-2">
+                  <span>{toUi(position.no, market.decimals, 2)}</span>
+                  {market.status === "open" ? (
+                    <span className="text-xs font-normal text-zinc-400">
+                      {estValueOf(position.no, liveNoPrice)} · {formatCents(liveNoPrice)}
+                    </span>
+                  ) : null}
+                </span>
+              }
+            />
+          ) : null}
+          {market.status === "open" && spot && yesFavored !== null && hasBet(position) ? (
+            <p className="border-t border-[var(--hair)] pt-2 text-xs text-zinc-400">
+              <StableText
+                k="market.positionSpotLead"
+                vars={{
+                  spot: formatFeedPrice(spot.price),
+                  side: yesFavored ? "YES" : "NO",
+                }}
+                block
+              />
+            </p>
+          ) : null}
+          {isExpiredOpen ? (
+            <p className="flex items-center gap-2 text-xs text-[var(--warn)]">
+              <span className="live-dot h-1.5 w-1.5 rounded-full bg-[var(--warn)]" />
+              <StableText k="market.awaitingPoll" />
+            </p>
+          ) : null}
+          {isFinalizedStatus(market.status) && hasBet(position) ? (
+            <Kv
+              k={<StableText k="market.redeemableLabel" />}
+              v={money(finalizedClaimable, market.decimals)}
+            />
+          ) : null}
           {position.lpShares > 0n ? (
             <Kv k={<StableText k="lp.yourShares" />} v={toUi(position.lpShares, market.decimals, 2)} />
           ) : null}

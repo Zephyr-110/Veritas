@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
 import { useMarkets } from "@/hooks/use-markets";
 import { useNow } from "@/hooks/use-now";
 import { listSection, marketKind, questionTitle } from "@/lib/display";
@@ -17,12 +16,13 @@ import { MarketCard } from "@/components/market-card";
 import { MarketTableSkeleton } from "@/components/skeletons";
 import { Button, DataFreshness, Reveal, StableText, onSpot } from "@/components/ui";
 import { LiveCountdown } from "@/components/live";
+import { useGuestSession } from "@/components/guest-session";
 import { useSettings } from "@/components/providers";
 import { useLocale, useT } from "@/i18n/provider";
 import { tPair } from "@/i18n/store";
 
 export default function HomePage() {
-  const { publicKey } = useWallet();
+  const { mode, effectivePublicKey: publicKey, hasSavedKey, entering, locked, enterSandbox } = useGuestSession();
   const { markets, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarkets();
   const now = useNow(1000);
   const t = useT();
@@ -100,6 +100,21 @@ export default function HomePage() {
                     <StableText k="home.cta" align="center" />
                   </Button>
                 </Link>
+                {mode === "none" ? (
+                  <Button
+                    type="button"
+                    tone="secondary"
+                    className="h-11 px-6"
+                    busy={entering}
+                    disabled={locked}
+                    onClick={() => void enterSandbox()}
+                  >
+                    <StableText
+                      k={hasSavedKey ? "sandbox.resumeAction" : "sandbox.enterAction"}
+                      align="center"
+                    />
+                  </Button>
+                ) : null}
                 <Link href="#how">
                   <Button type="button" tone="secondary" className="h-11 px-6">
                     <StableText k="home.howCta" align="center" />

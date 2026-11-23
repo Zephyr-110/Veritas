@@ -90,7 +90,11 @@ export function setLocale(next: Locale) {
   if (!LOCALES.includes(next)) throw new Error(`Unknown locale: ${next}`);
   current = next;
   if (typeof window !== "undefined") {
-    window.localStorage.setItem(STORAGE_KEY, next);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      /* storage unavailable */
+    }
   }
   applyDocumentLang(next);
   notify();
@@ -98,10 +102,21 @@ export function setLocale(next: Locale) {
 
 export function hydrateLocale() {
   if (typeof window === "undefined") return;
+  let stored: string | null = null;
+  try {
+    stored = window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    stored = null;
+  }
   const query = new URLSearchParams(window.location.search).get("lang");
-  const stored = window.localStorage.getItem(STORAGE_KEY);
   current = isLocale(query) ? query : isLocale(stored) ? stored : "en";
-  if (isLocale(query)) window.localStorage.setItem(STORAGE_KEY, query);
+  if (isLocale(query)) {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, query);
+    } catch {
+      /* storage unavailable */
+    }
+  }
   applyDocumentLang(current);
 }
 

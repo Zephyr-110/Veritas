@@ -281,21 +281,12 @@ export async function fetchMarketSnapshot(
   }
 }
 
-export async function fetchPosition(
-  connection: Connection,
-  programId: PublicKey,
+function buildUserPosition(
   market: MarketView,
-  owner: PublicKey
-): Promise<UserPosition> {
-  const { tokenProgram, pdas, collateralMint } = market;
-  const [lpPda] = findLpPosition(programId, market.address, owner);
-  const keys = [
-    ataOf(collateralMint, owner, tokenProgram),
-    ataOf(pdas.yesMint, owner, tokenProgram),
-    ataOf(pdas.noMint, owner, tokenProgram),
-    lpPda,
-  ];
-  const infos = await getMultiple(connection, keys);
+  keys: PublicKey[],
+  infos: Array<Awaited<ReturnType<Connection["getAccountInfo"]>>>
+): UserPosition {
+  const { tokenProgram } = market;
   let lpShares = 0n;
   let pendingYes = 0n;
   let pendingNo = 0n;
@@ -325,4 +316,50 @@ export async function fetchPosition(
     pendingYes,
     pendingNo,
   };
+}
+
+export async function fetchPosition(
+  connection: Connection,
+  programId: PublicKey,
+  market: MarketView,
+  owner: PublicKey
+): Promise<UserPosition> {
+  const { tokenProgram, pdas, collateralMint } = market;
+  const [lpPda] = findLpPosition(programId, market.address, owner);
+  const keys = [
+    ataOf(collateralMint, owner, tokenProgram),
+    ataOf(pdas.yesMint, owner, tokenProgram),
+    ataOf(pdas.noMint, owner, tokenProgram),
+    lpPda,
+  ];
+  const infos = await getMultiple(connection, keys);
+  return buildUserPosition(market, keys, infos);
+}
+
+export async function fetchPositionsBatch(
+  connection: Connection,
+  programId: PublicKey,
+  markets: MarketView[],
+  owner: PublicKey
+): Promise<Array<{ market: MarketView; position: UserPosition }>> {
+  if (!markets.length) return [];
+  const keys: PublicKey[] = [];
+  for (const market of markets) {
+    const { tokenProgram, pdas, collateralMint } = market;
+    const [lpPda] = findLpPosition(programId, market.address, owner);
+    keys.push(
+      ataOf(collateralMint, owner, tokenProgram),
+      ataOf(pdas.yesMint, owner, tokenProgram),
+      ataOf(pdas.noMint, owner, tokenProgram),
+      lpPda
+    );
+  }
+  const infos = await getMultiple(connection, keys);
+  return markets.map((market, i) => {
+    const base = i * 4;
+    return {
+      market,
+      position: buildUserPosition(market, keys.slice(base, base + 4), infos.slice(base, base + 4)),
+    };
+  });
 }

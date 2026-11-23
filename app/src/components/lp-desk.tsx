@@ -12,6 +12,7 @@ import { useProgram } from "@/hooks/use-program";
 import { useNow } from "@/hooks/use-now";
 import { Button, Card, Chip, PopNum, SegTabs, StableText, TextInput, openWalletModal, useTx } from "./ui";
 import { useT } from "@/i18n/provider";
+import { useGuestSession } from "./guest-session";
 
 export function LpDesk({
   market,
@@ -24,12 +25,13 @@ export function LpDesk({
 }) {
   const program = useProgram();
   const { publicKey } = useWallet();
+  const { isSandbox, locked } = useGuestSession();
   const { busy, run } = useTx();
   const now = useNow();
   const t = useT();
   const live = marketPhase(market, now).live;
   const onlyWithdraw = withdrawOnly || isFinalizedStatus(market.status);
-  const sim = !publicKey && !onlyWithdraw;
+  const sim = !publicKey && !isSandbox && !onlyWithdraw;
   const [tab, setTab] = useState<"add" | "withdraw">("add");
   const activeTab = onlyWithdraw ? "withdraw" : tab;
   const [amount, setAmount] = useState("2");
@@ -53,8 +55,11 @@ export function LpDesk({
     position.pendingNo
   );
 
-  const disabledReasonKey: { key: string; vars?: Record<string, string | number> } | null =
-    onlyWithdraw && !publicKey
+  const disabledReasonKey: { key: string; vars?: Record<string, string | number> } | null = isSandbox
+    ? activeTab === "add" && !live
+      ? { key: "lpDisable.notLive" }
+      : null
+    : onlyWithdraw && !publicKey
       ? { key: "lpDisable.connect" }
       : parsed.invalid
         ? { key: "lpDisable.invalid" }
@@ -75,7 +80,7 @@ export function LpDesk({
                       : null;
 
   const submit = async () => {
-    if (sim) {
+    if (sim || isSandbox) {
       openWalletModal();
       return;
     }
@@ -170,9 +175,16 @@ export function LpDesk({
             <StableText k="lp.riskNote" block />
           </p>
         )}
-        <Button type="button" busy={busy} disabled={busy || !!disabledReasonKey} onClick={() => void submit()}>
+        <Button
+          type="button"
+          busy={busy}
+          disabled={busy || (isSandbox && locked) || !!disabledReasonKey}
+          onClick={() => void submit()}
+        >
           {disabledReasonKey ? (
             <StableText k={disabledReasonKey.key} vars={disabledReasonKey.vars} align="center" />
+          ) : isSandbox ? (
+            <StableText k={activeTab === "add" ? "lp.sandboxAddSubmit" : "lp.sandboxWithdrawSubmit"} align="center" />
           ) : sim ? (
             <StableText k="lp.simSubmit" align="center" />
           ) : (

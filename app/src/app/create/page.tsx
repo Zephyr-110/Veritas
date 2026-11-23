@@ -24,6 +24,7 @@ import { useRefresh, useSettings, useToasts } from "@/components/providers";
 import { FeatureCard } from "@/components/market-card";
 import { PriceAge } from "@/components/price-age";
 import { Button, Reveal, StableText, TextInput, choiceClass, onSpot, openWalletModal, useTx } from "@/components/ui";
+import { useGuestSession } from "@/components/guest-session";
 import { useI18n, useT } from "@/i18n/provider";
 import type { FeedKey } from "@/lib/types";
 
@@ -110,6 +111,7 @@ export default function CreatePage() {
   const program = useProgram();
   const { connection } = useConnection();
   const { publicKey } = useWallet();
+  const { isSandbox, locked } = useGuestSession();
   const { settings } = useSettings();
   const { nonce } = useRefresh();
   const { busy, run } = useTx();
@@ -270,6 +272,10 @@ export default function CreatePage() {
   }, [human]);
 
   const submit = async () => {
+    if (isSandbox) {
+      openWalletModal();
+      return;
+    }
     setAttempted(true);
     if (!expiry || questionErrorKey || expiryErrorKey || thresholdErrorKey || seedErrorKey || solShort) return;
     if (!publicKey) {
@@ -598,22 +604,28 @@ export default function CreatePage() {
           ) : null}
 
           <div className="max-w-xs">
-            <Button type="submit" className="h-12 w-full" disabled={busy || solShort}>
+            <Button type="submit" className="h-12 w-full" disabled={busy || (isSandbox ? locked : solShort)}>
               <StableText
                 k={
                   busy
                     ? "state.confirming"
-                    : !publicKey
-                      ? "create.connectFirst"
-                      : solShort
-                        ? "create.needSolBtn"
-                        : "create.submit"
+                    : isSandbox
+                      ? "create.sandboxSubmit"
+                      : !publicKey
+                        ? "create.connectFirst"
+                        : solShort
+                          ? "create.needSolBtn"
+                          : "create.submit"
                 }
                 align="center"
               />
             </Button>
           </div>
-          {!publicKey ? (
+          {isSandbox ? (
+            <p className="text-[13px] leading-relaxed text-zinc-400">
+              <StableText k="create.sandboxHint" block />
+            </p>
+          ) : !publicKey ? (
             <p className="text-[13px] leading-relaxed text-zinc-400">
               <StableText k="create.readOnlyHint" />{" "}
               <Link href="/markets" className="link-accent">

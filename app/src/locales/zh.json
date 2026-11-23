@@ -254,7 +254,9 @@
     "insufficientSol": "SOL 不足（当前 {sol} SOL，创建市场需至少 0.02 SOL 支付账户租金）",
     "needSolBtn": "SOL 不足（需 ≥ 0.02 SOL）",
     "readOnlyHint": "当前未连接钱包（只读模式）。您可以直接前往市场页查看实时 K 线、金库储备与链上结算面板：",
-    "readOnlyCta": "浏览实时与历史市场 →"
+    "readOnlyCta": "浏览实时与历史市场 →",
+    "sandboxSubmit": "连接真实钱包以创建市场",
+    "sandboxHint": "沙盒账户（Devnet）仅支持下单与领取；连接真实钱包后可创建市场。"
   },
   "market": {
     "back": "← 市场",
@@ -295,7 +297,10 @@
     "history": "合约",
     "yesReserve": "YES 储备",
     "noReserve": "NO 储备",
-    "feedNote": "Chainlink OCR2 状态账户 · 用于结算"
+    "feedNote": "Chainlink OCR2 状态账户 · 用于结算",
+    "positionSpotLead": "现价 {spot} · 当前 {side} 领先判定价格",
+    "awaitingPoll": "已到期 · 正在自动轮询链上结算状态…",
+    "redeemableLabel": "可兑付"
   },
   "trade": {
     "title": "交易",
@@ -320,7 +325,8 @@
     "simPayout": "模拟胜出 1:1 兑付",
     "simSubmitBuyYes": "连接钱包提交买入 YES（模拟预览）",
     "simSubmitBuyNo": "连接钱包提交买入 NO（模拟预览）",
-    "simSubmitSwap": "连接钱包提交换仓（模拟预览）"
+    "simSubmitSwap": "连接钱包提交换仓（模拟预览）",
+    "sandboxSwapCta": "连接真实钱包以换仓"
   },
   "tradeDisable": {
     "connect": "连接钱包后才能交易",
@@ -349,6 +355,8 @@
     "feeNote": "费率：双腿各 30 个基点（合计约 0.6%），协议零抽成；实时记给交易时在场的做市商并计入待领，可在本做市界面随时领取。",
     "simBanner": "当前未连接钱包：以下份额测算为实时储备模拟预览，不会发送真实交易。",
     "simSubmit": "连接钱包注入流动性（模拟预览）",
+    "sandboxAddSubmit": "连接真实钱包以提供流动性",
+    "sandboxWithdrawSubmit": "连接真实钱包以提取流动性",
     "riskNote": "提示：做市并非无风险，被更灵通的人抢先成交会带来亏损（见机制与帮助页的风险说明）。"
   },
   "lpDisable": {
@@ -420,7 +428,10 @@
     "snapshotCount": "已记录 {count} / {max} 条快照",
     "burnTitle": "关闭市场",
     "burnBody": "30 天兑付窗口已结束。作为创建者，您可以关闭市场账户并收回金库剩余抵押物。",
-    "burnSubmit": "关闭并回收"
+    "burnSubmit": "关闭并回收",
+    "sandboxMergeCta": "连接真实钱包以合并 {amount}",
+    "sandboxPollingTitle": "等待链上自动结算",
+    "sandboxPollingBody": "市场已到期，页面正每 4 秒自动轮询链上结算状态；结算完成后将在此直接亮起领取按钮。"
   },
   "tx": {
     "view": "查看交易",
@@ -478,7 +489,8 @@
     "sumYes": "YES 合计",
     "sumNo": "NO 合计",
     "sumShares": "LP 份额合计",
-    "sumPending": "待领合计"
+    "sumPending": "待领合计",
+    "lpRequiresReal": "需连真钱包"
   },
   "help": {
     "title": "Veritas：快速、无需许可的预测市场",
@@ -608,7 +620,51 @@
     "noIxs": "没有可发送的指令。",
     "mintNotFound": "找不到抵押铸币。请检查设置。",
     "decode": "链上数据无法读取。请重试，或到设置检查程序地址。",
-    "wallet": "钱包错误。请重连后重试。"
+    "wallet": "钱包错误。请重连后重试。",
+    "sandboxIpLimit": "当前 IP 24 小时内沙盒领币次数已达上限（5 次），请连接真实钱包继续。",
+    "sandboxDailyCap": "今日 Devnet 测试 SOL 发放额度已达上限，请连接真实钱包或明日再试。",
+    "sandboxLocked": "请求处理中，请 10 秒后重试。",
+    "sandboxEmpty": "Devnet 沙盒水龙头余额不足，请连接真实钱包继续。",
+    "sandboxDisabled": "当前未启用沙盒领币接口，请连接真实钱包或检查服务端配置。",
+    "sandboxFaucetFailed": "沙盒领币未完成，请稍后重试或连接真实钱包。"
+  },
+  "sandbox": {
+    "title": "沙盒账户（Devnet）",
+    "enterShort": "沙盒账户",
+    "resumeShort": "沙盒账户",
+    "enterAction": "开启沙盒账户（Devnet）",
+    "resumeAction": "恢复沙盒账户（Devnet）",
+    "tryInline": "开启沙盒账户（Devnet），立即真实链上下单 →",
+    "capsule": "沙盒 · {addr} · {usdt} USDT",
+    "modalBody": "在浏览器本地生成 Devnet 测试私钥，并一次性原子发放 0.04 SOL 与 30 测试 USDT，无需安装插件即可真实下单与领取。",
+    "localKeyNote": "仅限 Devnet 测试币。沙盒私钥仅存于当前浏览器 localStorage，请勿向此地址转入主网资产。",
+    "memoryOnlyNote": "当前浏览器限制本地存储，沙盒私钥仅在当前标签页内存中保存，刷新后将重新生成。",
+    "addressLabel": "沙盒地址",
+    "txLockedHint": "交易确认中，暂锁定模式切换与重置。",
+    "connectReal": "连接真实钱包",
+    "refillBtn": "补充测试币",
+    "refillShort": "补币",
+    "resetBtn": "重置沙盒",
+    "exitBtn": "退出沙盒",
+    "meBarNote": "仅限 Devnet 测试币；私钥只存当前浏览器本地。",
+    "enteringTitle": "正在准备沙盒账户（Devnet）…",
+    "enteringBody": "正在同一笔交易内发放 0.04 SOL、创建测试 USDT ATA 并转入 30 测试 USDT。",
+    "readyTitle": "沙盒账户（Devnet）已就绪",
+    "readyReused": "已恢复本地已领币的沙盒账户。",
+    "enterFailedTitle": "沙盒账户（Devnet）启动未完成",
+    "refillPendingTitle": "正在补充沙盒测试币…",
+    "refillOkTitle": "沙盒测试币已到账",
+    "alreadyFundedTitle": "沙盒余额已充足",
+    "alreadyFundedBody": "当前 SOL 与测试 USDT 余额已满足门槛。",
+    "refillFailedTitle": "补充测试币未完成",
+    "resettingTitle": "正在重置沙盒账户（Devnet）…",
+    "resetOkTitle": "新沙盒账户（Devnet）已就绪",
+    "resetFailedTitle": "重置沙盒未完成",
+    "txSigningTitle": "{label} · 本地签名中",
+    "txSigningBody": "正在使用浏览器本地沙盒私钥签名…",
+    "txBroadcastTitle": "{label} · 已广播",
+    "txBroadcastBody": "已发往 Solana Devnet，确认前可在 Solscan 查看",
+    "txConfirmedTitle": "{label} · 已确认"
   },
   "footer": {
     "program": "程序",

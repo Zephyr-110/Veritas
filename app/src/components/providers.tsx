@@ -8,6 +8,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -27,6 +28,7 @@ import type { AppSettings, ClusterName, ToastItem, ToastKind } from "@/lib/types
 import { LocaleProvider, useT } from "@/i18n/provider";
 import { localizeError, parseTxError } from "@/lib/errors";
 import { hasKey } from "@/i18n/store";
+import { GuestSessionProvider } from "./guest-session";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
 
@@ -70,9 +72,30 @@ type SettingsCtx = {
   setSettings: (next: AppSettings) => void;
 };
 
+export type ToastOptions = {
+  sticky?: boolean;
+  durationMs?: number;
+};
+
+export type ToastPatch = {
+  kind?: ToastKind;
+  title?: string;
+  detail?: string;
+  href?: string;
+  sticky?: boolean;
+  durationMs?: number;
+};
+
 type ToastCtx = {
   toasts: ToastItem[];
-  push: (kind: ToastKind, title: string, detail?: string, href?: string) => void;
+  push: (
+    kind: ToastKind,
+    title: string,
+    detail?: string,
+    href?: string,
+    opts?: ToastOptions
+  ) => number;
+  update: (id: number, patch: ToastPatch) => void;
   dismiss: (id: number) => void;
 };
 
@@ -109,29 +132,105 @@ function SettingsInner({ children }: { children: ReactNode }) {
   const [nonce, setNonce] = useState(0);
   const queryClient = useQueryClient();
   const t = useT();
+  const toastTimersRef = useRef<Map<number, number>>(new Map());
+  const nextToastIdRef = useRef(1);
 
   useEffect(() => {
     setSettingsState(loadSettings());
   }, []);
 
+  useEffect(() => {
+    const timers = toastTimersRef.current;
+    return () => {
+      timers.forEach((timerId) => window.clearTimeout(timerId));
+      timers.clear();
+    };
+  }, []);
+
   const setSettings = useCallback((next: AppSettings) => {
     const clean = sanitizeSettings(next);
     setSettingsState(clean);
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
+    } catch {
+      /* storage unavailable */
+    }
   }, []);
 
-  const push = useCallback((kind: ToastKind, title: string, detail?: string, href?: string) => {
-    const id = Date.now() + Math.floor(Math.random() * 1000);
-    const safeDetail = !detail ? undefined : hasKey(detail) ? localizeError(detail) : detail;
-    setToasts((prev) => [...prev.slice(-4), { id, kind, title, detail: safeDetail, href }]);
-    window.setTimeout(() => {
+  const clearToastTimer = useCallback((id: number) => {
+    const existing = toastTimersRef.current.get(id);
+    if (existing !== undefined) {
+      window.clearTimeout(existing);
+      toastTimersRef.current.delete(id);
+    }
+  }, []);
+
+  const scheduleToastDismiss = useCallback(
+    (id: number, durationMs = 5200) => {
+      clearToastTimer(id);
+      const timerId = window.setTimeout(() => {
+        toastTimersRef.current.delete(id);
+        setToasts((prev) => prev.filter((item) => item.id !== id));
+      }, durationMs);
+      toastTimersRef.current.set(id, timerId);
+    },
+    [clearToastTimer]
+  );
+
+  const resolveDetail = useCallback((detail?: string) => {
+    if (!detail) return undefined;
+    return hasKey(detail) ? localizeError(detail) : detail;
+  }, []);
+
+  const push = useCallback(
+    (
+      kind: ToastKind,
+      title: string,
+      detail?: string,
+      href?: string,
+      opts?: ToastOptions
+    ): number => {
+      const id = Date.now() * 1000 + (nextToastIdRef.current++ % 1000);
+      const safeDetail = resolveDetail(detail);
+      setToasts((prev) => [...prev.slice(-4), { id, kind, title, detail: safeDetail, href }]);
+      if (!opts?.sticky) {
+        scheduleToastDismiss(id, opts?.durationMs ?? 5200);
+      }
+      return id;
+    },
+    [resolveDetail, scheduleToastDismiss]
+  );
+
+  const update = useCallback(
+    (id: number, patch: ToastPatch) => {
+      setToasts((prev) =>
+        prev.map((item) => {
+          if (item.id !== id) return item;
+          return {
+            ...item,
+            kind: patch.kind ?? item.kind,
+            title: patch.title ?? item.title,
+            detail: "detail" in patch ? resolveDetail(patch.detail) : item.detail,
+            href: "href" in patch ? patch.href : item.href,
+          };
+        })
+      );
+      if (patch.sticky) {
+        clearToastTimer(id);
+      } else {
+        scheduleToastDismiss(id, patch.durationMs ?? 5200);
+      }
+    },
+    [clearToastTimer, resolveDetail, scheduleToastDismiss]
+  );
+
+  const dismiss = useCallback(
+    (id: number) => {
+      clearToastTimer(id);
       setToasts((prev) => prev.filter((item) => item.id !== id));
-    }, 5200);
-  }, [t]);
-
-  const dismiss = useCallback((id: number) => {
-    setToasts((prev) => prev.filter((item) => item.id !== id));
-  }, []);
+    },
+    [clearToastTimer]
+  );
 
   const bump = useCallback(() => {
     setNonce((n) => n + 1);
@@ -139,6 +238,7 @@ function SettingsInner({ children }: { children: ReactNode }) {
     void queryClient.invalidateQueries({ queryKey: ["market"], refetchType: "all" });
     void queryClient.invalidateQueries({ queryKey: ["positions"], refetchType: "all" });
     void queryClient.invalidateQueries({ queryKey: ["redemptions"], refetchType: "all" });
+    void queryClient.invalidateQueries({ queryKey: ["sandbox-balance"], refetchType: "all" });
   }, [queryClient]);
   const wallets = useMemo(() => [], []);
 
@@ -157,13 +257,15 @@ function SettingsInner({ children }: { children: ReactNode }) {
 
   return (
     <SettingsContext.Provider value={{ settings, setSettings }}>
-      <ToastContext.Provider value={{ toasts, push, dismiss }}>
+      <ToastContext.Provider value={{ toasts, push, update, dismiss }}>
         <RefreshContext.Provider value={{ nonce, bump }}>
           <ConnectionProvider endpoint={settings.rpcUrl} config={{ commitment: "confirmed" }}>
             <WalletProvider wallets={wallets} autoConnect onError={onWalletError}>
               <WalletModalProvider>
-                {children}
-                <ToastViewport toasts={toasts} dismiss={dismiss} />
+                <GuestSessionProvider>
+                  {children}
+                  <ToastViewport toasts={toasts} dismiss={dismiss} />
+                </GuestSessionProvider>
               </WalletModalProvider>
             </WalletProvider>
           </ConnectionProvider>

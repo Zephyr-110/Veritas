@@ -6,6 +6,8 @@ import { QueryClient } from "@tanstack/react-query";
 vi.mock("@solana/wallet-adapter-react", () => ({
   ConnectionProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
   WalletProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+  useConnection: () => ({ connection: { rpcEndpoint: "https://api.devnet.solana.com" } }),
+  useWallet: () => ({ publicKey: null, connected: false }),
 }));
 
 vi.mock("@solana/wallet-adapter-react-ui", () => ({
@@ -50,5 +52,6 @@ describe("Providers refresh invalidation", () => {
     expect(spy).toHaveBeenCalledWith({ queryKey: ["market"], refetchType: "all" });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["positions"], refetchType: "all" });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["redemptions"], refetchType: "all" });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["sandbox-balance"], refetchType: "all" });
   });
 });

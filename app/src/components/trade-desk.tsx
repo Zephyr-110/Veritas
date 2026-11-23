@@ -15,17 +15,21 @@ import type { Side } from "@/lib/types";
 import { useT } from "@/i18n/provider";
 import { Button, Card, Field, Kv, PopNum, SegTabs, StableText, TextInput, openWalletModal, useTx } from "./ui";
 import { FaucetClaimButton } from "./faucet-claim";
+import { useGuestSession, useSandboxTx } from "./guest-session";
 
 const PRESETS = ["1", "2", "5", "10"];
 
 export function TradeDesk({ market, position }: { market: MarketView; position: UserPosition }) {
   const program = useProgram();
-  const { publicKey } = useWallet();
+  const { publicKey: realPublicKey } = useWallet();
+  const { isSandbox, effectivePublicKey, enterSandbox, refillSandbox, locked } = useGuestSession();
   const { busy, run } = useTx();
+  const { busy: sandboxBusy, runSandbox } = useSandboxTx();
   const now = useNow();
   const t = useT();
   const phase = marketPhase(market, now);
-  const sim = !publicKey;
+  const sim = !effectivePublicKey;
+  const anyBusy = busy || sandboxBusy;
 
   const [tab, setTab] = useState<"bet" | "swap">("bet");
   const [side, setSide] = useState<Side>("yes");
@@ -70,39 +74,48 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
   const sideLabel = side === "yes" ? t("common.yes") : t("common.no");
   const otherLabel = side === "yes" ? t("common.no") : t("common.yes");
 
+  const sandboxSwapBlocked = isSandbox && tab === "swap";
+
   const disabledReasonKey: { key: string; vars?: Record<string, string | number> } | null = !phase.live
     ? { key: "tradeDisable.ended" }
-    : parsed.invalid
-      ? { key: "tradeDisable.invalid" }
-      : parsed.value <= 0n
-        ? { key: "tradeDisable.enter" }
-        : sim
-          ? null
-          : tab === "bet" && parsed.value > position.collateral
-            ? { key: "tradeDisable.noCollateral", vars: { symbol: COLLATERAL_SYMBOL } }
-            : tab === "swap" && parsed.value > sellBalance
-              ? { key: "tradeDisable.noShares", vars: { side: otherLabel } }
-              : !program
-                ? { key: "errors.badAddress" }
-                : null;
+    : sandboxSwapBlocked
+      ? null
+      : parsed.invalid
+        ? { key: "tradeDisable.invalid" }
+        : parsed.value <= 0n
+          ? { key: "tradeDisable.enter" }
+          : sim
+            ? null
+            : tab === "bet" && parsed.value > position.collateral
+              ? { key: "tradeDisable.noCollateral", vars: { symbol: COLLATERAL_SYMBOL } }
+              : tab === "swap" && parsed.value > sellBalance
+                ? { key: "tradeDisable.noShares", vars: { side: otherLabel } }
+                : !program
+                  ? { key: "errors.badAddress" }
+                  : null;
 
   const submit = async () => {
-    if (sim) {
+    if (sim || sandboxSwapBlocked) {
       openWalletModal();
       return;
     }
-    if (!publicKey || !program) return;
+    if (!effectivePublicKey || !program) return;
     if (tab === "bet") {
-      await run(side === "yes" ? t("tx.buyYes") : t("tx.buyNo"), () =>
-        ixUserBetOn(program, market, publicKey, {
+      const label = side === "yes" ? t("tx.buyYes") : t("tx.buyNo");
+      const build = () =>
+        ixUserBetOn(program, market, effectivePublicKey, {
           collateralAmount: parsed.value,
           tokenType: side,
           minOut: applySlippage(betQuote.swapOut, slippage),
-        })
-      );
-    } else {
+        });
+      if (isSandbox) {
+        await runSandbox(label, build);
+      } else if (realPublicKey) {
+        await run(label, build);
+      }
+    } else if (realPublicKey) {
       await run(side === "yes" ? t("tx.switchYes") : t("tx.switchNo"), () =>
-        ixSwap(program, market, publicKey, {
+        ixSwap(program, market, realPublicKey, {
           amountIn: parsed.value,
           tokenType: side,
           minOut: applySlippage(swapOut, slippage),
@@ -118,11 +131,13 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
         ? "trade.simSubmitBuyYes"
         : "trade.simSubmitBuyNo"
       : "trade.simSubmitSwap"
-    : tab === "bet"
-      ? side === "yes"
-        ? "trade.buyYes"
-        : "trade.buyNo"
-      : "trade.switch";
+    : sandboxSwapBlocked
+      ? "trade.sandboxSwapCta"
+      : tab === "bet"
+        ? side === "yes"
+          ? "trade.buyYes"
+          : "trade.buyNo"
+        : "trade.switch";
 
   return (
     <Card className="desk flex flex-col gap-4">
@@ -131,9 +146,17 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
           <span className="shrink-0 border border-[var(--line)] bg-[var(--card-bg)] px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-white">
             <StableText k="trade.simBadge" align="center" />
           </span>
-          <span className="min-w-0">
+          <div className="min-w-0">
             <StableText k="trade.simBanner" block />
-          </span>
+            <button
+              type="button"
+              disabled={locked}
+              onClick={() => void enterSandbox()}
+              className="link-accent mt-1 inline-block text-left text-xs font-medium disabled:opacity-50"
+            >
+              <StableText k="sandbox.tryInline" />
+            </button>
+          </div>
         </div>
       ) : null}
       <SegTabs
@@ -197,7 +220,20 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
       )}
       {!sim && tab === "bet" && position.collateral === 0n ? (
         <div className="-mt-2 flex justify-end">
-          <FaucetClaimButton className="h-8 px-3 text-xs" />
+          {isSandbox ? (
+            <Button
+              type="button"
+              tone="secondary"
+              className="h-8 px-3 text-xs"
+              busy={locked}
+              disabled={locked}
+              onClick={() => void refillSandbox()}
+            >
+              <StableText k="sandbox.refillBtn" align="center" />
+            </Button>
+          ) : (
+            <FaucetClaimButton className="h-8 px-3 text-xs" />
+          )}
         </div>
       ) : null}
       <div className="cluster-2">
@@ -211,7 +247,7 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
             {p}
           </button>
         ))}
-        {sim ? null : (
+        {sim || sandboxSwapBlocked ? null : (
           <button
             type="button"
             className="border border-[var(--hair)] px-3 py-1 text-xs text-zinc-400 transition hover:border-[var(--line)] hover:text-white active:scale-95"
@@ -266,7 +302,12 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
           {(slippage / 100).toFixed(1)}%
         </span>
       </div>
-      <Button type="button" busy={busy} disabled={busy || !!disabledReasonKey} onClick={() => void submit()}>
+      <Button
+        type="button"
+        busy={anyBusy}
+        disabled={anyBusy || (isSandbox && locked) || !!disabledReasonKey}
+        onClick={() => void submit()}
+      >
         {disabledReasonKey ? (
           <StableText k={disabledReasonKey.key} vars={disabledReasonKey.vars} align="center" />
         ) : (
