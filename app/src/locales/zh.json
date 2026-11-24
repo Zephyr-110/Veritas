@@ -149,6 +149,7 @@
     "next": "下一轮预告",
     "ended": "已结束",
     "hot": "实时队列",
+    "loadMore": "加载更多",
     "history": "历史",
     "colMarket": "市场",
     "colYes": "YES 价格",
@@ -438,6 +439,7 @@
     "burnSubmit": "关闭并回收",
     "sandboxMergeCta": "连接真实钱包以合并 {amount}",
     "sandboxPollingTitle": "等待链上自动结算",
+    "reportPending": "正在等待到期后的首份可验证报告。",
     "sandboxPollingBody": "市场已到期，页面正每 4 秒自动轮询链上结算状态；结算完成后将在此直接亮起领取按钮。",
     "sandboxManualResolve": "立即提交结算"
   },

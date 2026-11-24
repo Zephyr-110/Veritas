@@ -5,6 +5,10 @@
 [![Solana Devnet](https://img.shields.io/badge/Solana-Devnet-14F195?style=flat-square&logo=solana&logoColor=white)](https://explorer.solana.com/address/CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER?cluster=devnet)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 
+[Open Veritas on Solana Devnet](https://veritas.zephyr110.com/)
+
+![Veritas homepage with live Chainlink prices and the sandbox entry point](app/public/veritas-home.png)
+
 A non-custodial binary prediction market on Solana. Pricing follows a dynamic [pm-AMM](https://www.paradigm.xyz/2024/11/pm-amms) invariant, settlement is verified directly on-chain against signed **Chainlink OCR2** oracle reports (with a permissionless expiry snapshot backstop), and every circulating YES/NO complete set is backed 1:1 by collateral in the market vault.
 
 No off-chain matching engine, no admin resolver, and no trusted relayer — the browser client (`app/`) talks directly to Solana RPC.

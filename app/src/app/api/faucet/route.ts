@@ -8,6 +8,8 @@ import {
 } from "@solana/spl-token";
 import { DEFAULT_COLLATERAL_MINT } from "@/lib/constants";
 
+import { acquireAddressLock, releaseAddressLock } from "@/lib/sandbox-faucet-guard";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -39,6 +41,17 @@ export async function POST(req: Request) {
     return Response.json({ error: "bad_address" }, { status: 400 });
   }
 
+  if (!acquireAddressLock(address)) {
+    return Response.json({ error: "locked" }, { status: 429 });
+  }
+  try {
+    return await claim(address, keypairPath);
+  } finally {
+    releaseAddressLock(address, { keepCooldown: false });
+  }
+}
+
+async function claim(address: string, keypairPath: string) {
   const statePath = process.env.FAUCET_STATE_PATH ?? "/tmp/veritas-faucet.json";
   const state = loadState(statePath);
   const now = Date.now();
@@ -84,9 +97,10 @@ export async function POST(req: Request) {
       } else {
         await transfer(connection, payer, source.address, dest.address, payer.publicKey, amount);
       }
-      state[address] = now;
+      const updated = loadState(statePath);
+      updated[address] = Date.now();
       try {
-        writeFileSync(statePath, JSON.stringify(state));
+        writeFileSync(statePath, JSON.stringify(updated));
       } catch {
         // state persistence is best-effort; the transfer already happened
       }

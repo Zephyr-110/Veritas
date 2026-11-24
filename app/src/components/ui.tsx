@@ -847,6 +847,7 @@ export function HeaderFaucet() {
         bump();
       } else {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (data.error) console.warn("Faucet", data.error);
         setState(data.error === "cooldown" ? "cooldown" : "unavailable");
       }
     } catch {
@@ -1253,9 +1254,9 @@ export function Header() {
   const { mode } = useGuestSession();
 
   useEffect(() => {
-    if (!window.location.hash) {
-      window.scrollTo(0, 0);
-    }
+    if (window.location.hash) return;
+    const frame = requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "instant" }));
+    return () => cancelAnimationFrame(frame);
   }, [pathname]);
 
   useEffect(() => {

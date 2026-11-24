@@ -13,7 +13,7 @@ import {
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { parseTxError } from "@/lib/errors";
+import { parseTxError, isSubmissionRejection } from "@/lib/errors";
 import { explorerTx } from "@/lib/format";
 import { parsePubkey } from "@/lib/program";
 import { sendSandboxIxs, type SandboxTxStage } from "@/lib/sandbox-send";
@@ -34,6 +34,7 @@ export type SandboxBalance = {
 type StoredSandbox = {
   keypair: Keypair;
   active: boolean;
+  balance: SandboxBalance | null;
 };
 
 type GuestSessionCtx = {
@@ -60,13 +61,46 @@ type GuestSessionCtx = {
   resetSandbox: () => Promise<boolean>;
   runSandbox: (
     label: string,
-    build: () => Promise<TransactionInstruction[]>
+    build: () => Promise<TransactionInstruction[]>,
+    submissionErrorsOnly?: boolean
   ) => Promise<string | null>;
   beginTx: () => boolean;
   endTx: () => void;
 };
 
 const GuestSessionContext = createContext<GuestSessionCtx | null>(null);
+
+function parseStoredBalance(raw: unknown): SandboxBalance | null {
+  if (!raw || typeof raw !== "object") return null;
+  const candidate = raw as {
+    solLamports?: unknown;
+    usdtAtoms?: unknown;
+    usdtDecimals?: unknown;
+  };
+  if (
+    typeof candidate.solLamports !== "number" ||
+    !Number.isFinite(candidate.solLamports) ||
+    candidate.solLamports < 0
+  ) {
+    return null;
+  }
+  if (
+    typeof candidate.usdtAtoms !== "string" &&
+    typeof candidate.usdtAtoms !== "number"
+  ) {
+    return null;
+  }
+  try {
+    return {
+      solLamports: candidate.solLamports,
+      usdtAtoms: BigInt(candidate.usdtAtoms),
+      usdtDecimals:
+        typeof candidate.usdtDecimals === "number" ? candidate.usdtDecimals : 6,
+    };
+  } catch {
+    return null;
+  }
+}
 
 function readStoredSandbox():
   | { status: "ok"; data: StoredSandbox | null }
@@ -85,6 +119,7 @@ function readStoredSandbox():
     const parsed = JSON.parse(raw) as {
       secretKey?: unknown;
       active?: unknown;
+      balance?: unknown;
     };
     if (!Array.isArray(parsed?.secretKey) || parsed.secretKey.length !== 64) {
       return { status: "ok", data: null };
@@ -95,6 +130,7 @@ function readStoredSandbox():
       data: {
         keypair: kp,
         active: Boolean(parsed.active),
+        balance: parseStoredBalance(parsed.balance),
       },
     };
   } catch {
@@ -104,7 +140,8 @@ function readStoredSandbox():
 
 function writeStoredSandbox(
   kp: Keypair,
-  active: boolean
+  active: boolean,
+  balance?: SandboxBalance | null
 ): boolean {
   if (typeof window === "undefined") return false;
   try {
@@ -115,6 +152,15 @@ function writeStoredSandbox(
       JSON.stringify({
         secretKey: Array.from(kp.secretKey),
         active,
+        ...(balance
+          ? {
+              balance: {
+                solLamports: balance.solLamports,
+                usdtAtoms: balance.usdtAtoms.toString(),
+                usdtDecimals: balance.usdtDecimals,
+              },
+            }
+          : {}),
       })
     );
     return true;
@@ -152,9 +198,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const t = useT();
 
-  const describeFaucetError = useCallback((code?: string) =>
-    code && code !== "errors.sandboxFaucetFailed" ? t(faucetErrorKey(code)) + " (" + code + ")" :
-      t("errors.sandboxFaucetFailed"), [t]);
+  const describeFaucetError = useCallback((code?: string) => t(faucetErrorKey(code)), [t]);
 
   const [hydrated, setHydrated] = useState(false);
   const [keypair, setKeypair] = useState<Keypair | null>(null);
@@ -185,9 +229,11 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
     setRefillNotice(null);
   }, []);
 
+  const cachedBalanceRef = useRef<SandboxBalance | null>(null);
   const persist = useCallback(
-    (kp: Keypair, isActive: boolean) => {
-      const ok = writeStoredSandbox(kp, isActive);
+    (kp: Keypair, isActive: boolean, balance = cachedBalanceRef.current) => {
+      cachedBalanceRef.current = balance;
+      const ok = writeStoredSandbox(kp, isActive, balance);
       setStorageAvailable(ok);
     },
     []
@@ -198,6 +244,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
     if (res.status === "unavailable") {
       setStorageAvailable(false);
     } else if (res.data) {
+      cachedBalanceRef.current = res.data.balance;
       commitKeypair(res.data.keypair);
       commitActive(res.data.active);
     }
@@ -296,9 +343,17 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
       const usdtAtoms = unpackAmount(ata, ataInfo, meta.tokenProgram);
       return { solLamports, usdtAtoms, usdtDecimals: meta.decimals };
     },
+    initialData: isSandbox ? cachedBalanceRef.current ?? undefined : undefined,
+    initialDataUpdatedAt: 0,
     enabled: Boolean(isSandbox && keypair && mintValid),
     refetchInterval: isSandbox ? 15_000 : false,
   });
+
+  useEffect(() => {
+    if (isSandbox && keypair && balanceQuery.data && balanceQuery.data !== cachedBalanceRef.current) {
+      persist(keypair, activeRef.current, balanceQuery.data);
+    }
+  }, [balanceQuery.data, isSandbox, keypair, persist]);
 
   const prevNonceRef = useRef(nonce);
   useEffect(() => {
@@ -347,6 +402,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
         usdtDecimals?: number;
         error?: string;
       };
+      if (data.error) console.warn("Sandbox faucet", data.error);
       return { ok: res.ok && data.ok === true, data };
     },
     []
@@ -376,10 +432,10 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
     try {
       const { ok, data } = await requestSandboxFaucet(addr);
       if (ok) {
-        seedBalanceFromFaucet(addr, data);
+        const balance = seedBalanceFromFaucet(addr, data);
         setErrorKey(null);
         commitActive(true);
-        persist(kp, true);
+        persist(kp, true, balance ?? cachedBalanceRef.current);
         const link = data.signature ? explorerTx(data.signature, settings.cluster) : null;
         update(toastId, {
           kind: "ok",
@@ -398,7 +454,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
         queryClient.setQueryData<SandboxBalance>(balanceKeyFor(addr), existing);
         setErrorKey(data.error || "errors.sandboxFaucetFailed");
         commitActive(true);
-        persist(kp, true);
+        persist(kp, true, existing);
         update(toastId, {
           kind: "err",
           title: t("sandbox.readyReused"),
@@ -427,7 +483,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
         queryClient.setQueryData<SandboxBalance>(balanceKeyFor(addr), existing);
         setErrorKey("errors.sandboxFaucetFailed");
         commitActive(true);
-        persist(kp, true);
+        persist(kp, true, existing);
         update(toastId, {
           kind: "err",
           title: t("sandbox.readyReused"),
@@ -499,7 +555,8 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
     try {
       const { ok, data } = await requestSandboxFaucet(addr);
       if (ok) {
-        seedBalanceFromFaucet(addr, data);
+        const balance = seedBalanceFromFaucet(addr, data);
+        if (balance) persist(kp, true, balance);
         setErrorKey(null);
         const link = data.signature ? explorerTx(data.signature, settings.cluster) : null;
         const notice = data.skipped || !data.signature ? "sandbox.alreadyFundedTitle" : "sandbox.refillOkTitle";
@@ -540,7 +597,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
       enteringRef.current = false;
       setEntering(false);
     }
-  }, [bump, describeFaucetError, isRealConnected, push, requestSandboxFaucet, seedBalanceFromFaucet, settings.cluster, t, update]);
+  }, [bump, describeFaucetError, isRealConnected, persist, push, requestSandboxFaucet, seedBalanceFromFaucet, settings.cluster, t, update]);
 
   const exitSandbox = useCallback(() => {
     if (enteringRef.current || txPendingRef.current) return;
@@ -572,11 +629,11 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
     try {
       const { ok, data } = await requestSandboxFaucet(nextAddr);
       if (ok) {
-        seedBalanceFromFaucet(nextAddr, data);
+        const balance = seedBalanceFromFaucet(nextAddr, data);
         setErrorKey(null);
         commitKeypair(nextKp);
         commitActive(true);
-        persist(nextKp, true);
+        persist(nextKp, true, balance);
         const link = data.signature ? explorerTx(data.signature, settings.cluster) : null;
         update(toastId, {
           kind: "ok",
@@ -645,11 +702,12 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
   const runSandbox = useCallback(
     async (
       label: string,
-      build: () => Promise<TransactionInstruction[]>
+      build: () => Promise<TransactionInstruction[]>,
+      submissionErrorsOnly = false
     ): Promise<string | null> => {
       const kp = keypairRef.current;
       if (isRealConnected || !activeRef.current || !kp) {
-        push("err", t("tx.failed", { label }), "errors.connectWallet");
+        push(submissionErrorsOnly ? "info" : "err", label, "errors.connectWallet");
         return null;
       }
       if (!beginTx()) return null;
@@ -702,9 +760,10 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
         bump();
         return sig;
       } catch (err) {
+        const rejected = !submissionErrorsOnly || isSubmissionRejection(err);
         update(toastId, {
-          kind: "err",
-          title: t("tx.failed", { label }),
+          kind: rejected ? "err" : "info",
+          title: rejected ? t("tx.failed", { label }) : label,
           detail: parseTxError(err),
           href: undefined,
           sticky: false,
@@ -719,7 +778,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
   );
 
   const lastError = errorKey ? describeFaucetError(errorKey) : null;
-  const resolvedBalance = isSandbox && !balanceQuery.isError ? balanceQuery.data ?? null : null;
+  const resolvedBalance = isSandbox ? balanceQuery.data ?? cachedBalanceRef.current : null;
 
   const value = useMemo<GuestSessionCtx>(
     () => ({

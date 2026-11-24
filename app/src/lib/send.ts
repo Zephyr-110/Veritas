@@ -1,3 +1,4 @@
+import { ConfirmedTransactionError } from "./errors";
 import {
   Connection,
   PublicKey,
@@ -53,7 +54,7 @@ export async function sendIxs(
     },
     "confirmed"
   );
-  if (res.value.err) throw new Error("errors.txFailed");
+  if (res.value.err) throw new ConfirmedTransactionError();
   return sig;
 }
 

@@ -63,9 +63,12 @@ export async function getMultiple(
   keys: PublicKey[]
 ): Promise<(AccountInfo<Buffer> | null)[]> {
   const out: (AccountInfo<Buffer> | null)[] = [];
-  for (let i = 0; i < keys.length; i += 100) {
-    const chunk = await connection.getMultipleAccountsInfo(keys.slice(i, i + 100), "confirmed");
-    out.push(...chunk);
+  for (let start = 0; start < keys.length; start += 300) {
+    const requests = [];
+    for (let i = start; i < Math.min(start + 300, keys.length); i += 100) {
+      requests.push(connection.getMultipleAccountsInfo(keys.slice(i, i + 100), "confirmed"));
+    }
+    for (const chunk of await Promise.all(requests)) out.push(...chunk);
   }
   return out;
 }

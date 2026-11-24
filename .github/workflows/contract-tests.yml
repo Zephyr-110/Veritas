@@ -1,6 +1,7 @@
 name: Contract Tests
 
 on:
+  workflow_dispatch:
   push:
     paths:
       - "programs/**"

@@ -149,6 +149,7 @@
     "next": "Upcoming",
     "ended": "Ended",
     "hot": "Live tape",
+    "loadMore": "Load more",
     "history": "History",
     "colMarket": "Market",
     "colYes": "YES price",
@@ -438,6 +439,7 @@
     "burnSubmit": "Close & sweep",
     "sandboxMergeCta": "Connect real wallet to merge {amount}",
     "sandboxPollingTitle": "Awaiting on-chain settlement",
+    "reportPending": "Waiting for the first verified report after expiry.",
     "sandboxPollingBody": "Market expired — polling on-chain settlement every 4s. The Redeem button will light up right here automatically.",
     "sandboxManualResolve": "Submit settlement now"
   },

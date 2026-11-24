@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { ExternalLink } from "lucide-react";
-import { useMarkets } from "@/hooks/use-markets";
+import { useMarketPhaseTime, useMarkets } from "@/hooks/use-markets";
 import { useProgram } from "@/hooks/use-program";
 import { fetchPositionsBatch, isFinalizedStatus, isVoidedStatus, pendingValueOf, type MarketView, type UserPosition } from "@/lib/markets";
 import { fetchRedemptions } from "@/lib/history";
@@ -15,7 +15,7 @@ import { useSettings } from "@/components/providers";
 import { useGuestSession } from "@/components/guest-session";
 import { useQuery } from "@tanstack/react-query";
 import { Button, CopyText, DataFreshness, Reveal, StableText, StateBlock, WalletButton, onSpot, openFaucetMenu, openWalletModal } from "@/components/ui";
-import { useNow } from "@/hooks/use-now";
+import { TickingCountdown } from "@/components/live";
 import { MeSkeleton } from "@/components/skeletons";
 import { useT } from "@/i18n/provider";
 import { COLLATERAL_SYMBOL } from "@/lib/constants";
@@ -83,7 +83,7 @@ export default function MePage() {
   const program = useProgram();
   const { markets, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarkets();
   const { settings } = useSettings();
-  const now = useNow(1000);
+  const now = useMarketPhaseTime(markets);
   const t = useT();
   const [guideOpen, setGuideOpen] = useState(false);
   const programId = program?.programId.toBase58() ?? "";
@@ -348,7 +348,7 @@ export default function MePage() {
                       <div className="min-w-[13rem] flex-1">
                         <div className="truncate text-sm font-medium text-white">{questionTitle(market)}</div>
                         <div className="mt-1 text-xs text-zinc-500">
-                          {kindLabel(kind, market)} · {timeCopy(market, now)}
+                          {kindLabel(kind, market)} · {kind === "live" ? <TickingCountdown expiry={market.expiry} /> : timeCopy(market, now)}
                         </div>
                       </div>
                       <Stat labelKey="me.yes" value={formatFixed(position.yes, market.decimals, 2)} />

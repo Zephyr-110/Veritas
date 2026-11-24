@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { useMarkets } from "@/hooks/use-markets";
-import { useNow } from "@/hooks/use-now";
+import { useMarkets, useMarketPhaseTime, useVisibleVaults } from "@/hooks/use-markets";
 import { listSection, marketKind, questionTitle } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
 import { DemoVideo } from "@/components/demo-video";
@@ -13,7 +12,7 @@ import { MarketTable } from "@/components/market-table";
 import { MarketCard } from "@/components/market-card";
 import { MarketTableSkeleton } from "@/components/skeletons";
 import { Button, DataFreshness, Reveal, StableText, onSpot } from "@/components/ui";
-import { LiveCountdown } from "@/components/live";
+import { TickingCountdown } from "@/components/live";
 import { useGuestSession } from "@/components/guest-session";
 import { useLocale, useT } from "@/i18n/provider";
 import { tPair } from "@/i18n/store";
@@ -30,7 +29,7 @@ export default function HomePage() {
     enterSandbox,
   } = useGuestSession();
   const { markets, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarkets();
-  const now = useNow(1000);
+  const now = useMarketPhaseTime(markets);
   const t = useT();
   const locale = useLocale();
   const mountedNow = now > 0;
@@ -57,6 +56,8 @@ export default function HomePage() {
         : [],
     [markets, mountedNow, now]
   );
+  const preview = finished.slice(0, 6);
+  const vaultFor = useVisibleVaults(preview);
   const merged = !loading && !error && live.length === 0;
 
   const feesLead = tPair("home.howFeesLead", undefined, locale);
@@ -305,7 +306,7 @@ export default function HomePage() {
                         {questionTitle(nextMarket)}
                       </Link>
                       {mountedNow ? (
-                        <LiveCountdown expiry={nextMarket.expiry} now={now} className="text-[18px] text-white" />
+                        <TickingCountdown expiry={nextMarket.expiry} className="text-[18px] text-white" />
                       ) : null}
                     </div>
                     <p className="mt-3 text-[13px] text-zinc-500">
@@ -334,7 +335,7 @@ export default function HomePage() {
               </Link>
               <div className="mt-2">
                 {mountedNow ? (
-                  <LiveCountdown expiry={nextMarket.expiry} now={now} className="text-[22px] text-white" />
+                  <TickingCountdown expiry={nextMarket.expiry} className="text-[22px] text-white" />
                 ) : (
                   <span className="num font-mono tabular-nums text-[22px] text-white">--:--:--</span>
                 )}
@@ -358,9 +359,9 @@ export default function HomePage() {
             ) : finished.length ? (
               <div className="fade-in">
                 <div className="home-fin-strip">
-                  {finished.slice(0, 6).map((market) => (
+                  {preview.map((market) => (
                     <div key={market.address.toBase58()} className="home-fin-item">
-                      <MarketCard market={market} />
+                      <MarketCard market={market} vault={vaultFor(market) ?? null} />
                     </div>
                   ))}
                 </div>

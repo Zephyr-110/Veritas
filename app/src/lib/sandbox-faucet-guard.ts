@@ -7,6 +7,7 @@ type AddressLock = {
 };
 
 type SandboxFaucetGuardState = {
+  nextCleanup: number;
   ipClaims: Map<string, number[]>;
   dailySol: { dayKey: string; lamports: number };
   addressLocks: Map<string, AddressLock>;
@@ -22,6 +23,7 @@ function utcDayKey(now: number): string {
 
 function createInitialState(now = Date.now()): SandboxFaucetGuardState {
   return {
+    nextCleanup: 0,
     ipClaims: new Map<string, number[]>(),
     dailySol: { dayKey: utcDayKey(now), lamports: 0 },
     addressLocks: new Map<string, AddressLock>(),
@@ -33,6 +35,13 @@ function getStore(now = Date.now()): SandboxFaucetGuardState {
     globalScope.__veritasSandboxFaucetGuard = createInitialState(now);
   }
   const store = globalScope.__veritasSandboxFaucetGuard;
+  if (!store.nextCleanup || now >= store.nextCleanup) {
+    store.nextCleanup = now + 60_000;
+    for (const ip of store.ipClaims.keys()) pruneIpHistory(store, ip, now);
+    for (const [key, lock] of store.addressLocks) {
+      if (!lock.inFlight && lock.lockedUntil <= now) store.addressLocks.delete(key);
+    }
+  }
   const today = utcDayKey(now);
   if (store.dailySol.dayKey !== today) {
     store.dailySol = { dayKey: today, lamports: 0 };
@@ -41,13 +50,13 @@ function getStore(now = Date.now()): SandboxFaucetGuardState {
 }
 
 export function extractClientIp(req: Request): string {
+  const xri = req.headers.get("x-real-ip")?.trim();
+  if (xri) return xri;
   const xff = req.headers.get("x-forwarded-for");
   if (xff) {
     const first = xff.split(",")[0]?.trim();
     if (first) return first;
   }
-  const xri = req.headers.get("x-real-ip")?.trim();
-  if (xri) return xri;
   return "unknown";
 }
 

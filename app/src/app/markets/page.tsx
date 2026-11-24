@@ -2,15 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useMarkets } from "@/hooks/use-markets";
-import { useNow } from "@/hooks/use-now";
+import { useMarkets, useMarketPhaseTime } from "@/hooks/use-markets";
 import { listSection, marketKind, questionTitle } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
 import { MarketTable } from "@/components/market-table";
 import { MarketsSkeleton } from "@/components/skeletons";
 import { SimOrderPreview } from "@/components/sim-preview";
 import { Button, DataFreshness, Reveal, StableText, StateBlock, onSpot } from "@/components/ui";
-import { LiveCountdown } from "@/components/live";
+import { TickingCountdown } from "@/components/live";
 import { useEffectivePublicKey } from "@/components/guest-session";
 import { useT } from "@/i18n/provider";
 import type { MarketView } from "@/lib/markets";
@@ -20,9 +19,10 @@ type Tape = "hot" | "history";
 export default function MarketsPage() {
   const publicKey = useEffectivePublicKey();
   const { markets, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarkets();
-  const now = useNow(1000);
+  const now = useMarketPhaseTime(markets);
   const t = useT();
   const [tape, setTape] = useState<Tape>("hot");
+  const [historyLimit, setHistoryLimit] = useState(30);
   const showSim = !publicKey && !loading && markets.filter((m) => listSection(marketKind(m, now)) === "live").length === 0;
 
   useEffect(() => {
@@ -137,33 +137,40 @@ export default function MarketsPage() {
             ))}
           </div>
         </div>
-        {sections.map((section) => (
-          <Reveal key={section.key}>
-            <section className="stack-3">
-              <h2 className="section-title">
-                <StableText k={section.titleKey} />
-              </h2>
-              {section.rows.length ? (
-                <MarketTable markets={section.rows} />
-              ) : (
-                <StateBlock
-                  kind="empty"
-                  title={<StableText k={section.emptyTitleKey} />}
-                  body={<StableText k={section.emptyBodyKey} block />}
-                  action={
-                    section.key === "next" && groups.live.length === 0 ? undefined : (
-                      <Link href="/create">
-                        <Button type="button" tone={section.key === "live" ? "primary" : "secondary"}>
-                          <StableText k="markets.emptyCta" align="center" />
-                        </Button>
-                      </Link>
-                    )
-                  }
-                />
-              )}
-            </section>
-          </Reveal>
-        ))}
+        <Reveal>
+          <div className="stack-5">
+            {sections.map((section) => (
+              <section key={section.key} className="stack-3">
+                <h2 className="section-title">
+                  <StableText k={section.titleKey} />
+                </h2>
+                {section.rows.length ? (
+                  <MarketTable markets={section.key === "ended" ? section.rows.slice(0, historyLimit) : section.rows} />
+                ) : (
+                  <StateBlock
+                    kind="empty"
+                    title={<StableText k={section.emptyTitleKey} />}
+                    body={<StableText k={section.emptyBodyKey} block />}
+                    action={
+                      section.key === "next" && groups.live.length === 0 ? undefined : (
+                        <Link href="/create">
+                          <Button type="button" tone={section.key === "live" ? "primary" : "secondary"}>
+                            <StableText k="markets.emptyCta" align="center" />
+                          </Button>
+                        </Link>
+                      )
+                    }
+                  />
+                )}
+                {section.key === "ended" && section.rows.length > historyLimit && (
+                  <Button type="button" tone="secondary" onClick={() => setHistoryLimit((n) => n + 30)}>
+                    <StableText k="markets.loadMore" />
+                  </Button>
+                )}
+              </section>
+            ))}
+          </div>
+        </Reveal>
         {!publicKey && groups.live.length === 0 ? (
           <Reveal>
             <SimOrderPreview />
@@ -180,14 +187,14 @@ export default function MarketsPage() {
               <>
                 <div className="line-clamp-2 leading-snug text-sm text-white">{questionTitle(nextMarket)}</div>
                 <div className="text-right">
-                  <LiveCountdown expiry={nextMarket.expiry} now={now} className="text-[28px] num-accent" />
+                  <TickingCountdown expiry={nextMarket.expiry} className="text-[28px] num-accent" />
                 </div>
               </>
             ) : currentLive ? (
               <>
                 <div className="line-clamp-2 leading-snug text-sm text-white">{questionTitle(currentLive)}</div>
                 <div className="text-right">
-                  <LiveCountdown expiry={currentLive.expiry} now={now} className="text-[28px] num-accent" />
+                  <TickingCountdown expiry={currentLive.expiry} className="text-[28px] num-accent" />
                 </div>
               </>
             ) : (

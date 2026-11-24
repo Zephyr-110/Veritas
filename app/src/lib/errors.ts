@@ -1,4 +1,15 @@
+import { SendTransactionError } from "@solana/web3.js";
 import { hasKey, t } from "@/i18n/store";
+
+export class ConfirmedTransactionError extends Error {
+  constructor() {
+    super("errors.txFailed");
+  }
+}
+
+export function isSubmissionRejection(err: unknown) {
+  return err instanceof ConfirmedTransactionError || err instanceof SendTransactionError;
+}
 
 const ERRORS: Record<number, string> = {
   6000: "errors.notOpen",

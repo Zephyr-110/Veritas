@@ -1,4 +1,5 @@
 import { Program, utils } from "@coral-xyz/anchor";
+import { unpackAccount } from "@solana/spl-token";
 import { Buffer } from "buffer";
 import { Connection, PublicKey } from "@solana/web3.js";
 import type { PredictionMarket } from "@/idl/prediction_market";
@@ -13,6 +14,7 @@ import {
 } from "./codec";
 import {
   CLAIM_WINDOW,
+  LP_POSITION_DISCRIMINATOR,
   MARKET_ACCOUNT_SIZE,
   MARKET_DISCRIMINATOR,
   RESOLVE_WINDOW,
@@ -213,7 +215,9 @@ export async function fetchMarkets(
   }
   if (!decoded.length) return [];
 
-  const pdas = decoded.map((row) => findMarketPdas(program.programId, row.account.id));
+  const open = decoded.filter(({ account }) => account.status === "open");
+  const pdas = open.map(({ account }) => findMarketPdas(program.programId, account.id));
+  const openIndex = new Map(open.map((row, i) => [row, i]));
   const mintKeys = Array.from(
     new Set(decoded.map((row) => row.account.collateralMint.toBase58()))
   ).map((s) => new PublicKey(s));
@@ -229,15 +233,16 @@ export async function fetchMarkets(
   });
 
   return decoded
-    .map((row, i) => {
-      const pda = pdas[i];
-      const base = i * 3;
+    .map((row) => {
+      const index = openIndex.get(row);
+      const pda = index === undefined ? undefined : pdas[index];
+      const base = (index ?? 0) * 3;
       const collateralInfo = mintInfo.get(row.account.collateralMint.toBase58()) ?? null;
       const tokenProgram = collateralInfo ? tokenProgramOf(collateralInfo.owner) : TOKENKNG;
       return buildView(program.programId, row.address, row.account, {
-        yesPool: unpackAmount(pda.yesPool, infos[base], tokenProgram),
-        noPool: unpackAmount(pda.noPool, infos[base + 1], tokenProgram),
-        vault: unpackAmount(pda.collateralVault, infos[base + 2], tokenProgram),
+        yesPool: pda ? unpackAmount(pda.yesPool, infos[base], tokenProgram) : 0n,
+        noPool: pda ? unpackAmount(pda.noPool, infos[base + 1], tokenProgram) : 0n,
+        vault: pda ? unpackAmount(pda.collateralVault, infos[base + 2], tokenProgram) : 0n,
         decimals: unpackDecimals(row.account.collateralMint, collateralInfo, tokenProgram),
         tokenProgram,
       });
@@ -281,16 +286,10 @@ export async function fetchMarketSnapshot(
   }
 }
 
-function buildUserPosition(
-  market: MarketView,
-  keys: PublicKey[],
-  infos: Array<Awaited<ReturnType<Connection["getAccountInfo"]>>>
-): UserPosition {
-  const { tokenProgram } = market;
+function lpBalances(market: MarketView, lpInfo?: Awaited<ReturnType<Connection["getAccountInfo"]>>) {
   let lpShares = 0n;
   let pendingYes = 0n;
   let pendingNo = 0n;
-  const lpInfo = infos[3];
   if (lpInfo) {
     try {
       const pos = decodeLpPosition(Buffer.from(lpInfo.data));
@@ -308,14 +307,7 @@ function buildUserPosition(
       lpShares = 0n;
     }
   }
-  return {
-    collateral: unpackAmount(keys[0], infos[0], tokenProgram),
-    yes: unpackAmount(keys[1], infos[1], tokenProgram),
-    no: unpackAmount(keys[2], infos[2], tokenProgram),
-    lpShares,
-    pendingYes,
-    pendingNo,
-  };
+  return { lpShares, pendingYes, pendingNo };
 }
 
 export async function fetchPosition(
@@ -333,7 +325,12 @@ export async function fetchPosition(
     lpPda,
   ];
   const infos = await getMultiple(connection, keys);
-  return buildUserPosition(market, keys, infos);
+  return {
+    collateral: unpackAmount(keys[0], infos[0], tokenProgram),
+    yes: unpackAmount(keys[1], infos[1], tokenProgram),
+    no: unpackAmount(keys[2], infos[2], tokenProgram),
+    ...lpBalances(market, infos[3]),
+  };
 }
 
 export async function fetchPositionsBatch(
@@ -343,23 +340,38 @@ export async function fetchPositionsBatch(
   owner: PublicKey
 ): Promise<Array<{ market: MarketView; position: UserPosition }>> {
   if (!markets.length) return [];
-  const keys: PublicKey[] = [];
-  for (const market of markets) {
-    const { tokenProgram, pdas, collateralMint } = market;
-    const [lpPda] = findLpPosition(programId, market.address, owner);
-    keys.push(
-      ataOf(collateralMint, owner, tokenProgram),
-      ataOf(pdas.yesMint, owner, tokenProgram),
-      ataOf(pdas.noMint, owner, tokenProgram),
-      lpPda
-    );
+  const programs = new Set(markets.map((market) => market.tokenProgram.toBase58()));
+  const [tokenGroups, lpRows] = await Promise.all([
+    Promise.all([...programs].map((id) =>
+      connection.getTokenAccountsByOwner(owner, { programId: new PublicKey(id) }, "confirmed")
+    )),
+    connection.getProgramAccounts(programId, {
+      commitment: "confirmed",
+      filters: [
+        { memcmp: { offset: 0, bytes: utils.bytes.bs58.encode(Buffer.from(LP_POSITION_DISCRIMINATOR)) } },
+        { memcmp: { offset: 8, bytes: owner.toBase58() } },
+      ],
+    }),
+  ]);
+  const balances = new Map<string, bigint>();
+  for (const group of tokenGroups) {
+    for (const { pubkey, account } of group.value) {
+      const token = unpackAccount(pubkey, account, account.owner);
+      const mint = token.mint.toBase58();
+      balances.set(mint, (balances.get(mint) ?? 0n) + token.amount);
+    }
   }
-  const infos = await getMultiple(connection, keys);
-  return markets.map((market, i) => {
-    const base = i * 4;
-    return {
-      market,
-      position: buildUserPosition(market, keys.slice(base, base + 4), infos.slice(base, base + 4)),
-    };
+  const lpByAddress = new Map(lpRows.map((row) => [row.pubkey.toBase58(), row.account]));
+  return markets.flatMap((market) => {
+    const yes = balances.get(market.yesMint.toBase58()) ?? 0n;
+    const no = balances.get(market.noMint.toBase58()) ?? 0n;
+    const lpInfo = lpByAddress.size
+      ? lpByAddress.get(findLpPosition(programId, market.address, owner)[0].toBase58())
+      : undefined;
+    if (!yes && !no && !lpInfo) return [];
+    return [{ market, position: {
+      collateral: balances.get(market.collateralMint.toBase58()) ?? 0n,
+      yes, no, ...lpBalances(market, lpInfo),
+    } }];
   });
 }

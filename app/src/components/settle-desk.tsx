@@ -26,8 +26,8 @@ import {
   type MarketView,
   type UserPosition,
 } from "@/lib/markets";
-import { parseTxError } from "@/lib/errors";
-import { findStraddlingReports, resolveMarketWithChainlink } from "@/lib/resolve";
+import { parseTxError, isSubmissionRejection } from "@/lib/errors";
+import { type StraddlingReports, findStraddlingReports, resolveMarketWithChainlink } from "@/lib/resolve";
 import { useProgram } from "@/hooks/use-program";
 import { useNow } from "@/hooks/use-now";
 import { useRefresh, useSettings, useToasts } from "./providers";
@@ -144,7 +144,7 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
               <StableText k="settle.sandboxPollingBody" block />
             </p>
             <div className="cluster-2">
-              <SandboxResolveButton market={market} disabled={phase.afterWindow} />
+              <ResolveButton market={market} disabled={phase.afterWindow} />
             </div>
             {phase.afterWindow ? (
               <p className="text-xs leading-5 text-[var(--warn)]">
@@ -278,79 +278,82 @@ function SnapshotCard({ market, now }: { market: MarketView; now: number }) {
   );
 }
 
-function ResolveButton({ market, disabled = false }: { market: MarketView; disabled?: boolean }) {
+function ResolveButton({ market, disabled }: { market: MarketView; disabled: boolean }) {
   const program = useProgram();
   const { connection } = useConnection();
   const wallet = useAnchorWallet();
+  const { effectivePublicKey, isSandbox, locked } = useGuestSession();
+  const { busy: sandboxBusy, runSandbox } = useSandboxTx();
   const { push } = useToasts();
   const { bump } = useRefresh();
   const { settings } = useSettings();
   const t = useT();
   const [busy, setBusy] = useState(false);
+  const [ready, setReady] = useState<{ key: string; reports: StraddlingReports } | null>(null);
+  const { endTs, ocr2State, pdas: { snapshot } } = market;
+  const key = [connection.rpcEndpoint, market.address, endTs, ocr2State, snapshot].join("/");
+  const reports = ready?.key === key ? ready.reports : null;
+
+  useEffect(() => {
+    if (disabled || reports) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    async function check() {
+      try {
+        const snap = await fetchMarketSnapshot(connection, snapshot);
+        if (!active) return;
+        const pair = await findStraddlingReports(connection, ocr2State, endTs, snap);
+        if (active) setReady({ key, reports: pair });
+      } catch {
+        if (active) timer = setTimeout(check, 4000);
+      }
+    }
+    void check();
+    return () => { active = false; clearTimeout(timer); };
+  }, [connection, disabled, endTs, key, ocr2State, reports, snapshot]);
 
   const onClick = async () => {
-    if (!program || !wallet) return;
+    if (!program || !reports || disabled) return;
+    const label = t("tx.submitResolve");
+    if (isSandbox && effectivePublicKey) {
+      await runSandbox(label, () => ixResolveMarket(program, market, effectivePublicKey, {
+        rawPre: reports.pre.raw,
+        rawPost: reports.post.raw,
+        hasSnapshot: reports.hasSnapshot,
+      }), true);
+      return;
+    }
+    if (!wallet) return;
     setBusy(true);
     try {
-      const sig = await resolveMarketWithChainlink(connection, wallet, program, market);
+      const sig = await resolveMarketWithChainlink(connection, wallet, program, market, reports);
       const link = sig ? explorerTx(sig, settings.cluster) : null;
-      push("ok", t("tx.submitResolve"), link ? t("tx.view") : t("tx.confirmed"), link ?? undefined);
+      push("ok", label, link ? t("tx.view") : t("tx.confirmed"), link ?? undefined);
       bump();
     } catch (err) {
-      push("err", t("tx.failed", { label: t("tx.submitResolve") }), parseTxError(err));
+      const rejected = isSubmissionRejection(err);
+      push(rejected ? "err" : "info", rejected ? t("tx.failed", { label }) : label, parseTxError(err));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Button
-      type="button"
-      busy={busy}
-      disabled={busy || disabled || !wallet || !program}
-      onClick={() => void onClick()}
-    >
-      <StableText k="settle.submitResolve" align="center" />
-    </Button>
-  );
-}
-
-function SandboxResolveButton({
-  market,
-  disabled = false,
-}: {
-  market: MarketView;
-  disabled?: boolean;
-}) {
-  const program = useProgram();
-  const { connection } = useConnection();
-  const { effectivePublicKey, isSandbox, locked } = useGuestSession();
-  const { busy: sandboxBusy, runSandbox } = useSandboxTx();
-  const t = useT();
-
-  const onClick = () => {
-    if (!program || !isSandbox || !effectivePublicKey) return;
-    void runSandbox(t("tx.submitResolve"), async () => {
-      const snapshot = await fetchMarketSnapshot(connection, market.pdas.snapshot);
-      const found = await findStraddlingReports(connection, market.ocr2State, market.endTs, snapshot);
-      return ixResolveMarket(program, market, effectivePublicKey, {
-        rawPre: found.pre.raw,
-        rawPost: found.post.raw,
-        hasSnapshot: found.hasSnapshot,
-      });
-    });
-  };
-
-  return (
-    <Button
-      type="button"
-      tone="secondary"
-      busy={sandboxBusy}
-      disabled={sandboxBusy || locked || disabled || !isSandbox || !effectivePublicKey || !program}
-      onClick={onClick}
-    >
-      <StableText k="settle.sandboxManualResolve" align="center" />
-    </Button>
+    <div className="stack-1">
+      <Button
+        type="button"
+        tone={isSandbox ? "secondary" : "primary"}
+        busy={busy || sandboxBusy}
+        disabled={busy || sandboxBusy || disabled || !reports || !program ||
+          (isSandbox ? locked || !effectivePublicKey : !wallet)}
+        onClick={() => void onClick()}
+      >
+        <StableText k={isSandbox ? "settle.sandboxManualResolve" : "settle.submitResolve"} align="center" />
+      </Button>
+      {!reports && !disabled && (
+        <p role="status" className="text-xs text-zinc-400"><StableText k="settle.reportPending" /></p>
+      )}
+    </div>
   );
 }
 

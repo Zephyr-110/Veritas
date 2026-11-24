@@ -22,6 +22,7 @@ import {
   fetchMarket,
   fetchMarketSnapshot,
   fetchPosition,
+  fetchPositionsBatch,
 } from "@/lib/markets";
 import {
   CLAIM_WINDOW,
@@ -338,6 +339,7 @@ describe("markets RPC 聚合", () => {
       reserveYes: 30n,
       reserveNo: 70n,
     });
+    rawOld.writeUInt8(1, 129); // Resolved market: its vault is loaded when the row is visible.
     const rawNew = encodeMarketAccount({
       id: idNew,
       expiry: 1_900_000_000n,
@@ -369,6 +371,9 @@ describe("markets RPC 聚合", () => {
     } as unknown as Connection;
 
     const list = await fetchMarkets(conn, program);
+    expect(conn.getMultipleAccountsInfo).toHaveBeenCalledWith(
+      [pdaNew.yesPool, pdaNew.noPool, pdaNew.collateralVault, COLLATERAL_MINT], "confirmed"
+    );
     expect(list).toHaveLength(2);
     expect(list[0].expiry).toBe(1_900_000_000);
     expect(list[1].expiry).toBe(1_800_000_000);
@@ -505,6 +510,22 @@ describe("markets RPC 聚合", () => {
       pendingYes: 9n,
       pendingNo: 6n,
     });
+
+    const ownerMarket = { ...market, yesMint: pdas.yesMint, noMint: pdas.noMint };
+    const getTokenAccountsByOwner = vi.fn().mockResolvedValue({ value: [] });
+    const ownerConn = {
+      getTokenAccountsByOwner,
+      getProgramAccounts: vi.fn().mockResolvedValue([{ pubkey: lpPda, account: byKey.get(lpPda.toBase58()) }]),
+    } as unknown as Connection;
+    const lpOnly = await fetchPositionsBatch(ownerConn, PROGRAM_ID, [ownerMarket], owner);
+    expect(lpOnly[0].position).toEqual({ ...pos, collateral: 0n, yes: 0n, no: 0n });
+    expect(getTokenAccountsByOwner).toHaveBeenCalledWith(owner, { programId: TOKEN_PROGRAM_ID }, "confirmed");
+    getTokenAccountsByOwner.mockResolvedValue({ value: [1, 2].map((i) => ({
+      pubkey: new PublicKey(Buffer.alloc(32, i)),
+      account: makeTokenAccountInfo(pdas.yesMint, owner, BigInt(i)),
+    })) });
+    const withTokens = await fetchPositionsBatch(ownerConn, PROGRAM_ID, [ownerMarket], owner);
+    expect(withTokens[0].position.yes).toBe(3n);
 
     // LP 账户损坏时安全回退为 0n
     const badLpConn = {

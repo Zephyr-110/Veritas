@@ -234,10 +234,12 @@ export async function resolveMarketWithChainlink(
   connection: Connection,
   wallet: AnchorWalletLike,
   program: Program<PredictionMarket>,
-  market: MarketView
+  market: MarketView,
+  prepared?: StraddlingReports
 ): Promise<string> {
-  const snapshot = await fetchMarketSnapshot(connection, market.pdas.snapshot);
-  const found = await findStraddlingReports(connection, market.ocr2State, market.endTs, snapshot);
+  const found = prepared ?? await findStraddlingReports(
+    connection, market.ocr2State, market.endTs, await fetchMarketSnapshot(connection, market.pdas.snapshot)
+  );
   const ixs = await ixResolveMarket(program, market, wallet.publicKey, {
     rawPre: found.pre.raw,
     rawPost: found.post.raw,

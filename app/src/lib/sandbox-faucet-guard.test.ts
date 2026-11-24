@@ -22,7 +22,7 @@ describe("sandbox-faucet-guard", () => {
     expect(extractClientIp(req1)).toBe("203.0.113.10");
 
     const req2 = new Request("http://localhost/api/faucet/sandbox", {
-      headers: { "x-real-ip": "198.51.100.7" },
+      headers: { "x-real-ip": "198.51.100.7", "x-forwarded-for": "203.0.113.10" },
     });
     expect(extractClientIp(req2)).toBe("198.51.100.7");
 

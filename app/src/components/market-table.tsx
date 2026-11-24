@@ -4,16 +4,17 @@ import Link from "next/link";
 import { formatWhen, marketKind, money, questionTitle } from "@/lib/display";
 import { formatCents, formatYesNo } from "@/lib/format";
 import type { MarketView } from "@/lib/markets";
-import { useNow } from "@/hooks/use-now";
+import { useMarketPhaseTime, useVisibleVaults } from "@/hooks/use-markets";
 import { useFeeds } from "@/hooks/use-feeds";
 import { feedByState, formatFeedPrice, thresholdToHuman } from "@/lib/feeds";
 import { useT } from "@/i18n/provider";
-import { LiveCountdown } from "./live";
+import { TickingCountdown } from "./live";
 import { PriceAge } from "./price-age";
 import { Button, onSpot, StableText, StatusChip } from "./ui";
 
 export function MarketTable({ markets }: { markets: MarketView[] }) {
-  const now = useNow(1000);
+  const now = useMarketPhaseTime(markets);
+  const vaultFor = useVisibleVaults(markets);
   const { quotes } = useFeeds();
   const t = useT();
   return (
@@ -39,6 +40,7 @@ export function MarketTable({ markets }: { markets: MarketView[] }) {
         </div>
       </div>
       {markets.map((market, index) => {
+        const vault = vaultFor(market);
         const kind = marketKind(market, now);
         const live = kind === "live";
         const actionKey =
@@ -108,9 +110,8 @@ export function MarketTable({ markets }: { markets: MarketView[] }) {
               </div>
               <div className="c-ends text-right">
                 {live ? (
-                  <LiveCountdown
+                  <TickingCountdown
                     expiry={market.expiry}
-                    now={now}
                     className="whitespace-nowrap text-[15px] text-zinc-100"
                   />
                 ) : (
@@ -121,7 +122,7 @@ export function MarketTable({ markets }: { markets: MarketView[] }) {
               </div>
               <div className="c-pool text-right">
                 <div className="num truncate text-[15px] text-zinc-200">
-                  {money(market.vault, market.decimals)}
+                  {vault === undefined ? "—" : money(vault, market.decimals)}
                 </div>
               </div>
               <div className="c-status justify-end">

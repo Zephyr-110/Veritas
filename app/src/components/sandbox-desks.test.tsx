@@ -279,7 +279,7 @@ describe("Sandbox desks & header integration", () => {
     );
     expect(screen.getByText(/Awaiting on-chain settlement/i)).toBeInTheDocument();
     const manualResolveBtn = screen.getByRole("button", { name: "Submit settlement now" });
-    expect(manualResolveBtn).toBeEnabled();
+    await waitFor(() => expect(manualResolveBtn).toBeEnabled());
     await userEvent.click(manualResolveBtn);
     await waitFor(() => expect(findStraddlingReports).toHaveBeenCalledTimes(1));
     expect(ixResolveMarket).toHaveBeenCalledWith(

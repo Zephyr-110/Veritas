@@ -3,6 +3,7 @@ import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PublicKey } from "@solana/web3.js";
 import { CLAIM_WINDOW, RESOLVE_WINDOW, SNAPSHOT_MAX_ENTRIES } from "@/lib/constants";
+import { ConfirmedTransactionError } from "@/lib/errors";
 import { FEEDS } from "@/lib/feeds";
 import type { MarketView, UserPosition } from "@/lib/markets";
 
@@ -157,6 +158,7 @@ beforeEach(() => {
   ixTakeSnapshot.mockReset().mockResolvedValue([]);
   ixVoidMarket.mockReset().mockResolvedValue([]);
   ixBurnAccount.mockReset().mockResolvedValue([]);
+  findStraddlingReports.mockReset().mockResolvedValue({ pre: {}, post: {}, hasSnapshot: false });
   resolveMarketWithChainlink.mockReset().mockResolvedValue("resolve-sig-1");
   fetchMarketSnapshot.mockReset().mockResolvedValue(null);
   bump.mockReset();
@@ -305,7 +307,7 @@ describe("SettleDesk 裁决与超时作废", () => {
 
     const resolveBtn = screen.getByRole("button", { name: "Submit settlement" });
     const voidBtn = screen.getByRole("button", { name: "Void market" });
-    expect(resolveBtn).toBeEnabled();
+    await waitFor(() => expect(resolveBtn).toBeEnabled());
     expect(voidBtn).toBeDisabled();
 
     await userEvent.click(resolveBtn);
@@ -321,7 +323,20 @@ describe("SettleDesk 裁决与超时作废", () => {
     resolveMarketWithChainlink.mockRejectedValueOnce(new Error("429 rate limit"));
     await userEvent.click(resolveBtn);
     await waitFor(() => expect(push).toHaveBeenCalledTimes(2));
-    expect(push).toHaveBeenLastCalledWith("err", "Submit settlement failed", "errors.rpcRate");
+    expect(push).toHaveBeenLastCalledWith("info", "Submit settlement", "errors.rpcRate");
+    resolveMarketWithChainlink.mockRejectedValueOnce(new ConfirmedTransactionError());
+    await userEvent.click(resolveBtn);
+    await waitFor(() => expect(push).toHaveBeenLastCalledWith("err", "Submit settlement failed", "errors.txFailed"));
+  });
+
+  it("keeps settlement disabled while the first post-expiry report is unavailable", async () => {
+    findStraddlingReports.mockRejectedValue(new Error("errors.ocr2NoPostReport"));
+    const endTs = Math.floor(Date.now() / 1000) - 100;
+    renderDesk(makeMarket({ expiry: endTs, endTs }));
+    await waitFor(() => expect(findStraddlingReports).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: "Submit settlement" })).toBeDisabled();
+    expect(screen.getByText(/waiting for the first/i)).toBeVisible();
+    expect(push).not.toHaveBeenCalled();
   });
 
   it("超过 48h 裁决窗口：Submit settlement 禁用，Void market 可用并调用 ixVoidMarket", async () => {

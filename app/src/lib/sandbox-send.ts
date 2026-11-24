@@ -1,3 +1,4 @@
+import { ConfirmedTransactionError } from "./errors";
 import {
   Connection,
   Keypair,
@@ -91,7 +92,7 @@ export async function sendSandboxIxs(
         },
         "confirmed"
       );
-      if (res.value.err) throw new Error("errors.txFailed");
+      if (res.value.err) throw new ConfirmedTransactionError();
       opts?.onStage?.({ stage: "confirmed", signature: sig });
       return sig;
     } catch (confirmErr) {
@@ -105,7 +106,7 @@ export async function sendSandboxIxs(
           });
           if (st?.value) {
             if (st.value.err !== null) {
-              throw new Error("errors.txFailed");
+              throw new ConfirmedTransactionError();
             }
             if (
               st.value.confirmationStatus === "confirmed" ||

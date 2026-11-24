@@ -23,6 +23,7 @@ export function FaucetClaimButton({ className = "h-9 px-4 text-sm" }: { classNam
         bump();
       } else {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (data.error) console.warn("Faucet", data.error);
         setState(data.error === "cooldown" ? "cooldown" : "unavailable");
       }
     } catch {

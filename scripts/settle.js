@@ -543,9 +543,7 @@ async function runWatch(connection, program, payer, marketPk, market, opts) {
   if (waitMs > 0) await pause(waitMs);
   if (Date.now() >= (endTs + WATCH_AFTER_SEC) * 1000) return;
   log(`awake endTs=${endTs}`);
-  const [stateInfo, latest] = await Promise.all([
-    connection.getAccountInfo(market.ocr2State, "confirmed"), connection.getLatestBlockhash("confirmed"),
-  ]);
+  const stateInfo = await connection.getAccountInfo(market.ocr2State, "confirmed");
   const state = parseOcr2State(stateInfo.data);
   const seen = new Set();
   let newest;
@@ -585,6 +583,7 @@ async function runWatch(connection, program, payer, marketPk, market, opts) {
       if (opts.dryRun) return log("dry run; pair ready");
       const tx = await resolveTx(program, payer, marketPk, market, pair, null);
       tx.feePayer = payer.publicKey;
+      const latest = await connection.getLatestBlockhash("confirmed");
       tx.recentBlockhash = latest.blockhash;
       tx.sign(payer);
       if (Date.now() >= deadline) return log("submission window ended");
@@ -593,8 +592,9 @@ async function runWatch(connection, program, payer, marketPk, market, opts) {
         await connection.sendRawTransaction(tx.serialize(), { skipPreflight: true, maxRetries: 2 });
         log(`submitted ${signature}`);
       } catch (e) { log(`send response uncertain ${signature}: ${e.message}`); }
-      // Keep the market lock until confirmation, rejection or blockhash expiry.
-      for (let n = 0; n < 100; n++) {
+      // The global sweep re-reads chain state after this worker releases its lock.
+      const confirmDeadline = Date.now() + 30_000;
+      for (let n = 0; Date.now() < confirmDeadline; n++) {
         try {
           const status = (await connection.getSignatureStatuses([signature])).value[0];
           if (status?.err) return log(`resolve rejected: ${JSON.stringify(status.err)}`);

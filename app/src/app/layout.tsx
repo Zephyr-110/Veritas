@@ -8,7 +8,15 @@ import "./globals.css";
 import "./fonts.css";
 
 export const metadata: Metadata = {
-  title: en.meta.title,
+  metadataBase: new URL("https://veritas.zephyr110.com"),
+  title: { default: en.meta.title, template: "%s | Veritas" },
+  openGraph: {
+    type: "website", siteName: "Veritas", title: en.meta.title, description: en.meta.description,
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "Veritas prediction market on Solana Devnet" }],
+  },
+  twitter: {
+    card: "summary_large_image", title: en.meta.title, description: en.meta.description, images: ["/og.png"],
+  },
   description: en.meta.description,
   icons: { icon: "/favicon.svg" },
 };

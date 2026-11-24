@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useNow } from "@/hooks/use-now";
 import { useT } from "@/i18n/provider";
 import { countdown } from "@/lib/format";
 import { cx } from "./ui";
@@ -31,6 +32,11 @@ export function FlashNum({
       {children}
     </span>
   );
+}
+
+export function TickingCountdown({ expiry, className }: { expiry: number; className?: string }) {
+  const now = useNow(1000, expiry);
+  return <LiveCountdown expiry={expiry} now={now} className={className} />;
 }
 
 export function LiveCountdown({

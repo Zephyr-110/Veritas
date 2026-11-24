@@ -27,7 +27,7 @@ export function FeatureCard({
   threshold?: string;
   statusKey?: string;
 }) {
-  const now = useNow(1000);
+  const now = useNow(1000, expiry ?? 0);
   const t = useT();
   const live = expiry != null && now > 0 && expiry > now;
   const body = (
@@ -72,8 +72,8 @@ export function FeatureCard({
   );
 }
 
-export function MarketCard({ market }: { market: MarketView }) {
-  const now = useNow(1000);
+export function MarketCard({ market, vault = market.vault }: { market: MarketView; vault?: bigint | null }) {
+  const now = useNow(1000, market.status === "open" ? market.expiry : 0);
   useLocale();
   const kind = marketKind(market, now);
   const thr = thresholdToHuman(market.threshold, market.priceDecimals);
@@ -83,7 +83,7 @@ export function MarketCard({ market }: { market: MarketView }) {
       title={market.title ? questionTitle(market) : ""}
       yesPrice={market.yesPrice}
       expiry={market.expiry}
-      liquidity={money(market.vault, market.decimals)}
+      liquidity={vault === null ? "—" : money(vault, market.decimals)}
       threshold={`${market.feedSymbol} ${market.settleAbove ? "≥" : "<"} ${thr}`}
       statusKey={kindLabelKey(kind, market)}
     />

@@ -82,7 +82,7 @@ export function PriceChartCard({
     const H = 152;
     const padL = 6;
     const padR = 64;
-    const padT = 14;
+    const padT = 31;
     const padB = 20;
     const plotW = W - padL - padR;
     const plotH = H - padT - padB;
@@ -106,7 +106,7 @@ export function PriceChartCard({
     const t1 = candles[candles.length - 1].time + gran;
     const xTime = (unix: number) => padL + ((unix - t0) / (t1 - t0)) * plotW;
     const thrY = Math.max(padT, Math.min(padT + plotH, y(thresholdValue)));
-    const thrTagY = thrY - 6 < padT + 12 ? thrY + 16 : thrY - 6;
+
     const expX = Math.max(padL + 20, Math.min(padL + plotW - 20, xTime(expiry)));
     const last = candles[candles.length - 1];
     const lastColor = last.close >= thresholdValue ? "var(--yes)" : "var(--no)";
@@ -156,8 +156,8 @@ export function PriceChartCard({
           opacity={0.48}
         />
         <text
-          x={padL + 6}
-          y={thrTagY}
+          x={padL + 2}
+          y={14}
           fontSize={10.5}
           fill="var(--ink-strong)"
           textAnchor="start"
@@ -186,7 +186,7 @@ export function PriceChartCard({
             />
             <text
               x={expX - 6 - 34 < padL ? expX + 6 : expX - 6}
-              y={padT - 4}
+              y={padT - 3}
               fontSize={10}
               fill="var(--ink-2)"
               textAnchor={expX - 6 - 34 < padL ? "start" : "end"}
