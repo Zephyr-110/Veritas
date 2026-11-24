@@ -5,7 +5,7 @@ import { PublicKey } from "@solana/web3.js";
 import type { MarketView, UserPosition } from "@/lib/markets";
 import { applySlippage, quoteBet, quoteSwapOut } from "@/lib/quote";
 import { DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
-import { toUi } from "@/lib/format";
+import { formatFixed } from "@/lib/format";
 
 // ---- 依赖替身：只替换外部链路，保留真实业务计算与真实渲染 ----
 const wallet = vi.hoisted(() => ({ publicKey: null as PublicKey | null }));
@@ -149,7 +149,7 @@ describe("TradeDesk 下单前置校验", () => {
     expect(submitBtn()).toBeEnabled();
     expect(submitBtn()).toHaveTextContent("Connect wallet to Buy YES (Sim)");
 
-    const expected = toUi(quoteBet(market.reserveYes, market.reserveNo, 2_000_000n, "yes").totalOut, market.decimals, 2);
+    const expected = formatFixed(quoteBet(market.reserveYes, market.reserveNo, 2_000_000n, "yes").totalOut, market.decimals, 2);
     expect(container.querySelector(".desk")!.textContent).toContain(expected);
 
     await userEvent.click(submitBtn());
@@ -212,7 +212,7 @@ describe("TradeDesk 报价展示", () => {
     await typeAmount("10");
 
     const expected = quoteBet(market.reserveYes, market.reserveNo, 10_000_000n, "yes").totalOut;
-    const shown = toUi(expected, market.decimals, 2);
+    const shown = formatFixed(expected, market.decimals, 2);
     // StableText 会同时渲染双语（一种 aria-hidden），所以按面板文本断言
     expect(shown).not.toBe("0.00");
     expect(container.querySelector(".desk")!.textContent).toContain(shown);

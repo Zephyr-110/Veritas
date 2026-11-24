@@ -37,22 +37,25 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.cache/solana
             ~/.local/share/solana
             target
-          key: ${{ runner.os }}-solana-sbf-${{ hashFiles('Cargo.lock', 'programs/prediction_market/Cargo.toml', 'rust-toolchain.toml') }}
+          key: ${{ runner.os }}-solana-sbf-stable-${{ hashFiles('Cargo.lock', 'programs/prediction_market/Cargo.toml', 'rust-toolchain.toml') }}
           restore-keys: |
-            ${{ runner.os }}-solana-sbf-
+            ${{ runner.os }}-solana-sbf-stable-
 
       - name: Install Solana / Agave CLI (cargo-build-sbf)
         run: |
           SOLANA_BIN="$HOME/.local/share/solana/install/active_release/bin"
           if [ ! -x "$SOLANA_BIN/cargo-build-sbf" ]; then
-            sh -c "$(curl -sSfL https://release.anza.xyz/v2.2.14/install)"
+            sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
           fi
           echo "$SOLANA_BIN" >> "$GITHUB_PATH"
 
       - name: Build SBF program
-        run: cargo build-sbf --arch v0
+        run: |
+          cargo build-sbf --version
+          cargo build-sbf --arch v0
 
       - name: Run contract tests
         run: cargo test -p prediction_market --lib --test spec_scenarios --test econ_settlement --test ocr2_settle -- --test-threads=1

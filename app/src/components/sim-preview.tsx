@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { COLLATERAL_SYMBOL } from "@/lib/constants";
 import { money } from "@/lib/display";
 import { FEEDS, formatFeedPrice, thresholdToHuman } from "@/lib/feeds";
-import { formatCents, fromUi, toUi } from "@/lib/format";
+import { formatCents, formatFixed, fromUi } from "@/lib/format";
 import { inferLeffFromReserves, quoteBet } from "@/lib/quote";
 import { useFeeds } from "@/hooks/use-feeds";
 import type { FeedKey, Side } from "@/lib/types";
@@ -92,9 +92,9 @@ export function SimOrderPreview() {
   const targetLabel = thresholdToHuman(spotThresholdRaw, activeFeed.decimals);
   const sideLabel = side === "yes" ? t("common.yes") : t("common.no");
   const ruleOp = (side === "yes") === above ? "≥" : "<";
-  const avgCents =
+  const avgPrice =
     quoteOut.totalOut > 0n && parsed.value > 0n
-      ? (Number(parsed.value) / Number(quoteOut.totalOut)) * 100
+      ? Number(parsed.value) / Number(quoteOut.totalOut)
       : null;
 
   return (
@@ -214,10 +214,10 @@ export function SimOrderPreview() {
       <div className="stack-2 text-sm">
         <Kv
           k={<StableText k="sim.sharesOut" />}
-          v={<PopNum text={`${toUi(quoteOut.totalOut, SIM_DECIMALS, 2)} ${sideLabel}`} />}
+          v={<PopNum text={`${formatFixed(quoteOut.totalOut, SIM_DECIMALS, 2)} ${sideLabel}`} />}
         />
-        {avgCents != null ? (
-          <Kv k={<StableText k="sim.avgPrice" />} v={<PopNum text={formatCents(avgCents)} />} />
+        {avgPrice != null ? (
+          <Kv k={<StableText k="sim.avgPrice" />} v={<PopNum text={formatCents(avgPrice)} />} />
         ) : null}
         {quoteOut.totalOut > 0n ? (
           <Kv k={<StableText k="sim.payout" />} v={<PopNum text={money(quoteOut.totalOut, SIM_DECIMALS)} />} />

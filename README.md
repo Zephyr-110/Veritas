@@ -1,5 +1,10 @@
 # Veritas Markets
 
+[![Contract Tests](https://github.com/Zephyr-110/Veritas/actions/workflows/contract-tests.yml/badge.svg)](https://github.com/Zephyr-110/Veritas/actions/workflows/contract-tests.yml)
+[![Frontend Tests](https://github.com/Zephyr-110/Veritas/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/Zephyr-110/Veritas/actions/workflows/frontend-tests.yml)
+[![Solana Devnet](https://img.shields.io/badge/Solana-Devnet-14F195?style=flat-square&logo=solana&logoColor=white)](https://explorer.solana.com/address/CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER?cluster=devnet)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+
 A non-custodial binary prediction market on Solana. Pricing follows a dynamic [pm-AMM](https://www.paradigm.xyz/2024/11/pm-amms) invariant, settlement is verified directly on-chain against signed **Chainlink OCR2** oracle reports (with a permissionless expiry snapshot backstop), and every circulating YES/NO complete set is backed 1:1 by collateral in the market vault.
 
 No off-chain matching engine, no admin resolver, and no trusted relayer — the browser client (`app/`) talks directly to Solana RPC.
@@ -171,15 +176,16 @@ cp .env.example .env.local   # optional; defaults target Solana Devnet
 
 npm run dev                  # start Next.js dev server on http://localhost:3000
 npm run typecheck            # TypeScript check (tsc --noEmit)
-npm run test:coverage        # Run all 18 Vitest suites (242 tests) with v8 coverage gates
+npm run lint                 # ESLint check (eslint .)
+npm run test:coverage        # Run all 29 Vitest suites (294 tests + 4 opt-in devnet checks) with v8 coverage gates
 ```
 
-The client IDL under `app/src/idl/` is generated via `node app/scripts/gen-idl.js`. Further frontend details live in [app/README.md](app/README.md).
+The client IDL under `app/src/idl/` is generated via `npm run gen-idl` (from `app/`, or `node app/scripts/gen-idl.js`). Further frontend details live in [app/README.md](app/README.md).
 
 ### 3. Continuous Integration
 
-- [`.github/workflows/contract-tests.yml`](.github/workflows/contract-tests.yml) — Builds the SBF binary and executes the full Cargo + LiteSVM test net (`--lib`, `spec_scenarios`, `econ_settlement`, `ocr2_settle`).
-- [`.github/workflows/frontend-tests.yml`](.github/workflows/frontend-tests.yml) — Runs `npm run typecheck` and `npm run test:coverage` with enforced coverage gates.
+- [`.github/workflows/contract-tests.yml`](.github/workflows/contract-tests.yml) — Builds the SBF binary (`release.anza.xyz/stable`) and executes the full Cargo + LiteSVM test net (`--lib`, `spec_scenarios`, `econ_settlement`, `ocr2_settle`).
+- [`.github/workflows/frontend-tests.yml`](.github/workflows/frontend-tests.yml) — Runs on Node 24 with `npm run typecheck`, `npm run lint`, and `npm run test:coverage` with enforced coverage gates.
 
 ---
 
@@ -188,4 +194,10 @@ The client IDL under `app/src/idl/` is generated via `node app/scripts/gen-idl.j
 - **pm-AMM Invariant**: Liquidity pricing, dynamic time-decay scaling ($L_{\text{eff}} = L_0\sqrt{T - t}$), and LVR intuition build on Paradigm's pm-AMM research paper by **Ciamac Moallemi & Dan Robinson (2024)** — [pm-AMMs](https://www.paradigm.xyz/2024/11/pm-amms).
 - **Chainlink Solana Infrastructure**: Price feeds and oracle reports rely on **Chainlink** official open-source Solana OCR2 & Store programs and Devnet Data Feeds. On settlement, the smart contract **directly verifies signed OCR2 reports** on-chain (`secp256k1` oracle multi-signatures, config digest, and report bytes) without any trusted intermediary.
 - **Original Veritas Implementation**: Veritas's core state machine (`Open` → `Resolved` / `StaleBurn` / `WindowBurn` + 30-day claim and cleanup lifecycle), the permissionless adjacent-report-number settlement engine (straddling round continuity checks, rollover across epochs via `r_max`, and failed-transaction payload extraction), and the `MarketSnapshot` monotonic-counter witness backstop (`take_snapshot`) are original to this project.
+
+---
+
+## License
+
+Licensed under the [MIT License](LICENSE).
 

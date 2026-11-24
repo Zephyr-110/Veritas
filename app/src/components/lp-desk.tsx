@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { COLLATERAL_SYMBOL } from "@/lib/constants";
 import { money } from "@/lib/display";
-import { fromUi, toUi } from "@/lib/format";
+import { formatFixed, fromUi } from "@/lib/format";
 import { quoteAddLiquidity, quoteWithdrawLiquidity } from "@/lib/quote";
 import { ixAddLiquidity, ixGetLiquidity } from "@/lib/instructions";
 import { isFinalizedStatus, marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
@@ -121,16 +121,16 @@ export function LpDesk({
         <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-sm">
           <span className="text-zinc-500">
             <StableText k="lp.yourShares" />
-            <span className="num ml-1.5 text-zinc-100">{toUi(position.lpShares, market.decimals, 2)}</span>
+            <span className="num ml-1.5 text-zinc-100">{formatFixed(position.lpShares, market.decimals, 2)}</span>
           </span>
           <span className="text-zinc-500">
             <StableText k="lp.poolShares" />
-            <span className="num ml-1.5 text-zinc-100">{toUi(market.totalLpShares, market.decimals, 2)}</span>
+            <span className="num ml-1.5 text-zinc-100">{formatFixed(market.totalLpShares, market.decimals, 2)}</span>
           </span>
           <span className="text-zinc-500">
             <StableText k="common.pending" />
             <span className="num ml-1.5 text-zinc-100">
-              {toUi(position.pendingYes, market.decimals, 4)} / {toUi(position.pendingNo, market.decimals, 4)}
+              {formatFixed(position.pendingYes, market.decimals, 4)} / {formatFixed(position.pendingNo, market.decimals, 4)}
             </span>
           </span>
         </div>
@@ -148,7 +148,7 @@ export function LpDesk({
           <div className="text-right text-xs text-zinc-500">
             <StableText
               k="common.balance"
-              vars={{ amount: `${toUi(position.collateral, market.decimals, 2)} ${COLLATERAL_SYMBOL}` }}
+              vars={{ amount: `${formatFixed(position.collateral, market.decimals, 2)} ${COLLATERAL_SYMBOL}` }}
               align="end"
             />
           </div>

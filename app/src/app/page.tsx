@@ -6,8 +6,6 @@ import { useMarkets } from "@/hooks/use-markets";
 import { useNow } from "@/hooks/use-now";
 import { listSection, marketKind, questionTitle } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
-import { explorerAccount, shorten } from "@/lib/format";
-import { GITHUB_REPO } from "@/lib/constants";
 import { DemoVideo } from "@/components/demo-video";
 import { PricePanel } from "@/components/price-tape";
 import { PulseAreaMark } from "@/components/logo-marks";
@@ -17,7 +15,6 @@ import { MarketTableSkeleton } from "@/components/skeletons";
 import { Button, DataFreshness, Reveal, StableText, onSpot } from "@/components/ui";
 import { LiveCountdown } from "@/components/live";
 import { useGuestSession } from "@/components/guest-session";
-import { useSettings } from "@/components/providers";
 import { useLocale, useT } from "@/i18n/provider";
 import { tPair } from "@/i18n/store";
 
@@ -36,8 +33,6 @@ export default function HomePage() {
   const now = useNow(1000);
   const t = useT();
   const locale = useLocale();
-  const { settings } = useSettings();
-  const programHref = explorerAccount(settings.programId, settings.cluster);
   const mountedNow = now > 0;
 
   const live = useMemo(
@@ -476,24 +471,6 @@ export default function HomePage() {
           </p>
         </section>
       </Reveal>
-
-      <footer className="home-footer border-t border-[var(--hair)]">
-        <span>{t("brand.name")}</span>
-        <span className="home-footer-dot">·</span>
-        {programHref ? (
-          <a href={programHref} target="_blank" rel="noreferrer" className="font-mono hover:text-zinc-300">
-            {shorten(settings.programId, 4, 4)}
-          </a>
-        ) : (
-          <span className="font-mono">{shorten(settings.programId, 4, 4)}</span>
-        )}
-        <span className="home-footer-dot">·</span>
-        <a href={GITHUB_REPO} target="_blank" rel="noreferrer" className="hover:text-zinc-300">
-          <StableText k="footer.github" />
-        </a>
-        <span className="home-footer-dot">·</span>
-        <StableText k="home.footerNote" />
-      </footer>
     </div>
   );
 }

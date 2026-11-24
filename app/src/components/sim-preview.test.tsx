@@ -82,6 +82,7 @@ describe("SimOrderPreview", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "10" }));
     expect(container.textContent).toContain("30 bps per leg (~0.6% combined)");
+    expect(screen.getByText(/^\d{2}\.\d¢$/)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /Connect wallet to execute on-chain \(Sim\)/i }));
     expect(openWalletModal).toHaveBeenCalledTimes(1);

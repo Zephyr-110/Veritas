@@ -380,11 +380,17 @@ export function LiquidityCard({ market }: { market: MarketView }) {
           <span className="text-zinc-400">
             <StableText k="liq.reserves" />
           </span>
-          <span className="num text-zinc-400">
-            <span style={{ color: "var(--yes)" }}>{t("liq.yes")} {model.yesPct.toFixed(0)}%</span>
-            {" · "}
-            <span style={{ color: "var(--no)" }}>{t("liq.no")} {(100 - model.yesPct).toFixed(0)}%</span>
-          </span>
+          {(() => {
+            const yesTenths = Math.max(0, Math.min(1000, Math.round(model.yesPct * 10)));
+            const noTenths = 1000 - yesTenths;
+            return (
+              <span className="num text-zinc-400">
+                <span style={{ color: "var(--yes)" }}>{t("liq.yes")} {(yesTenths / 10).toFixed(1)}%</span>
+                {" · "}
+                <span style={{ color: "var(--no)" }}>{t("liq.no")} {(noTenths / 10).toFixed(1)}%</span>
+              </span>
+            );
+          })()}
         </div>
         <div className="flex h-2 overflow-hidden bg-zinc-800">
           <div

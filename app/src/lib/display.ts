@@ -1,5 +1,5 @@
 import { COLLATERAL_SYMBOL, RESOLVE_WINDOW } from "./constants";
-import { countdown, formatStamp, toUi } from "./format";
+import { countdown, formatFixed, formatStamp } from "./format";
 import { isVoidedStatus, marketPhase, type MarketView, type UserPosition } from "./markets";
 import { feedByState, thresholdToHuman } from "./feeds";
 import { getLocale, t } from "@/i18n/store";
@@ -94,12 +94,12 @@ export function questionTitle(market: MarketView): string {
 }
 
 export function money(amount: bigint, decimals: number, digits = 2): string {
-  return `${toUi(amount, decimals, digits)} ${COLLATERAL_SYMBOL}`;
+  return `${formatFixed(amount, decimals, digits)} ${COLLATERAL_SYMBOL}`;
 }
 
 export function chancePct(price: number): number {
   if (!Number.isFinite(price)) return 50;
-  return Math.max(0, Math.min(100, Math.round(price * 100)));
+  return Math.max(0, Math.min(1000, Math.round(price * 1000))) / 10;
 }
 
 export function formatWhen(ts: number): string {

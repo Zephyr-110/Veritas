@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { COLLATERAL_SYMBOL, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
-import { formatCents, fromUi, toUi } from "@/lib/format";
+import { formatCents, formatFixed, fromUi, toUi } from "@/lib/format";
 import { money } from "@/lib/display";
 import { thresholdToHuman } from "@/lib/feeds";
 import { applySlippage, pmAmmAccrue, quoteBet, quoteSwapOut } from "@/lib/quote";
@@ -220,8 +220,8 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
             vars={{
               amount:
                 tab === "bet"
-                  ? `${toUi(position.collateral, market.decimals, 2)} ${COLLATERAL_SYMBOL}`
-                  : `${toUi(sellBalance, market.decimals, 2)} ${otherLabel}`,
+                  ? `${formatFixed(position.collateral, market.decimals, 2)} ${COLLATERAL_SYMBOL}`
+                  : `${formatFixed(sellBalance, market.decimals, 2)} ${otherLabel}`,
             }}
             align="end"
           />
@@ -270,7 +270,7 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
       <div className="stack-2 text-sm">
         <Kv
           k={<StableText k={sim ? "trade.simYouGet" : "trade.youGet"} />}
-          v={<PopNum text={`${toUi(outShares, market.decimals, 2)} ${sideLabel}`} />}
+          v={<PopNum text={`${formatFixed(outShares, market.decimals, 2)} ${sideLabel}`} />}
         />
         {tab === "bet" && betQuote.totalOut > 0n && parsed.value > 0n ? (
           <Kv

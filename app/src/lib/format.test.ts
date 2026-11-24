@@ -11,8 +11,10 @@ import {
   sideToChain,
   shorten,
   toUi,
+  formatFixed,
   fromUi,
   formatCents,
+  formatYesNo,
   formatStamp,
   countdown,
   explorerTx,
@@ -158,14 +160,35 @@ describe("format", () => {
     });
   });
 
-  describe("formatCents", () => {
+  describe("formatFixed", () => {
+    it("pads zeros and truncates conservatively to fixed decimals", () => {
+      expect(formatFixed(0n, 6, 2)).toBe("0.00");
+      expect(formatFixed(30_000_000n, 6, 2)).toBe("30.00");
+      expect(formatFixed(1_500_000n, 6, 2)).toBe("1.50");
+      expect(formatFixed(1_234_567n, 6, 2)).toBe("1.23");
+      expect(formatFixed(1_234_567n, 6, 4)).toBe("1.2345");
+      expect(formatFixed(-1_500_000n, 6, 2)).toBe("-1.50");
+      expect(formatFixed(-1n, 6, 2)).toBe("0.00");
+      expect(formatFixed(5_999_999n, 6, 0)).toBe("5");
+    });
+  });
+
+  describe("formatCents / formatYesNo", () => {
     it("formats cents", () => {
       expect(formatCents(0.25)).toBe("25.0¢");
       expect(formatCents(0.5)).toBe("50.0¢");
+      expect(formatCents(0.496)).toBe("49.6¢");
     });
     it("replaces non-finite values", () => {
       expect(formatCents(NaN)).toBe("—");
       expect(formatCents(Infinity)).toBe("—");
+    });
+    it("matches cents precision to 1 decimal and sums to 100.0%", () => {
+      expect(formatYesNo(0.496)).toBe("YES 49.6% · NO 50.4%");
+      expect(formatYesNo(0.5)).toBe("YES 50.0% · NO 50.0%");
+      expect(formatYesNo(-0.1)).toBe("YES 0.0% · NO 100.0%");
+      expect(formatYesNo(1.2)).toBe("YES 100.0% · NO 0.0%");
+      expect(formatYesNo(NaN)).toBe("YES 50.0% · NO 50.0%");
     });
   });
 

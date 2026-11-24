@@ -295,7 +295,7 @@ describe("Sandbox desks & header integration", () => {
         <SettleDesk market={resolved} position={makePosition({ yes: 3_000_000n })} />
       </LocaleProvider>
     );
-    const redeemBtn = screen.getByRole("button", { name: "Redeem 3 USDT" });
+    const redeemBtn = screen.getByRole("button", { name: "Redeem 3.00 USDT" });
     expect(redeemBtn).toBeEnabled();
     await userEvent.click(redeemBtn);
     await waitFor(() => expect(ixGetCollateral).toHaveBeenCalledTimes(1));
@@ -314,7 +314,7 @@ describe("Sandbox desks & header integration", () => {
         <SettleDesk market={voided} position={makePosition({ no: 4_000_000n })} />
       </LocaleProvider>
     );
-    const voidRedeemBtn = screen.getByRole("button", { name: "Redeem 2 USDT" });
+    const voidRedeemBtn = screen.getByRole("button", { name: "Redeem 2.00 USDT" });
     await userEvent.click(voidRedeemBtn);
     await waitFor(() => expect(ixGetCollateral).toHaveBeenCalledTimes(2));
   });
@@ -345,7 +345,7 @@ describe("Sandbox desks & header integration", () => {
     );
 
     expect(screen.queryByRole("button", { name: /Connect wallet/i })).toBeNull();
-    const capsule = screen.getByRole("button", { name: /Sandbox · .* · 30 USDT/i });
+    const capsule = screen.getByRole("button", { name: /Sandbox · .* · 30\.00 USDT/i });
     expect(capsule).toBeInTheDocument();
 
     await userEvent.click(capsule);
@@ -378,7 +378,7 @@ describe("Sandbox desks & header integration", () => {
         <Header />
       </LocaleProvider>
     );
-    await userEvent.click(screen.getByRole("button", { name: /Sandbox · .* · 30 USDT/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Sandbox · .* · 30\.00 USDT/i }));
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Devnet sandbox faucet reserves are depleted."
     );

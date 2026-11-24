@@ -16,6 +16,7 @@ const walletState = vi.hoisted(() => ({
   disconnect: vi.fn(),
 }));
 const bump = vi.hoisted(() => vi.fn());
+const routeState = vi.hoisted(() => ({ pathname: "/markets" }));
 
 vi.mock("@solana/wallet-adapter-react", () => ({
   useWallet: () => walletState,
@@ -25,12 +26,19 @@ vi.mock("@solana/wallet-adapter-react", () => ({
 
 vi.mock("@/components/providers", () => ({
   useRefresh: () => ({ nonce: 0, bump }),
-  useSettings: () => ({ settings: { rpcUrl: "", cluster: "devnet", programId: "", collateralMint: "" } }),
+  useSettings: () => ({
+    settings: {
+      rpcUrl: "",
+      cluster: "devnet",
+      programId: "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER",
+      collateralMint: "",
+    },
+  }),
   useToasts: () => ({ push: vi.fn() }),
 }));
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/markets",
+  usePathname: () => routeState.pathname,
 }));
 
 vi.mock("next/link", () => ({
@@ -46,6 +54,7 @@ const {
   Card,
   Chip,
   Field,
+  Footer,
   Header,
   HeaderFaucet,
   Kv,
@@ -65,6 +74,7 @@ afterEach(() => {
   setLocale("en");
   localStorage.clear();
   delete document.documentElement.dataset.theme;
+  routeState.pathname = "/markets";
   walletState.publicKey = null;
   walletState.connected = false;
   walletState.wallets = [];
@@ -236,17 +246,27 @@ describe("ui primitives", () => {
     expect(walletState.select).toHaveBeenCalledWith("Phantom");
   });
 
-  it("HeaderFaucet 浮层支持外部调用触发并在连接钱包后领取 USDT", async () => {
+  it("HeaderFaucet 未连接钱包时展示沙盒自动补币入口，连接钱包后隐藏沙盒入口并可领取 100 USDT", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
     vi.stubGlobal("fetch", fetchMock);
-    walletState.publicKey = PublicKey.default;
-    walletState.connected = true;
 
-    render(
+    const { rerender } = render(
       <LocaleProvider>
         <HeaderFaucet />
       </LocaleProvider>
     );
+    await userEvent.click(screen.getByRole("button", { name: /Test Funds/i }));
+    expect(screen.getAllByText(/0\.04 SOL \+ 30 USDT/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Open Sandbox Account \(Devnet\)/i })).toBeInTheDocument();
+
+    walletState.publicKey = PublicKey.default;
+    walletState.connected = true;
+    rerender(
+      <LocaleProvider>
+        <HeaderFaucet />
+      </LocaleProvider>
+    );
+    expect(screen.queryByRole("button", { name: /Open Sandbox Account \(Devnet\)/i })).toBeNull();
     act(() => openFaucetMenu());
     await userEvent.click(screen.getByRole("button", { name: /Claim 100 test USDT/i }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
@@ -277,5 +297,29 @@ describe("ui primitives", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /Disconnect/i })).toBeInTheDocument());
     expect(screen.getByText("1111…1111")).toBeInTheDocument();
     expect(screen.queryByText(/BTC\/USD|SOL\/USD/)).toBeNull();
+  });
+
+  it("Footer 在首页与内页渲染一致的页脚内容", () => {
+    routeState.pathname = "/";
+    const { container: homeContainer, unmount } = render(
+      <LocaleProvider>
+        <Footer />
+      </LocaleProvider>
+    );
+    const homeFooterHtml = homeContainer.querySelector("footer")?.innerHTML;
+    expect(homeFooterHtml).toBeTruthy();
+    expect(screen.getByText("Veritas")).toBeInTheDocument();
+    expect(screen.getByText(/CYVp…HuER/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "GitHub" })).toBeInTheDocument();
+    expect(screen.getByText("Devnet demo. Not real funds.")).toBeInTheDocument();
+    unmount();
+
+    routeState.pathname = "/markets";
+    const { container: innerContainer } = render(
+      <LocaleProvider>
+        <Footer />
+      </LocaleProvider>
+    );
+    expect(innerContainer.querySelector("footer")?.innerHTML).toBe(homeFooterHtml);
   });
 });

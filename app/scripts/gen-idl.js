@@ -1,9 +1,9 @@
 const fs = require("fs");
 const path = require("path");
-const crypto = require("crypto");
+const nodeCrypto = require("crypto");
 
 function disc(prefix, name) {
-  return Array.from(crypto.createHash("sha256").update(`${prefix}:${name}`).digest().subarray(0, 8));
+  return Array.from(nodeCrypto.createHash("sha256").update(`${prefix}:${name}`).digest().subarray(0, 8));
 }
 function seed(text) {
   return { kind: "const", value: Array.from(Buffer.from(text)) };

@@ -9,7 +9,7 @@ import { useFeeds } from "@/hooks/use-feeds";
 import { formatWhen, hasBet, isMarketVoided, marketKind, money, questionTitle } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
 import { feedByState, formatFeedPrice, thresholdToHuman } from "@/lib/feeds";
-import { countdown, explorerAccount, formatCents, formatUnix, formatYesNo, marketIdHex, shorten, toUi } from "@/lib/format";
+import { countdown, explorerAccount, formatCents, formatFixed, formatUnix, formatYesNo, marketIdHex, shorten } from "@/lib/format";
 import { COLLATERAL_SYMBOL, RESOLVE_WINDOW } from "@/lib/constants";
 import { isFinalizedStatus, marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
 import { pmAmmAccrue } from "@/lib/quote";
@@ -167,8 +167,8 @@ function PoolFactsCard({ market, humanThreshold }: { market: MarketView; humanTh
       <div className="section-title">
         <StableText k="market.history" />
       </div>
-      <Kv k={<StableText k="market.yesReserve" />} v={`${toUi(market.reserveYes, market.decimals, 2)} YES`} />
-      <Kv k={<StableText k="market.noReserve" />} v={`${toUi(market.reserveNo, market.decimals, 2)} NO`} />
+      <Kv k={<StableText k="market.yesReserve" />} v={`${formatFixed(market.reserveYes, market.decimals, 2)} YES`} />
+      <Kv k={<StableText k="market.noReserve" />} v={`${formatFixed(market.reserveNo, market.decimals, 2)} NO`} />
       <Kv k={<StableText k="market.depth" />} v={money(market.vault, market.decimals)} />
       <p className="text-xs leading-relaxed text-zinc-500">
         <StableText k="market.vaultNote" block />
@@ -499,7 +499,7 @@ function PositionCard({
               k={<StableText k="common.yes" />}
               v={
                 <span className="inline-flex flex-wrap items-baseline justify-end gap-2">
-                  <span>{toUi(position.yes, market.decimals, 2)}</span>
+                  <span>{formatFixed(position.yes, market.decimals, 2)}</span>
                   {market.status === "open" ? (
                     <span className="text-xs font-normal text-zinc-400">
                       {estValueOf(position.yes, liveYesPrice)} · {formatCents(liveYesPrice)}
@@ -514,7 +514,7 @@ function PositionCard({
               k={<StableText k="common.no" />}
               v={
                 <span className="inline-flex flex-wrap items-baseline justify-end gap-2">
-                  <span>{toUi(position.no, market.decimals, 2)}</span>
+                  <span>{formatFixed(position.no, market.decimals, 2)}</span>
                   {market.status === "open" ? (
                     <span className="text-xs font-normal text-zinc-400">
                       {estValueOf(position.no, liveNoPrice)} · {formatCents(liveNoPrice)}
@@ -549,13 +549,13 @@ function PositionCard({
             />
           ) : null}
           {position.lpShares > 0n ? (
-            <Kv k={<StableText k="lp.yourShares" />} v={toUi(position.lpShares, market.decimals, 2)} />
+            <Kv k={<StableText k="lp.yourShares" />} v={formatFixed(position.lpShares, market.decimals, 2)} />
           ) : null}
           {position.pendingYes > 0n ? (
-            <Kv k={<StableText k="lp.pendingYes" />} v={toUi(position.pendingYes, market.decimals, 4)} />
+            <Kv k={<StableText k="lp.pendingYes" />} v={formatFixed(position.pendingYes, market.decimals, 4)} />
           ) : null}
           {position.pendingNo > 0n ? (
-            <Kv k={<StableText k="lp.pendingNo" />} v={toUi(position.pendingNo, market.decimals, 4)} />
+            <Kv k={<StableText k="lp.pendingNo" />} v={formatFixed(position.pendingNo, market.decimals, 4)} />
           ) : null}
         </>
       )}

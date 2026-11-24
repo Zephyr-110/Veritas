@@ -66,6 +66,20 @@ export function toUi(amount: bigint, decimals: number, digits = 4): string {
   return neg ? `-${body}` : body;
 }
 
+export function formatFixed(amount: bigint, decimals: number, digits = 2): string {
+  const neg = amount < 0n;
+  const abs = neg ? -amount : amount;
+  const raw = abs.toString().padStart(decimals + 1, "0");
+  const whole = raw.slice(0, raw.length - decimals);
+  if (digits <= 0) {
+    return neg && whole !== "0" ? `-${whole}` : whole;
+  }
+  const frac = raw.slice(raw.length - decimals).padEnd(digits, "0").slice(0, digits);
+  const body = `${whole}.${frac}`;
+  const nonZero = whole !== "0" || /[1-9]/.test(frac);
+  return neg && nonZero ? `-${body}` : body;
+}
+
 export function fromUi(text: string, decimals: number): bigint {
   const trimmed = text.trim();
   if (!trimmed) return 0n;
@@ -81,8 +95,14 @@ export function formatCents(price: number): string {
 }
 
 export function formatYesNo(yesPrice: number): string {
-  const yes = Number.isFinite(yesPrice) ? Math.max(0, Math.min(100, Math.round(yesPrice * 100))) : 50;
-  return t("odds.line", { yes, no: 100 - yes });
+  const yesTenths = Number.isFinite(yesPrice)
+    ? Math.max(0, Math.min(1000, Math.round(yesPrice * 1000)))
+    : 500;
+  const noTenths = 1000 - yesTenths;
+  return t("odds.line", {
+    yes: (yesTenths / 10).toFixed(1),
+    no: (noTenths / 10).toFixed(1),
+  });
 }
 
 export function formatStamp(input: number | Date): string {

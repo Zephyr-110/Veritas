@@ -11,7 +11,7 @@ import {
   MIN_CREATE_SOL_LAMPORTS,
   PREDICTION_BYTES,
 } from "@/lib/constants";
-import { countdown, encodePrediction, formatStamp, fromUi, randomMarketId, toUi, utf8Len } from "@/lib/format";
+import { countdown, encodePrediction, formatFixed, formatStamp, fromUi, randomMarketId, toUi, utf8Len } from "@/lib/format";
 import { FEEDS, feedByKey, formatFeedPrice, humanToThreshold } from "@/lib/feeds";
 import { findMarketPdas } from "@/lib/pdas";
 import { ataOf, fetchMintMeta, unpackAmount } from "@/lib/tokens";
@@ -112,7 +112,7 @@ export default function CreatePage() {
   const program = useProgram();
   const { connection } = useConnection();
   const { publicKey } = useWallet();
-  const { isSandbox, locked } = useGuestSession();
+  const { isSandbox, txPending, locked } = useGuestSession();
   const { settings } = useSettings();
   const { nonce } = useRefresh();
   const { busy, run } = useTx();
@@ -587,7 +587,7 @@ export default function CreatePage() {
                       <StableText
                         k="common.balance"
                         vars={{
-                          amount: `${toUi(walletBalance.atoms, walletBalance.decimals, 2)} ${COLLATERAL_SYMBOL}`,
+                          amount: `${formatFixed(walletBalance.atoms, walletBalance.decimals, 2)} ${COLLATERAL_SYMBOL}`,
                         }}
                         align="end"
                       />
@@ -605,7 +605,13 @@ export default function CreatePage() {
           ) : null}
 
           <div className="max-w-xs">
-            <Button type="submit" className="h-12 w-full" disabled={busy || (isSandbox ? locked : solShort)}>
+            <Button
+              type="submit"
+              className="h-12 w-full"
+              busy={busy || (isSandbox && locked)}
+              disabled={busy || (isSandbox ? locked : solShort)}
+              aria-describedby={isSandbox ? "create-sandbox-note" : undefined}
+            >
               <StableText
                 k={
                   busy
@@ -623,9 +629,19 @@ export default function CreatePage() {
             </Button>
           </div>
           {isSandbox ? (
-            <p className="text-[13px] leading-relaxed text-zinc-400">
-              <StableText k="create.sandboxHint" block />
-            </p>
+            <div id="create-sandbox-note" className="stack-1.5">
+              {locked ? (
+                <p role="status" className="text-[13px] leading-relaxed text-[var(--warn)]">
+                  <StableText
+                    k={txPending ? "create.sandboxLockedTx" : "create.sandboxLockedEntering"}
+                    block
+                  />
+                </p>
+              ) : null}
+              <p className="text-[13px] leading-relaxed text-zinc-400">
+                <StableText k="create.sandboxHint" block />
+              </p>
+            </div>
           ) : !publicKey ? (
             <p className="text-[13px] leading-relaxed text-zinc-400">
               <StableText k="create.readOnlyHint" />{" "}
@@ -644,7 +660,10 @@ export default function CreatePage() {
           title={effectiveTitle}
           yesPrice={0.5}
           expiry={expiry && Number.isFinite(expiryUnix) ? expiryUnix : undefined}
-          liquidity={t("create.previewSeed", { amount: amount || "0", symbol: COLLATERAL_SYMBOL })}
+          liquidity={t("create.previewSeed", {
+            amount: seedAtoms != null ? formatFixed(seedAtoms, 6, 2) : "0.00",
+            symbol: COLLATERAL_SYMBOL,
+          })}
           threshold={previewThreshold}
         />
         <div onMouseMove={onSpot} className="surface stack-2 p-5">

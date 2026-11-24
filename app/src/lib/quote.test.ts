@@ -123,7 +123,7 @@ describe("quote", () => {
 
   describe("reserveAmount", () => {
     it("converts i80f48 bits, clamps to non-negative", () => {
-      const bits = i80f48ToAmount(0n);
+      expect(i80f48ToAmount(0n)).toBe(0n);
       expect(reserveAmount(0n)).toBe(0n);
       const one = 1n << 48n;
       expect(reserveAmount(one)).toBe(1n);

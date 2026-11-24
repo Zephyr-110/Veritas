@@ -178,9 +178,6 @@
   color: #09090b;
   text-decoration-color: #09090b;
 }
-[data-theme="light"] .home-footer {
-  color: #52525b;
-}
 [data-theme="light"] .bg-black\/40 {
   background-color: rgba(9, 9, 11, 0.06);
   color: var(--ink);
@@ -947,20 +944,6 @@ html[lang="zh-CN"] .home-kicker:not(:has([lang])) {
   color: var(--ink-soft);
   padding: 1.25rem 0 0;
   position: relative;
-}
-.home-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem 0.15rem;
-  padding: 2.5rem 0 1.5rem;
-  font-size: 13px;
-  color: var(--ink-3);
-}
-.home-footer-dot {
-  margin: 0 0.45rem;
-  color: var(--ink-3);
-  opacity: 0.5;
 }
 
 /* Entrance choreography — unified fast cadence */

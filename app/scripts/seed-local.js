@@ -100,7 +100,7 @@ async function main() {
   const connection = new Connection(RPC, "confirmed");
   try {
     await connection.getVersion();
-  } catch (err) {
+  } catch {
     throw new Error(
       `Cannot reach ${RPC}. In another terminal run:\n  solana-test-validator\nthen deploy: anchor deploy`
     );

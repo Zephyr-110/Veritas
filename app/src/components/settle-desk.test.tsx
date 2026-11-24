@@ -174,7 +174,7 @@ describe("SettleDesk 合并与兑付", () => {
     const market = makeMarket({ status: "open" });
     renderDesk(market, makePosition({ yes: 3_000_000n, no: 5_000_000n }));
 
-    const btn = screen.getByRole("button", { name: "Merge 3 USDT" });
+    const btn = screen.getByRole("button", { name: "Merge 3.00 USDT" });
     await userEvent.click(btn);
     await waitFor(() => expect(ixMergeToken).toHaveBeenCalledTimes(1));
     expect(ixMergeToken).toHaveBeenCalledWith({}, market, USER_KEY, 3_000_000n);
@@ -184,7 +184,7 @@ describe("SettleDesk 合并与兑付", () => {
     const market = makeMarket({ status: "resolved", winner: "yes" });
     renderDesk(market, makePosition({ yes: 4_000_000n, no: 9_000_000n }));
 
-    const btn = screen.getByRole("button", { name: "Redeem 4 USDT" });
+    const btn = screen.getByRole("button", { name: "Redeem 4.00 USDT" });
     await userEvent.click(btn);
     await waitFor(() => expect(ixGetCollateral).toHaveBeenCalledTimes(1));
     expect(ixGetCollateral).toHaveBeenCalledWith(
@@ -211,7 +211,7 @@ describe("SettleDesk 作废半价退款（VoidClaim）", () => {
     const input = screen.getByRole("textbox") as HTMLInputElement;
     expect(input.value).toBe("5");
 
-    const redeemBtn = screen.getByRole("button", { name: "Redeem 2.5 USDT" });
+    const redeemBtn = screen.getByRole("button", { name: "Redeem 2.50 USDT" });
     expect(redeemBtn).toBeEnabled();
     await userEvent.click(redeemBtn);
 
@@ -232,12 +232,12 @@ describe("SettleDesk 作废半价退款（VoidClaim）", () => {
     const input = screen.getByRole("textbox");
     await userEvent.clear(input);
     await userEvent.type(input, "0");
-    expect(screen.getByRole("button", { name: /Redeem 0 USDT/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Redeem 0\.00 USDT/ })).toBeDisabled();
 
     await userEvent.clear(input);
     await userEvent.type(input, "2");
     await userEvent.click(screen.getByRole("button", { name: "Redeem NO" }));
-    expect(screen.getByRole("button", { name: /Redeem 1 USDT/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Redeem 1\.00 USDT/ })).toBeDisabled();
   });
 });
 

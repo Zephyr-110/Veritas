@@ -23,7 +23,7 @@ import {
   GITHUB_REPO,
 } from "@/lib/constants";
 import { kindLabelKey, kindTone, marketKind } from "@/lib/display";
-import { explorerAccount, explorerTx, shorten, toUi } from "@/lib/format";
+import { explorerAccount, explorerTx, formatFixed, shorten } from "@/lib/format";
 import type { MarketView } from "@/lib/markets";
 import { parseTxError } from "@/lib/errors";
 import { sendIxs, mustWallet } from "@/lib/send";
@@ -533,10 +533,12 @@ export function WalletConnectModal() {
   const { wallets, select } = useWallet();
   const { isReal, isSandbox, hasSavedKey, entering, locked, lastError, clearError, enterSandbox } =
     useGuestSession();
+  const clearErrorRef = useRef(clearError);
+  clearErrorRef.current = clearError;
 
   useEffect(() => {
     if (!isOpen) {
-      clearError?.();
+      clearErrorRef.current?.();
       return;
     }
     const onKey = (e: KeyboardEvent) => {
@@ -792,10 +794,14 @@ export function openFaucetMenu() {
 
 export function HeaderFaucet() {
   const { publicKey } = useWallet();
+  const { isReal, isSandbox, hasSavedKey, entering, locked, lastError, clearError, enterSandbox } =
+    useGuestSession();
   const { bump } = useRefresh();
   const [open, setOpen] = useState(faucetMenuOpen);
   const [state, setState] = useState<"idle" | "busy" | "done" | "cooldown" | "unavailable">("idle");
   const wrapRef = useRef<HTMLDivElement>(null);
+  const clearErrorRef = useRef(clearError);
+  clearErrorRef.current = clearError;
 
   useEffect(() => {
     setOpen(faucetMenuOpen);
@@ -807,7 +813,10 @@ export function HeaderFaucet() {
   }, []);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      clearErrorRef.current?.();
+      return;
+    }
     const onDown = (e: globalThis.MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
         setFaucetMenuOpen(false);
@@ -885,6 +894,43 @@ export function HeaderFaucet() {
                 <StableText k="nav.faucetSub" block />
               </p>
             </div>
+
+            {!isReal && !isSandbox ? (
+              <div className="stack-2 border border-[var(--hair)] bg-[var(--seg-bg)] p-3">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="font-medium text-white">
+                    <StableText k="nav.faucetSandboxTitle" />
+                  </span>
+                  <span className="num shrink-0 text-[11px] text-zinc-400">
+                    <StableText k="nav.faucetSandboxTag" align="end" />
+                  </span>
+                </div>
+                <p className="text-xs leading-relaxed text-zinc-400">
+                  <StableText k="nav.faucetSandboxDesc" block />
+                </p>
+                <Button
+                  type="button"
+                  tone="primary"
+                  className="h-8 w-full px-3 text-xs"
+                  busy={entering}
+                  disabled={locked}
+                  onClick={async () => {
+                    const ok = await enterSandbox();
+                    if (ok) setFaucetMenuOpen(false);
+                  }}
+                >
+                  <StableText k={hasSavedKey ? "sandbox.resumeAction" : "sandbox.enterAction"} align="center" />
+                </Button>
+                {lastError ? (
+                  <p
+                    role="alert"
+                    className="border border-[var(--no)]/45 bg-[var(--no-soft)] px-2.5 py-2 text-xs leading-relaxed text-[var(--no)]"
+                  >
+                    {lastError}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="stack-2 border border-[var(--hair)] bg-[var(--seg-bg)] p-3">
               <div className="flex items-center justify-between gap-2 text-xs">
@@ -986,11 +1032,13 @@ export function SandboxCapsule() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const clearErrorRef = useRef(clearError);
+  clearErrorRef.current = clearError;
 
   useEffect(() => {
     if (!menuOpen) {
       setConfirmReset(false);
-      clearError?.();
+      clearErrorRef.current?.();
       return;
     }
     const onDown = (e: globalThis.MouseEvent) => {
@@ -1012,7 +1060,7 @@ export function SandboxCapsule() {
   if (!isSandbox || !sandboxPublicKey) return null;
 
   const addr = sandboxPublicKey.toBase58();
-  const usdtText = balance ? toUi(balance.usdtAtoms, balance.usdtDecimals, 2) : "—";
+  const usdtText = balance ? formatFixed(balance.usdtAtoms, balance.usdtDecimals, 2) : "—";
   const solText = balance ? (balance.solLamports / 1e9).toFixed(4) : "—";
   const solscanHref = explorerAccount(addr, settings.cluster);
 
@@ -1436,13 +1484,13 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 }
 
 export function Footer() {
-  const pathname = usePathname();
   const { settings } = useSettings();
+  const t = useT();
   const programHref = explorerAccount(settings.programId, settings.cluster);
-  if (pathname === "/") return null;
   return (
     <footer className="page-width relative z-10 mx-auto border-t border-[var(--hair)] px-4 pb-8 pt-5">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px] text-zinc-500">
+        <span>{t("brand.name")}</span>
         {programHref ? (
           <a href={programHref} target="_blank" rel="noreferrer" className="link-accent font-mono">
             <StableText k="footer.program" /> {shorten(settings.programId, 4, 4)}

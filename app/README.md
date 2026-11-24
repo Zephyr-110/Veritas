@@ -21,15 +21,16 @@ Protocol mechanics and on-chain constants are documented in the [root README](..
   - `LpDesk` — Add/withdraw liquidity (`add_liquidity` / `get_liquidity`), pending accrued token estimates, and post-expiry LP exit.
   - `SettleDesk` — Complete-set merging (`merge_token`), `±10s` expiry snapshot capture (`take_snapshot`), permissionless settlement (`resolve_market`), 48h timeout voiding (`void_market`), even-sized void refunds (`get_collateral`), and 30-day creator cleanup (`burn_account`).
 - **Zero-Shift Bilingual UI (`EN` / `中文`)**: `StableText` overlays the active and reserve translations in a `1×1` CSS Grid cell so switching languages never shifts surrounding layout or numerals.
-- **Optional Faucet & Reference Charts**:
-  - `POST /api/faucet` distributes 100 test USDT per wallet every 24h when `FAUCET_KEYPAIR_PATH` is configured.
+- **Dual-Track Devnet Faucets & Reference Charts**:
+  - `POST /api/faucet/sandbox` powers the zero-wallet **Sandbox Account (Devnet)** flow, generating a browser keypair and automatically topping it up to **0.04 SOL + 30 test USDT** when `SANDBOX_FAUCET_KEYPAIR_PATH` / `FAUCET_KEYPAIR_PATH` is configured.
+  - `POST /api/faucet` serves connected real Devnet wallets with **100 test USDT per 24h** when `FAUCET_KEYPAIR_PATH` is configured.
   - `/chart/*` proxies Coinbase Exchange candles (`next.config.js` rewrite) for visual reference only — settlement always uses signed Chainlink OCR2 reports.
 
 ### Directory Layout
 
 ```text
 app/src/
-├── app/                   # Next.js App Router pages (/, /markets, /markets/[address], /create, /me, /help, /api/faucet)
+├── app/                   # Next.js App Router pages (/, /markets, /markets/[address], /create, /me, /help, /api/faucet, /api/faucet/sandbox)
 ├── components/            # TradeDesk, LpDesk, SettleDesk, MarketCard, MarketTable, PriceTape, UI primitives
 ├── hooks/                 # React Query & RPC hooks (useMarkets, useMarket, useFeeds, useProgram, useNow)
 ├── i18n/                  # Bilingual store, parity assertions, and LocaleProvider
@@ -52,25 +53,25 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000):
 
-1. Switch your Solana wallet (e.g. Phantom) to **Devnet**.
-2. Confirm the header cluster shows `devnet` (if switching from another cluster, open **Settings → Reset → Save** and reload).
-3. Request Devnet SOL for fees from the Solana faucet, then claim 100 test USDT on the **Help** page (or directly from the Trade desk when balance is zero).
-4. Trade an active market, provide LP, or open a new market on any of the 6 whitelisted Chainlink feeds (`BTC/USD`, `ETH/USD`, `SOL/USD`, `LINK/USD`, `USDC/USD`, `USDT/USD`).
+1. **Quickest path (no wallet needed)**: Click **Open Sandbox Account (Devnet)** (or open **Test Funds** in the header) to automatically top up a browser Devnet keypair to **0.04 SOL + 30 test USDT** for trading and redemption.
+2. **Real wallet path (needed for market creation & LP)**: Switch your Solana wallet (e.g. Phantom) to **Devnet**, confirm the header cluster shows `devnet`, then open **Test Funds** in the top-right header to claim **100 test USDT** (once every 24h) and Devnet SOL from the official faucet.
+3. Trade an active market, provide LP, or open a new market on any of the 6 whitelisted Chainlink feeds (`BTC/USD`, `ETH/USD`, `SOL/USD`, `LINK/USD`, `USDC/USD`, `USDT/USD`).
 
 ---
 
 ## Testing & Quality Gates
 
-The frontend uses **Vitest** + **React Testing Library** + **v8 coverage**, enforced in CI via [`.github/workflows/frontend-tests.yml`](../.github/workflows/frontend-tests.yml).
+The frontend uses **ESLint**, **TypeScript**, and **Vitest** + **React Testing Library** + **v8 coverage**, enforced in CI via [`.github/workflows/frontend-tests.yml`](../.github/workflows/frontend-tests.yml).
 
 ```bash
 npm run typecheck          # TypeScript check (tsc --noEmit)
+npm run lint               # ESLint check (eslint .)
 npm test                   # Run all Vitest suites
 npm run test:coverage      # Run all suites with v8 coverage report & threshold checks
 npm run test:watch         # Watch mode for local development
 ```
 
-### Coverage Overview (18 Suites · 242 Tests)
+### Coverage Overview (29 Suites · 294 Tests + 4 Opt-In Devnet Checks)
 
 | Area | What Is Verified |
 | :--- | :--- |
@@ -104,10 +105,10 @@ Add `http://127.0.0.1:8899` as a custom RPC in Phantom and paste the printed col
 
 ### Updating the IDL
 
-After modifying the Anchor program, regenerate the client IDL before testing or building:
+After updating `app/scripts/gen-idl.js` to match the Anchor program, regenerate the client IDL before testing or building:
 
 ```bash
-node app/scripts/gen-idl.js
+npm run gen-idl            # from app/ (or node app/scripts/gen-idl.js from repo root)
 ```
 
 ---
@@ -118,5 +119,5 @@ node app/scripts/gen-idl.js
 | :--- | :--- |
 | RPC unreachable | Confirm cluster/RPC in **Settings** matches your wallet network. |
 | Create fails with `Mint not found` | Set the correct Collateral Mint address in **Settings** (or Reset to Devnet defaults). |
-| Insufficient collateral on Devnet | Claim 100 test USDT on **Help**, or verify your wallet has Devnet SOL for fees. |
+| Insufficient collateral on Devnet | Use **Sandbox Account** (auto top-up / **Refill** up to 0.04 SOL + 30 USDT), or connect a real wallet and claim 100 test USDT via **Test Funds** in the header. |
 | UI does not reflect a confirmed tx | Wait a few seconds for `confirmed` commitment or click **Refresh**. |

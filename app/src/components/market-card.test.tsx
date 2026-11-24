@@ -79,31 +79,31 @@ afterEach(() => {
 
 describe("FeatureCard", () => {
   it("渲染标题、赔率行与流动性", () => {
-    wrap(<FeatureCard title="BTC 会上涨吗？" yesPrice={0.65} liquidity="1,000 USDT" />);
+    wrap(<FeatureCard title="BTC 会上涨吗？" yesPrice={0.65} liquidity="1,000.00 USDT" />);
     expect(screen.getByText("BTC 会上涨吗？")).toBeInTheDocument();
-    expect(screen.getByText(/YES 65% · NO 35%/)).toBeInTheDocument();
-    expect(screen.getByText("1,000 USDT")).toBeInTheDocument();
+    expect(screen.getByText(/YES 65\.0% · NO 35\.0%/)).toBeInTheDocument();
+    expect(screen.getByText("1,000.00 USDT")).toBeInTheDocument();
   });
 
   it("标题为空时回退到 untitled 文案", () => {
-    wrap(<FeatureCard title="" liquidity="0 USDT" />);
+    wrap(<FeatureCard title="" liquidity="0.00 USDT" />);
     expect(screen.getByText("Untitled market")).toBeInTheDocument();
   });
 
   it("没有 expiry 时显示破折号，有过期时间时显示日期", () => {
-    const { rerender } = wrap(<FeatureCard title="t" liquidity="0 USDT" />);
+    const { rerender } = wrap(<FeatureCard title="t" liquidity="0.00 USDT" />);
     expect(screen.getByText("—")).toBeInTheDocument();
 
     rerender(
       <LocaleProvider>
-        <FeatureCard title="t" liquidity="0 USDT" expiry={1_600_000_000} />
+        <FeatureCard title="t" liquidity="0.00 USDT" expiry={1_600_000_000} />
       </LocaleProvider>
     );
     expect(screen.getByText(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)).toBeInTheDocument();
   });
 
   it("状态标签跟随语言切换", () => {
-    wrap(<FeatureCard title="t" liquidity="0 USDT" statusKey="kind.live" />);
+    wrap(<FeatureCard title="t" liquidity="0.00 USDT" statusKey="kind.live" />);
     expect(screen.getByText("Live")).toBeInTheDocument();
     act(() => setLocale("zh"));
     expect(screen.getByText("进行中")).toBeInTheDocument();
@@ -116,7 +116,7 @@ describe("MarketCard", () => {
     wrap(<MarketCard market={market} />);
     const link = screen.getByRole("link");
     expect(link).toHaveAttribute("href", `/markets/${PublicKey.default.toBase58()}`);
-    expect(screen.getByText("1000 USDT")).toBeInTheDocument();
+    expect(screen.getByText("1000.00 USDT")).toBeInTheDocument();
   });
 
   it("open 且在有效期内标记为 Live", () => {

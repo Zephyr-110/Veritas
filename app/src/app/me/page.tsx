@@ -9,7 +9,7 @@ import { useProgram } from "@/hooks/use-program";
 import { fetchPositionsBatch, isFinalizedStatus, isVoidedStatus, pendingValueOf, type MarketView, type UserPosition } from "@/lib/markets";
 import { fetchRedemptions } from "@/lib/history";
 import { localizeError } from "@/lib/errors";
-import { explorerAccount, explorerTx, formatUnix, shorten, toUi } from "@/lib/format";
+import { explorerAccount, explorerTx, formatFixed, formatUnix, shorten, toUi } from "@/lib/format";
 import { kindLabel, marketKind, questionTitle, timeCopy } from "@/lib/display";
 import { useSettings } from "@/components/providers";
 import { useGuestSession } from "@/components/guest-session";
@@ -351,10 +351,10 @@ export default function MePage() {
                           {kindLabel(kind, market)} · {timeCopy(market, now)}
                         </div>
                       </div>
-                      <Stat labelKey="me.yes" value={toUi(position.yes, market.decimals, 2)} />
-                      <Stat labelKey="me.no" value={toUi(position.no, market.decimals, 2)} />
+                      <Stat labelKey="me.yes" value={formatFixed(position.yes, market.decimals, 2)} />
+                      <Stat labelKey="me.no" value={formatFixed(position.no, market.decimals, 2)} />
                       <div className="shrink-0">
-                        <Stat labelKey="me.shares" value={toUi(position.lpShares, market.decimals, 2)} />
+                        <Stat labelKey="me.shares" value={formatFixed(position.lpShares, market.decimals, 2)} />
                         {isSandbox ? (
                           <div className="mt-0.5 text-[11px] text-zinc-500">
                             <StableText k="me.lpRequiresReal" />
@@ -364,19 +364,19 @@ export default function MePage() {
                       <div className="shrink-0">
                         <Stat
                           labelKey="me.lpPending"
-                          value={toUi(pendingValueOf(market, position), market.decimals, 4)}
+                          value={formatFixed(pendingValueOf(market, position), market.decimals, 4)}
                           accent
                         />
                         {position.pendingYes > 0n || position.pendingNo > 0n ? (
                           <div className="mt-1 w-28 text-[11px] leading-4 text-zinc-500">
                             {position.pendingYes > 0n ? (
                               <div>
-                                {t("lp.pendingYes")} {toUi(position.pendingYes, market.decimals, 4)}
+                                {t("lp.pendingYes")} {formatFixed(position.pendingYes, market.decimals, 4)}
                               </div>
                             ) : null}
                             {position.pendingNo > 0n ? (
                               <div>
-                                {t("lp.pendingNo")} {toUi(position.pendingNo, market.decimals, 4)}
+                                {t("lp.pendingNo")} {formatFixed(position.pendingNo, market.decimals, 4)}
                               </div>
                             ) : null}
                           </div>
@@ -426,7 +426,11 @@ export default function MePage() {
                     </Link>
                     <div className="num flex gap-2 text-sm text-zinc-200">
                       {row.side && <strong>{row.side}</strong>}
-                      {row.payout && <span>{toUi(row.payout.atoms, row.payout.decimals, row.payout.decimals)} {symbol}</span>}
+                      {row.payout && (
+                        <span title={`${toUi(row.payout.atoms, row.payout.decimals, row.payout.decimals)} ${symbol}`}>
+                          {formatFixed(row.payout.atoms, row.payout.decimals, 2)} {symbol}
+                        </span>
+                      )}
                     </div>
                     <div className="num text-right text-xs text-zinc-500">
                       {row.when ? formatUnix(row.when) : "\u2014"}

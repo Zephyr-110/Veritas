@@ -141,14 +141,16 @@ describe("display", () => {
   });
 
   it("money / formatWhen / resolveHours", () => {
+    expect(money(0n, 6)).toBe("0.00 USDT");
     expect(money(1_250_000n, 6)).toBe("1.25 USDT");
-    expect(money(1_250_000n, 6, 4)).toBe("1.25 USDT");
+    expect(money(1_250_000n, 6, 4)).toBe("1.2500 USDT");
     expect(formatWhen(1_767_225_600)).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
     expect(resolveHours()).toBe(48);
   });
 
-  it("chancePct 正确四舍五入、夹逼并处理非有限值", () => {
-    expect(chancePct(0.654)).toBe(65);
+  it("chancePct 正确四舍五入到十分位、夹逼并处理非有限值", () => {
+    expect(chancePct(0.654)).toBe(65.4);
+    expect(chancePct(0.496)).toBe(49.6);
     expect(chancePct(-0.2)).toBe(0);
     expect(chancePct(1.5)).toBe(100);
     expect(chancePct(Number.NaN)).toBe(50);
