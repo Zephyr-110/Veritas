@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMarket } from "@/hooks/use-market";
 import { useNow } from "@/hooks/use-now";
 import { useFeeds } from "@/hooks/use-feeds";
@@ -41,14 +41,19 @@ export default function MarketDetailPage() {
   useLocale();
 
   const marketKey = market?.address.toBase58();
+  const pendingAnchor = useRef("");
   useEffect(() => {
-    if (!marketKey || typeof window === "undefined" || !window.location.hash) return;
-    const targetId = window.location.hash.slice(1);
-    const raf = window.requestAnimationFrame(() => {
-      document.getElementById(targetId)?.scrollIntoView({ block: "start" });
-    });
-    return () => window.cancelAnimationFrame(raf);
+    pendingAnchor.current = window.location.hash.slice(1);
   }, [marketKey]);
+  useEffect(() => {
+    const id = pendingAnchor.current;
+    if (!marketKey || !id || window.location.hash.slice(1) !== id) return;
+    const target = document.getElementById(id);
+    if (target) {
+      target.scrollIntoView({ block: "start" });
+      pendingAnchor.current = "";
+    }
+  }, [marketKey, position]);
 
   if (loading && !market) {
     return <MarketDetailSkeleton />;

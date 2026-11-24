@@ -19,22 +19,53 @@ This document records the provenance, inspection methodology, and independent ve
 | `USDC/USD` | `ENVhPWE3nuvwc5qx2MjSwS41SXr33gFgGaWX4ATA9pyV` | `2EmfL3MqL3YHABudGNmajjCpR13NNEn9Y4LWxbDm6SwR` |
 | `USDT/USD` | `DcZuU19fXJSEurnuFh4moeYK5hohvgaBD5KmjvHvYEG1` | `8QQSUPtdRTboa4bKyMftVNRfGFsB4Vp9d7r39hGKi53e` |
 
-## Census Results
+## Sample window and results
 
-Across the 6 allowlisted Solana Devnet Chainlink OCR2 feeds on November 22, 2026:
+The replay uses finalized Solana **block time** in the half-open interval **[2026-11-22 00:00:00 UTC, 2026-11-23 00:00:00 UTC)**. The first and last columns below identify actual landed transmissions on November 22. Each row compares successive reports on that feed in ledger order.
 
-- **Consecutive landed reports:** **2,384** landed reports ordered by `(epoch, round)` with **0** skipped rounds (zero sequence gaps).
-- **Full-coverage straddling adjacent pairs:** **1,786** pairs within those consecutive transitions cover expiry boundaries cleanly as adjacent report pairs.
-- **Concurrent ~50-minute failed-transaction window:** **18** failed `transmit` transactions were observed; **all 18** were duplicate-report rejections (retrying a round already committed by another transmitter), and **0** reports were "signed-but-unlanded".
+| Feed | First slot | First UTC | Last slot | Last UTC | Landed reports | Strict adjacent pairs | Nonadjacent transitions |
+| --- | ---: | --- | ---: | --- | ---: | ---: | ---: |
+| BTC/USD | 524884768 | 00:00:00 | 525243994 | 23:59:58 | 28,786 | 28,781 | 4 |
+| ETH/USD | 524884768 | 00:00:00 | 525243992 | 23:59:58 | 28,786 | 28,781 | 4 |
+| SOL/USD | 524884771 | 00:00:01 | 525243991 | 23:59:57 | 28,786 | 28,782 | 3 |
+| LINK/USD | 524884768 | 00:00:00 | 525243991 | 23:59:57 | 28,784 | 28,778 | 5 |
+| USDC/USD | 524884768 | 00:00:00 | 525243992 | 23:59:58 | 28,785 | 28,779 | 5 |
+| USDT/USD | 524884772 | 00:00:01 | 525243992 | 23:59:58 | 28,787 | 28,783 | 3 |
+| **Total** | | | | | **172,714** | **172,684** | **24** |
 
-## Inspection Methodology
+Each feed contributes one fewer transition than reports. Across the six feeds, 172,714 − 6 = 172,708 transitions.
 
-1. **Sequence continuity check (`epoch/round` ordering):**
-   For each of the 6 feeds, landed Chainlink OCR2 `transmit` payloads were decoded, sorted strictly in `(epoch, round)` order, and checked pairwise for round continuity — either consecutive round increments within the same epoch (`(epoch, round) -> (epoch, round + 1)`) or clean epoch rollover at `r_max` (`(epoch, r_max) -> (epoch + 1, 1)`).
-2. **Boundary pair coverage check:**
-   Consecutive landed transitions were verified to form straddling adjacent pairs without intervening gaps so that the last report strictly before expiry (`pre`) and the first report at or after expiry (`post`) satisfy on-chain primary-track adjacency without relying on an intermediate snapshot.
-3. **Failed transmission audit (~50-minute window):**
-   Failed `transmit` transactions on the feed accounts during the concurrent ~50-minute window were decoded and matched by `(epoch, round)` against landed transactions, confirming whether every rejection was an already-landed duplicate report rather than a signed report dropped from the ledger.
+Of the 24 nonadjacent transitions, 17 entered round 1 of the next epoch before the prior epoch reached round 6. The other seven moved from round 6 to round 1 two epochs later. For example, BTC moved from `(7193933, 3)` at slot 524905634 to `(7193934, 1)` at slot 524905669. The archive contains both signatures. These identifiers establish an on-chain discontinuity under the strict settlement rule. They cannot show whether another round was signed off-chain.
+
+**Historical sample.** The earliest repository record, commit `714bb58` at **09:24:26 UTC on November 22**, already cited **2,384 Store transitions**, zero skipped rounds and **1,786 full-coverage adjacent pairs**. Commit `77ef49b` described the 2,384 as landed reports. The original scan script, per-feed boundaries, transaction list and expiry selection behind the 1,786 were unavailable for this replay. The published sample predates the end of the UTC day. Counting the complete day yields **170,330 more reports**. Its six subtotals cannot establish how the original 2,384 were distributed.
+
+The historical document also recorded 18 failed duplicate transmissions over roughly 50 minutes. Its exact interval is unknown. The full-day replay counts successful transmissions and makes no inference about reports signed off-chain.
+
+## Reproduce the full-day count
+
+From the repository root, install the root Node dependencies with `npm ci`. Set `SOLANA_RPC` to a Helius **Devnet** archive endpoint supporting `getTransactionsForAddress`. The script checks the genesis hash, pages until exhaustion and prints each feed's first and last signatures, slots, UTC times and counts. The optional final argument saves a new evidence file.
+
+```sh
+node scripts/census-ocr2.js 2026-11-22T00:00:00Z 2026-11-23T00:00:00Z replay.csv.gz
+```
+
+The [collector](../scripts/census-ocr2.js) examines successful outer and inner instructions, matching the OCR2 program, state account and Store program. It decodes the signed transmit payload against each feed's pinned configuration digest. The six finalized state accounts at slot 525816420 all had `f=1` and `rMax=6`. A strict adjacent pair increments the round within the same epoch or rolls from round 6 to round 1 of the next epoch. A nonadjacent transition counts once regardless of the distance between its round identifiers.
+
+All **172,684** strict adjacent pairs also had increasing signed observation timestamps. Each can therefore straddle at least one integer-second expiry satisfying `pre.observationTime < expiry <= post.observationTime`. This measures possible expiry boundaries. The historical 1,786 lacks a recorded expiry list or selection rule for a like-for-like comparison.
+
+## Saved evidence and offline recount
+
+The [gzipped CSV](oracle-census-2026-11-22.csv.gz) contains one row per landed report, including its Devnet transaction signature. The instruction column identifies a zero-based outer instruction, or `outer.inner` for a CPI. Both time columns contain Unix seconds. To check a row independently, retrieve its signature with finalized `getTransaction`, verify the slot, block time and OCR2 accounts, and decode the indicated instruction.
+
+The [offline verifier](../scripts/verify-census.py) reads the archive with the Python standard library, checks per-feed ledger order and independently calculates adjacency, endpoints and totals. Compare its SHA-256 of the uncompressed CSV with the digest below or with a fresh online replay.
+
+```sh
+python scripts/verify-census.py docs/oracle-census-2026-11-22.csv.gz
+```
+
+Uncompressed CSV SHA-256: `be095da5c4f89edfa8428e11e8815c8472eef5d62cd2288533176ac4c49fcfe1`.
+
+For an independent check of all six subtotals, add `--check-boundaries` to the Python command. It fetches the twelve boundary transactions from the public Solana Devnet RPC and reads the OCR2 `NewTransmission.round_id` event counter. For each feed, the last counter minus the first plus one matched the number of rows. For example, the BTC counters were 41,874,684 and 41,903,469, yielding 28,786 reports. The two archive scans and the offline recount agreed.
 
 ## Independent On-Chain Verification Path
 

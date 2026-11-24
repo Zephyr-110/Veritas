@@ -806,4 +806,4 @@ if (require.main === module) main().catch((err) => {
   process.exit(1);
 });
 
-module.exports = { parseOcr2Transmit, pickStraddlingPair, shouldRecordSnapshot, recordExpirySnapshots };
+module.exports = { parseOcr2Transmit, areReportsAdjacent, pickStraddlingPair, shouldRecordSnapshot, recordExpirySnapshots };

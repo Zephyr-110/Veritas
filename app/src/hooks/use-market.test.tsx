@@ -50,7 +50,11 @@ const unpackAmount = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({
   usePathname: () => `/markets/${MARKET_KEY.toBase58()}`,
+  useParams: () => ({ address: MARKET_KEY.toBase58() }),
 }));
+
+vi.mock("@/hooks/use-feeds", () => ({ useFeeds: () => ({ quotes: {}, ready: false }) }));
+vi.mock("@/components/market-visuals", () => ({ PriceChartCard: () => null }));
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
@@ -107,6 +111,7 @@ const { Providers } = await import("@/components/providers");
 const { SandboxCapsule } = await import("@/components/ui");
 const { TradeDesk } = await import("@/components/trade-desk");
 const { useMarket } = await import("@/hooks/use-market");
+const { default: MarketDetailPage } = await import("@/app/markets/[address]/page");
 
 function makeMarket(): MarketView {
   const key = MARKET_KEY;
@@ -210,6 +215,33 @@ afterEach(() => {
 });
 
 describe("useMarket + GuestSession A1/A6 integration", () => {
+  it("scrolls to the claim after the position arrives later than the market", async () => {
+    walletState.publicKey = MARKET_KEY;
+    walletState.connected = true;
+    fetchMarket.mockResolvedValue({ ...makeMarket(), status: "windowBurn" });
+    let finishPosition!: (value: UserPosition) => void;
+    fetchPosition.mockReturnValue(new Promise<UserPosition>(resolve => { finishPosition = resolve; }));
+    const scroll = vi.fn();
+    const originalUrl = window.location.href;
+    window.history.replaceState(null, "", `/markets/${MARKET_KEY}#settle-claim`);
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scroll });
+    try {
+      render(<Providers><MarketDetailPage /></Providers>);
+      await screen.findByRole("heading", { level: 1 });
+      await new Promise(requestAnimationFrame);
+      expect(fetchPosition).toHaveBeenCalled();
+      expect(document.getElementById("settle-claim")).toBeNull();
+      expect(scroll).not.toHaveBeenCalled();
+
+      await act(async () => finishPosition({ ...makePos(), yes: 4_000_000n }));
+      await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
+      expect(scroll.mock.contexts[0]).toBe(document.getElementById("settle-claim"));
+    } finally {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+      window.history.replaceState(null, "", originalUrl);
+    }
+  });
+
   it("A6: releases TradeDesk in the same state update as sandbox activation without skeleton or insufficient-balance flash", async () => {
     // Keep fetchPosition pending forever to prove TradeDesk unlocks immediately from seeded sandbox balance.
     fetchPosition.mockImplementation(() => new Promise(() => {}));
