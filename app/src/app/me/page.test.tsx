@@ -269,5 +269,30 @@ describe("MePage Claim 跳转分流", () => {
       "href",
       `/markets/${loserViewMarket.address.toBase58()}`
     );
+    expect(screen.getByText(/in 2 finalized markets —/)).toBeInTheDocument();
+  });
+
+  it("未领取横幅在 count=1 时显示单数文案", async () => {
+    const winnerMarket = makeMarket(9, {
+      title: "Single Unclaimed Market",
+      status: "resolved",
+      winner: "yes",
+      expiry: NOW - 600,
+      endTs: NOW - 600,
+      finishTs: NOW - 300,
+    });
+    marketState.markets = [winnerMarket];
+    fetchPositionsBatch.mockResolvedValue([
+      {
+        market: winnerMarket,
+        position: makePosition({ yes: 3_000_000n, lpShares: 0n }),
+      },
+    ]);
+
+    renderMePage();
+
+    await screen.findByText("Single Unclaimed Market");
+    expect(screen.getByText(/in 1 finalized market —/)).toBeInTheDocument();
+    expect(screen.queryByText(/in 1 finalized markets/)).toBeNull();
   });
 });

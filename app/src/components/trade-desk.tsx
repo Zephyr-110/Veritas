@@ -19,7 +19,15 @@ import { useGuestSession, useSandboxTx } from "./guest-session";
 
 const PRESETS = ["1", "2", "5", "10"];
 
-export function TradeDesk({ market, position }: { market: MarketView; position: UserPosition }) {
+export function TradeDesk({
+  market,
+  position,
+  positionStale = false,
+}: {
+  market: MarketView;
+  position: UserPosition;
+  positionStale?: boolean;
+}) {
   const program = useProgram();
   const { publicKey: realPublicKey } = useWallet();
   const { isSandbox, effectivePublicKey, enterSandbox, refillSandbox, refillNotice, locked, lastError } =
@@ -214,7 +222,12 @@ export function TradeDesk({ market, position }: { market: MarketView; position: 
         />
       </Field>
       {sim ? null : (
-        <div className="-mt-2 text-right text-xs text-zinc-500">
+        <div className="-mt-2 flex items-center justify-end gap-2 text-xs text-zinc-500">
+          {positionStale ? (
+            <span className="border border-[var(--warn)]/40 px-1.5 py-0.5 text-[10px] font-medium text-[var(--warn)]">
+              <StableText k="freshness.cachedTag" />
+            </span>
+          ) : null}
           <StableText
             k="common.balance"
             vars={{

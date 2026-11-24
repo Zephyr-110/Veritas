@@ -1017,6 +1017,7 @@ export function SandboxCapsule() {
     isSandbox,
     sandboxPublicKey,
     balance,
+    balanceStale,
     storageAvailable,
     entering,
     txPending,
@@ -1076,12 +1077,17 @@ export function SandboxCapsule() {
         <span
           className={cx(
             "h-1.5 w-1.5 rounded-full",
-            locked ? "live-dot bg-[var(--warn)]" : "bg-[var(--ink-2)]"
+            locked || balanceStale ? "live-dot bg-[var(--warn)]" : "bg-[var(--ink-2)]"
           )}
         />
         <span className="num whitespace-nowrap">
           {t("sandbox.capsule", { addr: shorten(addr, 4, 4), usdt: usdtText })}
         </span>
+        {balanceStale ? (
+          <span className="text-[10px] font-medium text-[var(--warn)]">
+            {t("freshness.cachedTag")}
+          </span>
+        ) : null}
         <ChevronDown
           className={cx("h-3 w-3 text-zinc-400 transition-transform", menuOpen && "rotate-180")}
           aria-hidden
@@ -1139,8 +1145,18 @@ export function SandboxCapsule() {
                 <span className="text-zinc-500">USDT / SOL</span>
                 <span className="num font-medium text-white">
                   {usdtText} USDT · {solText} SOL
+                  {balanceStale ? (
+                    <span className="ml-1.5 text-[11px] text-[var(--warn)]">
+                      ({t("freshness.cachedTag")})
+                    </span>
+                  ) : null}
                 </span>
               </div>
+              {balanceStale ? (
+                <p role="status" className="text-[11px] leading-relaxed text-[var(--warn)]">
+                  <StableText k="freshness.staleBalance" block />
+                </p>
+              ) : null}
             </div>
 
             {txPending ? (

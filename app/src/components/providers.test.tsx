@@ -50,6 +50,7 @@ describe("Providers refresh invalidation", () => {
     expect(screen.getByRole("button", { name: "nonce:1" })).toBeInTheDocument();
     expect(spy).toHaveBeenCalledWith({ queryKey: ["markets"], refetchType: "all" });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["market"], refetchType: "all" });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["position"], refetchType: "all" });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["positions"], refetchType: "all" });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["redemptions"], refetchType: "all" });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["sandbox-balance"], refetchType: "all" });

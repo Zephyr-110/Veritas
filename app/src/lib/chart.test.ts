@@ -74,6 +74,40 @@ describe("fetchCandles", () => {
     expect(url).toContain(encodeURIComponent(new Date(now * 1000).toISOString()));
   });
 
+  it("≤1 小时短盘按开盘前少量前导锚定（2m/15m/1h live 与 ended）", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () => new Response(JSON.stringify([]), { status: 200 })
+    );
+
+    const now = 1_700_000_000;
+    // 2m live market (expiry - 120 = openTs, lead = 15m)
+    const exp2m = now + 90;
+    await fetchCandles("BTC-USD", exp2m, now, 120);
+    const url2m = String(fetchSpy.mock.calls[0][0]);
+    expect(url2m).toContain("granularity=60");
+    expect(url2m).toContain(encodeURIComponent(new Date((exp2m - 120 - 900) * 1000).toISOString()));
+    expect(url2m).not.toContain(encodeURIComponent(new Date((exp2m - 4.5 * 3600) * 1000).toISOString()));
+
+    // 15m ended market (lead = 15m, postPad = 450s)
+    const exp15m = now - 120;
+    await fetchCandles("ETH-USD", exp15m, now, 900);
+    const url15m = String(fetchSpy.mock.calls[1][0]);
+    expect(url15m).toContain(encodeURIComponent(new Date((exp15m - 900 - 900) * 1000).toISOString()));
+    expect(url15m).toContain(encodeURIComponent(new Date((exp15m + 450) * 1000).toISOString()));
+
+    // 1h live market (lead = 30m)
+    const exp1h = now + 1800;
+    await fetchCandles("SOL-USD", exp1h, now, 3600);
+    const url1h = String(fetchSpy.mock.calls[2][0]);
+    expect(url1h).toContain(encodeURIComponent(new Date((exp1h - 3600 - 1800) * 1000).toISOString()));
+
+    // 24h long market stays on 23h / 300s long window
+    await fetchCandles("BTC-USD", now + 24 * 3600, now, 24 * 3600);
+    const url24h = String(fetchSpy.mock.calls[3][0]);
+    expect(url24h).toContain("granularity=300");
+    expect(url24h).toContain(encodeURIComponent(new Date((now - 23 * 3600) * 1000).toISOString()));
+  });
+
   it("HTTP 非 2xx 时抛错", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("err", { status: 502 }));
     await expect(fetchCandles("BTC-USD", 1_700_001_000, 1_700_000_000)).rejects.toThrow(

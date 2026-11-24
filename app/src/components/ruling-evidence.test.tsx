@@ -143,13 +143,24 @@ describe("RulingEvidence component", () => {
 
     await waitFor(() => expect(screen.getByText("Missing reports: 0")).toBeInTheDocument());
     await waitFor(() => expect(screen.getAllByRole("link", { name: "Transmission" })).toHaveLength(2));
-    expect(screen.getByText("7201555/2")).toBeInTheDocument();
-    expect(screen.getByText("7201555/3")).toBeInTheDocument();
-    expect(screen.getByText("41922063")).toBeInTheDocument();
-    expect(screen.getByText("41922064")).toBeInTheDocument();
+    const preId = screen.getByText(/7201555\/2/);
+    const postId = screen.getByText(/7201555\/3/);
+    const preCounter = screen.getByText(/41922063/);
+    const postCounter = screen.getByText(/41922064/);
+    expect(preId.closest("a")).toBeNull();
+    expect(postId.closest("a")).toBeNull();
+    expect(preCounter.closest("a")).toBeNull();
+    expect(postCounter.closest("a")).toBeNull();
 
     const postPriceEl = screen.getByText("63402.228");
     expect(postPriceEl.tagName).toBe("STRONG");
+    expect(postPriceEl.closest("a")).toBeNull();
+
+    const transmissionLinks = screen.getAllByRole("link", { name: "Transmission" });
+    expect(transmissionLinks[0]).toHaveAttribute("href", "https://solscan.io/tx/push-pre-sig?cluster=devnet");
+    expect(transmissionLinks[1]).toHaveAttribute("href", "https://solscan.io/tx/push-post-sig?cluster=devnet");
+    expect(preId.closest("p")?.querySelectorAll("a")).toHaveLength(1);
+    expect(postId.closest("p")?.querySelectorAll("a")).toHaveLength(1);
 
     expect(
       screen.getByText(
@@ -185,8 +196,8 @@ describe("RulingEvidence component", () => {
 
     await waitFor(() => expect(screen.getByText("No witnessed counters")).toBeInTheDocument());
     await waitFor(() => expect(screen.getAllByRole("link", { name: "Transmission" })).toHaveLength(2));
-    expect(screen.getByText("7201493/5")).toBeInTheDocument();
-    expect(screen.getByText("7201493/6")).toBeInTheDocument();
+    expect(screen.getByText(/7201493\/5/).closest("a")).toBeNull();
+    expect(screen.getByText(/7201493\/6/).closest("a")).toBeNull();
     expect(screen.queryByText(/Missing reports/i)).toBeNull();
   });
 });

@@ -25,12 +25,30 @@ export function chartPair(feedKey?: string | null): string | null {
  * (no CORS or geo surprises, and the source is labelled in the UI).
  * Reference prices only — settlement always uses signed Chainlink OCR2 reports.
  */
-export async function fetchCandles(pair: string, expiry: number, now: number): Promise<Candle[]> {
+export async function fetchCandles(
+  pair: string,
+  expiry: number,
+  now: number,
+  durationSec?: number | null
+): Promise<Candle[]> {
   const ended = now > expiry;
   let start: number;
   let end: number;
   let granularity: number;
-  if (ended) {
+  if (durationSec != null && durationSec > 0 && durationSec <= 3600) {
+    // Anchor short rounds shortly before open instead of a fixed multi-hour lookback.
+    const openTs = expiry - durationSec;
+    const leadSec = Math.max(15 * 60, Math.round(durationSec * 0.5));
+    granularity = 60;
+    if (ended) {
+      const postPad = Math.min(600, Math.max(300, Math.round(durationSec * 0.5)));
+      end = expiry + postPad;
+      start = openTs - leadSec;
+    } else {
+      end = now;
+      start = Math.min(openTs - leadSec, now - 15 * 60);
+    }
+  } else if (ended) {
     end = expiry + 600;
     start = end - 4.2 * 3600;
     granularity = 60;

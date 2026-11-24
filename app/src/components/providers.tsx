@@ -236,6 +236,7 @@ function SettingsInner({ children }: { children: ReactNode }) {
     setNonce((n) => n + 1);
     void queryClient.invalidateQueries({ queryKey: ["markets"], refetchType: "all" });
     void queryClient.invalidateQueries({ queryKey: ["market"], refetchType: "all" });
+    void queryClient.invalidateQueries({ queryKey: ["position"], refetchType: "all" });
     void queryClient.invalidateQueries({ queryKey: ["visible-vaults"] });
     void queryClient.invalidateQueries({ queryKey: ["positions"], refetchType: "all" });
     void queryClient.invalidateQueries({ queryKey: ["redemptions"], refetchType: "all" });

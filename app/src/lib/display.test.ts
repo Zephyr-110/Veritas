@@ -11,6 +11,8 @@ import {
   kindLabelKey,
   kindTone,
   listSection,
+  marketDurationBucket,
+  marketDurationSec,
   marketKind,
   money,
   questionTitle,
@@ -219,5 +221,23 @@ describe("display", () => {
     expect(hasBet(EMPTY_POSITION)).toBe(false);
     expect(hasBet({ ...EMPTY_POSITION, yes: 1n })).toBe(true);
     expect(hasBet({ ...EMPTY_POSITION, no: 1n })).toBe(true);
+  });
+
+  it("marketDurationSec 与 marketDurationBucket 识别 EN/ZH 模板时长并忽略自定义标题", () => {
+    expect(marketDurationSec({ title: "BTC/USD at or above opening price in 2 min?" })).toBe(120);
+    expect(marketDurationSec({ title: "ETH/USD 15 分钟后能站上开盘价吗？" })).toBe(900);
+    expect(marketDurationSec({ title: "SOL/USD below 200 in 1 hour?" })).toBe(3600);
+    expect(marketDurationSec({ title: "LINK/USD at or above opening price in 24 hours?" })).toBe(86400);
+    expect(marketDurationSec({ title: "BTC/USD 1 天后能站上 90,000 吗？" })).toBe(86400);
+    expect(marketDurationSec({ title: "BTC/USD >= 73,479 @ 2026-01-01" })).toBeNull();
+    expect(marketDurationSec({ title: "Custom freeform title" })).toBeNull();
+
+    expect(marketDurationBucket({ title: "BTC/USD at or above opening price in 2 min?" })).toBe("2m");
+    expect(marketDurationBucket({ title: "BTC/USD above 90,000 in 120 sec?" })).toBe("2m");
+    expect(marketDurationBucket({ title: "ETH/USD at or above opening price in 15 min?" })).toBe("15m");
+    expect(marketDurationBucket({ title: "SOL/USD at or above opening price in 24 hours?" })).toBe("24h");
+    expect(marketDurationBucket({ title: "SOL/USD 1 天后能站上开盘价吗？" })).toBe("24h");
+    expect(marketDurationBucket({ title: "LINK/USD above 20 in 1 hour?" })).toBeNull();
+    expect(marketDurationBucket({ title: "BTC/USD >= 73,479 @ 2026-01-01" })).toBeNull();
   });
 });

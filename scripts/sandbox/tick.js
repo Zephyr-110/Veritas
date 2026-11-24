@@ -34,6 +34,7 @@ const DEFAULT_RPC = "https://api.devnet.solana.com";
 const DEFAULT_PROGRAM_ID = "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER";
 const DEFAULT_COLLATERAL_MINT = "CtiAxpKmXtK2bupa59GN6GPYXQiPPYUfSqnY1pgMD7QG";
 const DEFAULT_ASSETS = "btc,eth,sol,link";
+const RESOLVE_WINDOW_SEC = 172_800;
 
 const ASSET_CATALOG = {
   btc: {
@@ -104,6 +105,7 @@ Environment variables:
   SANDBOX_BET_USDT             Opening bot bet size in USDT (default: 2)
   SANDBOX_TITLE                Optional title override when using a single asset
   SANDBOX_STATE_PATH           State JSON file path (default: scripts/sandbox/state.json)
+  SANDBOX_SETTLE_MAX_PER_TICK  Max expired line markets woken per tick (default: 4)
   SANDBOX_RECYCLE_FUNDS        Recycle settled LP + winnings + empty ATAs (default: true)
   SANDBOX_DAILY_MAX_MARKETS    Max markets created per UTC day, 0=unlimited (default: 0)
   SANDBOX_MIN_SOL_LAMPORTS     Minimum operator SOL balance guard (default: 30000000)
@@ -170,6 +172,10 @@ function parseAssets(rawList) {
 }
 
 function defaultTitleForAsset(symbol, durationSec) {
+  if (durationSec >= 3600 && durationSec % 3600 === 0) {
+    const hours = durationSec / 3600;
+    return `${symbol} at or above opening price in ${hours} ${hours === 1 ? "hour" : "hours"}?`;
+  }
   if (durationSec % 60 === 0) {
     return `${symbol} at or above opening price in ${durationSec / 60} min?`;
   }
@@ -194,6 +200,7 @@ function getConfig() {
     seedUsdt: Math.max(1.01, envNum("SANDBOX_SEED_USDT", 150)),
     betUsdt: Math.max(0.01, envNum("SANDBOX_BET_USDT", 2)),
     titleOverride,
+    settleMaxPerTick: Math.max(1, Math.round(envNum("SANDBOX_SETTLE_MAX_PER_TICK", 4))),
     recycleFunds: envBool("SANDBOX_RECYCLE_FUNDS", true),
     dailyMaxMarkets: Math.max(0, Math.round(envNum("SANDBOX_DAILY_MAX_MARKETS", 0))),
     minSolLamports: Math.max(0, Math.round(envNum("SANDBOX_MIN_SOL_LAMPORTS", 30_000_000))),
@@ -662,20 +669,115 @@ async function buildGetCollateralIxs(program, args) {
   ];
 }
 
-function scheduleWatches(cfg, settleScriptPath, entries) {
-  const now = Date.now() / 1000;
-  const due = entries.filter(e => e.status === "open" && e.expiry > now - WATCH_AFTER_SEC
-    && e.expiry <= now + 60 + WAKE_SEC).sort((a, b) => a.expiry - b.expiry);
-  for (const entry of due.slice(0, 2)) {
-    const asset = cfg.assets.find(a => a.key === entry.asset);
+function resolveAssetForEntry(cfg, entry) {
+  const configured = cfg?.assets?.find((a) => a.key === entry?.asset);
+  if (configured) return configured;
+  const spec = ASSET_CATALOG[entry?.asset];
+  if (!spec) return null;
+  return {
+    key: spec.key,
+    symbol: spec.symbol,
+    feed: new PublicKey(envStr([spec.feedEnv], spec.defaultFeed)),
+    ocr2State: new PublicKey(envStr([spec.stateEnv], spec.defaultOcr2State)),
+  };
+}
+
+function entryTargetEndTs(entry) {
+  return Number(entry.endTs > 0 ? entry.endTs : entry.expiry);
+}
+
+function selectWatchEntries(entries, nowSec = Date.now() / 1000) {
+  return (entries || [])
+    .filter((e) => {
+      if (e.status !== "open" || !e.address) return false;
+      const targetEndTs = entryTargetEndTs(e);
+      return targetEndTs > nowSec - WATCH_AFTER_SEC && targetEndTs <= nowSec + 60 + WAKE_SEC;
+    })
+    .sort((a, b) => entryTargetEndTs(a) - entryTargetEndTs(b))
+    .slice(0, 2);
+}
+
+function selectExpiredSettleEntries(
+  entries,
+  nowSec = Math.floor(Date.now() / 1000),
+  maxPerTick = 4,
+  excludedAddresses = new Set()
+) {
+  return (entries || [])
+    .filter((e) => {
+      if (e.status !== "open" || !e.address || excludedAddresses.has(e.address)) return false;
+      const targetEndTs = entryTargetEndTs(e);
+      if (!Number.isFinite(targetEndTs) || targetEndTs <= 0) return false;
+      const pastWatchWindow = targetEndTs <= nowSec - WATCH_AFTER_SEC;
+      const pastMinAge = targetEndTs <= nowSec - 4;
+      const inResolveWindow = nowSec <= Number(e.expiry || targetEndTs) + RESOLVE_WINDOW_SEC;
+      return inResolveWindow && (pastWatchWindow || pastMinAge);
+    })
+    .sort((a, b) => entryTargetEndTs(b) - entryTargetEndTs(a))
+    .slice(0, maxPerTick);
+}
+
+function scheduleWatches(cfg, settleScriptPath, entries, nowSec = Date.now() / 1000) {
+  const due = selectWatchEntries(entries, nowSec);
+  for (const entry of due) {
+    const asset = resolveAssetForEntry(cfg, entry);
     if (!asset) continue;
-    const child = spawn(process.execPath, [settleScriptPath, entry.address, "--watch", asset.feed.toBase58()], {
-      env: { ...process.env, PROGRAM_ID: cfg.programId.toBase58(), SOLANA_RPC: cfg.rpcUrl, ANCHOR_WALLET: cfg.walletPath },
-      detached: true, windowsHide: true, stdio: ["ignore", "inherit", "inherit"],
-    });
-    child.on("error", err => console.warn(`[wake] ${entry.address}: ${err.message}`));
+    const child = spawn(
+      process.execPath,
+      [settleScriptPath, entry.address, "--watch", asset.feed.toBase58()],
+      {
+        env: {
+          ...process.env,
+          PROGRAM_ID: cfg.programId.toBase58(),
+          SOLANA_RPC: cfg.rpcUrl,
+          ANCHOR_WALLET: cfg.walletPath,
+        },
+        detached: true,
+        windowsHide: true,
+        stdio: ["ignore", "inherit", "inherit"],
+      }
+    );
+    child.on("error", (err) => console.warn(`[wake] ${entry.address}: ${err.message}`));
     child.unref();
   }
+  return due;
+}
+
+function scheduleExpiredSettlements(
+  cfg,
+  settleScriptPath,
+  entries,
+  nowSec = Math.floor(Date.now() / 1000),
+  excludedAddresses = new Set()
+) {
+  const due = selectExpiredSettleEntries(
+    entries,
+    nowSec,
+    cfg.settleMaxPerTick ?? 4,
+    excludedAddresses
+  );
+  for (const entry of due) {
+    const ageSec = Math.max(0, Math.round(nowSec - entryTargetEndTs(entry)));
+    console.log(`[self-settle] waking ${entry.address} (expired ${ageSec}s ago)`);
+    const child = spawn(
+      process.execPath,
+      [settleScriptPath, entry.address, "--keypair", cfg.walletPath, "--rpc", cfg.rpcUrl],
+      {
+        env: {
+          ...process.env,
+          PROGRAM_ID: cfg.programId.toBase58(),
+          SOLANA_RPC: cfg.rpcUrl,
+          ANCHOR_WALLET: cfg.walletPath,
+        },
+        detached: true,
+        windowsHide: true,
+        stdio: ["ignore", "inherit", "inherit"],
+      }
+    );
+    child.on("error", (err) => console.warn(`[self-settle] ${entry.address}: ${err.message}`));
+    child.unref();
+  }
+  return due;
 }
 
 async function safeTokenAmount(connection, ata, tokenProgram) {
@@ -867,6 +969,8 @@ async function batchSyncOpenMarkets(connection, state, nowSec) {
       }
       const decoded = decodeMarket(Buffer.from(info.data));
       entry.asset = inferAssetKey(entry, decoded.ocr2State);
+      entry.expiry = decoded.expiry;
+      entry.endTs = decoded.endTs;
       if (decoded.status !== "open") {
         entry.status = decoded.status;
         entry.winner = decoded.winner;
@@ -1000,10 +1104,12 @@ async function runTick() {
   const state = loadState(cfg.statePath);
   let nowSec = Math.floor(Date.now() / 1000);
 
-  // 1. Batch-sync open tracked markets, infer asset keys, and schedule pre-expiry watches
+  // 1. Batch-sync open tracked markets, infer asset keys, and self-sweep settlement
   const liveAssets = await batchSyncOpenMarkets(connection, state, nowSec);
   saveState(cfg.statePath, state);
-  scheduleWatches(cfg, settleScriptPath, state.markets);
+  const watchDue = scheduleWatches(cfg, settleScriptPath, state.markets, nowSec);
+  const watchedAddrs = new Set(watchDue.map((e) => e.address));
+  scheduleExpiredSettlements(cfg, settleScriptPath, state.markets, nowSec, watchedAddrs);
 
   // 2. Open missing staggered markets FIRST (guarantees zero gap even if settlement RPC stalls)
   const missingSlots = cfg.assets
@@ -1172,4 +1278,45 @@ if (require.main === module) main().catch((err) => {
   process.exit(1);
 });
 
-module.exports = { loadIdl, loadKeypair, fetchMintMeta, ataOf, ensureAtaIx };
+module.exports = {
+  ASSET_CATALOG,
+  DEFAULT_RPC,
+  DEFAULT_PROGRAM_ID,
+  DEFAULT_COLLATERAL_MINT,
+  DEFAULT_ASSETS,
+  MARKET_ID_BYTES,
+  FEED_MIN_LEN,
+  FEED_DECIMALS_OFFSET,
+  FEED_COUNTER_OFFSET,
+  FEED_TS_OFFSET,
+  FEED_ANSWER_OFFSET,
+  RESOLVE_WINDOW_SEC,
+  envStr,
+  envNum,
+  envBool,
+  parseAssets,
+  defaultTitleForAsset,
+  resolveSettleScript,
+  loadIdl,
+  loadKeypair,
+  utcDayKey,
+  loadState,
+  saveState,
+  encodePrediction,
+  decodeChainlinkFeed,
+  fetchMintMeta,
+  ataOf,
+  ensureAtaIx,
+  safeTokenAmount,
+  sendAndConfirm,
+  buildCreateMarketIxs,
+  buildUserBetOnIxs,
+  resolveAssetForEntry,
+  selectWatchEntries,
+  selectExpiredSettleEntries,
+  scheduleWatches,
+  scheduleExpiredSettlements,
+  batchSyncOpenMarkets,
+  recycleFinalizedEntries,
+  isActiveWindowOpen,
+};

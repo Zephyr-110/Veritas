@@ -6,7 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useMarket } from "@/hooks/use-market";
 import { useNow } from "@/hooks/use-now";
 import { useFeeds } from "@/hooks/use-feeds";
-import { formatWhen, hasBet, isMarketVoided, marketKind, money, questionTitle } from "@/lib/display";
+import { formatWhen, hasBet, isMarketVoided, marketDurationSec, marketKind, money, questionTitle } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
 import { feedByState, formatFeedPrice, thresholdToHuman } from "@/lib/feeds";
 import { countdown, explorerAccount, formatCents, formatFixed, formatUnix, formatYesNo, marketIdHex, shorten } from "@/lib/format";
@@ -32,7 +32,8 @@ type Spot = { price: number; publishTime: number | null } | null;
 export default function MarketDetailPage() {
   const params = useParams<{ address: string }>();
   const address = params.address;
-  const { market, position, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarket(address);
+  const { market, position, positionStale, loading, refreshing, updatedAt, isStaleError, error, reload } =
+    useMarket(address);
   const { effectivePublicKey, isSandbox } = useGuestSession();
   const now = useNow(1000);
   const { quotes, ready } = useFeeds();
@@ -127,6 +128,7 @@ export default function MarketDetailPage() {
           pair={pair}
           symbol={market.feedSymbol}
           expiry={market.expiry}
+          durationSec={marketDurationSec(market)}
           thresholdValue={Number(market.threshold) * 10 ** -market.priceDecimals}
           thresholdLabel={humanThreshold}
         />}
@@ -136,6 +138,7 @@ export default function MarketDetailPage() {
             <PositionCard
               market={market}
               position={position}
+              stale={positionStale}
               connected={!!effectivePublicKey}
               spot={spot}
               now={now}
@@ -146,7 +149,7 @@ export default function MarketDetailPage() {
           </Reveal>
         </div>
         <aside className="desk-rail stack-4 lg:col-start-2 lg:row-start-1 lg:row-span-2">
-          {live ? <DeskSwitcher market={market} position={position} /> : null}
+          {live ? <DeskSwitcher market={market} position={position} positionStale={positionStale} /> : null}
           <SettleDesk market={market} position={position} />
           {!live &&
           isFinalizedStatus(market.status) &&
@@ -189,7 +192,15 @@ function PoolFactsCard({ market, humanThreshold }: { market: MarketView; humanTh
   );
 }
 
-function DeskSwitcher({ market, position }: { market: MarketView; position: UserPosition }) {
+function DeskSwitcher({
+  market,
+  position,
+  positionStale = false,
+}: {
+  market: MarketView;
+  position: UserPosition;
+  positionStale?: boolean;
+}) {
   const [desk, setDesk] = useState<"trade" | "lp">("trade");
   return (
     <div className="stack-3">
@@ -202,7 +213,7 @@ function DeskSwitcher({ market, position }: { market: MarketView; position: User
         ]}
       />
       {desk === "trade" ? (
-        <TradeDesk market={market} position={position} />
+        <TradeDesk market={market} position={position} positionStale={positionStale} />
       ) : (
         <LpDesk market={market} position={position} />
       )}
@@ -434,12 +445,14 @@ function StatusBand({
 function PositionCard({
   market,
   position,
+  stale = false,
   connected,
   spot,
   now,
 }: {
   market: MarketView;
   position: UserPosition;
+  stale?: boolean;
   connected: boolean;
   spot: Spot;
   now: number;
@@ -481,8 +494,15 @@ function PositionCard({
 
   return (
     <Card className="stack-3">
-      <div className="section-title">
-        <StableText k="me.positions" />
+      <div className="flex items-center justify-between gap-2">
+        <div className="section-title">
+          <StableText k="me.positions" />
+        </div>
+        {connected && stale ? (
+          <span className="border border-[var(--warn)]/40 px-1.5 py-0.5 text-[10px] font-medium text-[var(--warn)]">
+            <StableText k="freshness.cachedTag" />
+          </span>
+        ) : null}
       </div>
       {!connected ? (
         <p className="text-sm text-zinc-500">

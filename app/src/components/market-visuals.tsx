@@ -42,12 +42,14 @@ export function PriceChartCard({
   pair,
   symbol,
   expiry,
+  durationSec,
   thresholdValue,
   thresholdLabel,
 }: {
   pair: string;
   symbol: string;
   expiry: number;
+  durationSec?: number | null;
   thresholdValue: number;
   thresholdLabel: string;
 }) {
@@ -59,7 +61,7 @@ export function PriceChartCard({
     let alive = true;
     const load = async () => {
       try {
-        const data = await fetchCandles(pair, expiry, Math.floor(Date.now() / 1000));
+        const data = await fetchCandles(pair, expiry, Math.floor(Date.now() / 1000), durationSec);
         if (alive) {
           setCandles(aggregateCandles(data));
           setFailed(false);
@@ -74,7 +76,7 @@ export function PriceChartCard({
       alive = false;
       window.clearInterval(timer);
     };
-  }, [pair, expiry]);
+  }, [pair, expiry, durationSec]);
 
   const body = useMemo(() => {
     if (!candles || candles.length < 2) return null;

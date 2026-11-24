@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useMarkets, useMarketPhaseTime } from "@/hooks/use-markets";
-import { listSection, marketKind, questionTitle } from "@/lib/display";
+import { listSection, marketDurationBucket, marketKind, questionTitle, type DurationFilter } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
 import { MarketTable } from "@/components/market-table";
 import { MarketsSkeleton } from "@/components/skeletons";
@@ -16,12 +16,23 @@ import type { MarketView } from "@/lib/markets";
 
 type Tape = "hot" | "history";
 
+const DURATION_FILTERS: ReadonlyArray<{
+  id: DurationFilter;
+  labelKey: "markets.filterAll" | "markets.filter2m" | "markets.filter15m" | "markets.filter24h";
+}> = [
+  { id: "all", labelKey: "markets.filterAll" },
+  { id: "2m", labelKey: "markets.filter2m" },
+  { id: "15m", labelKey: "markets.filter15m" },
+  { id: "24h", labelKey: "markets.filter24h" },
+];
+
 export default function MarketsPage() {
   const publicKey = useEffectivePublicKey();
   const { markets, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarkets();
   const now = useMarketPhaseTime(markets);
   const t = useT();
   const [tape, setTape] = useState<Tape>("hot");
+  const [duration, setDuration] = useState<DurationFilter>("all");
   const [historyLimit, setHistoryLimit] = useState(30);
   const showSim = !publicKey && !loading && markets.filter((m) => listSection(marketKind(m, now)) === "live").length === 0;
 
@@ -33,15 +44,26 @@ export default function MarketsPage() {
     return () => window.cancelAnimationFrame(raf);
   }, [showSim]);
 
-  const groups = useMemo(() => {
+  const unfilteredGroups = useMemo(() => {
     const live = markets.filter((m) => listSection(marketKind(m, now)) === "live").sort((a, b) => a.expiry - b.expiry);
     const next = markets.filter((m) => listSection(marketKind(m, now)) === "next").sort((a, b) => a.expiry - b.expiry);
-    const ended = markets.filter((m) => listSection(marketKind(m, now)) === "ended").sort((a, b) => b.expiry - a.expiry);
-    return { live, next, ended };
+    return { live, next };
   }, [markets, now]);
 
-  const nextMarket: MarketView | null = groups.next[0] ?? null;
-  const currentLive = [...groups.live].sort((a, b) => a.expiry - b.expiry)[0] ?? null;
+  const filteredMarkets = useMemo(
+    () => (duration === "all" ? markets : markets.filter((m) => marketDurationBucket(m) === duration)),
+    [duration, markets]
+  );
+
+  const groups = useMemo(() => {
+    const live = filteredMarkets.filter((m) => listSection(marketKind(m, now)) === "live").sort((a, b) => a.expiry - b.expiry);
+    const next = filteredMarkets.filter((m) => listSection(marketKind(m, now)) === "next").sort((a, b) => a.expiry - b.expiry);
+    const ended = filteredMarkets.filter((m) => listSection(marketKind(m, now)) === "ended").sort((a, b) => b.expiry - a.expiry);
+    return { live, next, ended };
+  }, [filteredMarkets, now]);
+
+  const nextMarket: MarketView | null = unfilteredGroups.next[0] ?? null;
+  const currentLive = [...unfilteredGroups.live].sort((a, b) => a.expiry - b.expiry)[0] ?? null;
 
   if (error && !markets.length) {
     return (
@@ -126,7 +148,10 @@ export default function MarketsPage() {
               <button
                 key={id}
                 type="button"
-                onClick={() => setTape(id)}
+                onClick={() => {
+                  setTape(id);
+                  setHistoryLimit(30);
+                }}
                 className={
                   "px-3 py-1 text-xs " +
                   (tape === id ? "seg-on font-medium" : "text-zinc-400 hover:text-white")
@@ -136,6 +161,30 @@ export default function MarketsPage() {
               </button>
             ))}
           </div>
+        </div>
+        <div className="cluster-2 flex-wrap" role="group" aria-label={t("markets.title")}>
+          {DURATION_FILTERS.map((chip) => {
+            const active = duration === chip.id;
+            return (
+              <button
+                key={chip.id}
+                type="button"
+                aria-pressed={active}
+                onClick={() => {
+                  setDuration(chip.id);
+                  setHistoryLimit(30);
+                }}
+                className={
+                  "border px-3 py-1 text-xs transition-colors " +
+                  (active
+                    ? "border-[var(--line)] bg-[var(--seg-bg)] font-medium text-white"
+                    : "border-[var(--hair)] text-zinc-400 hover:border-[var(--line)] hover:text-white")
+                }
+              >
+                <StableText k={chip.labelKey} align="center" />
+              </button>
+            );
+          })}
         </div>
         <Reveal>
           <div className="stack-5">
@@ -152,7 +201,11 @@ export default function MarketsPage() {
                     title={<StableText k={section.emptyTitleKey} />}
                     body={<StableText k={section.emptyBodyKey} block />}
                     action={
-                      section.key === "next" && groups.live.length === 0 ? undefined : (
+                      duration !== "all" ? (
+                        <Button type="button" tone="secondary" onClick={() => setDuration("all")}>
+                          <StableText k="markets.clearFilter" align="center" />
+                        </Button>
+                      ) : section.key === "next" && groups.live.length === 0 ? undefined : (
                         <Link href="/create">
                           <Button type="button" tone={section.key === "live" ? "primary" : "secondary"}>
                             <StableText k="markets.emptyCta" align="center" />
@@ -171,7 +224,7 @@ export default function MarketsPage() {
             ))}
           </div>
         </Reveal>
-        {!publicKey && groups.live.length === 0 ? (
+        {!publicKey && unfilteredGroups.live.length === 0 ? (
           <Reveal>
             <SimOrderPreview />
           </Reveal>

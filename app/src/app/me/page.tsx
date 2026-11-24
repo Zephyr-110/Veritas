@@ -1,19 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useConnection } from "@solana/wallet-adapter-react";
+import { PublicKey } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { ExternalLink } from "lucide-react";
 import { useMarketPhaseTime, useMarkets } from "@/hooks/use-markets";
 import { useProgram } from "@/hooks/use-program";
+import { subscribeAccountsWithFallback, type SyncMode } from "@/lib/account-sync";
 import { fetchPositionsBatch, isFinalizedStatus, isVoidedStatus, pendingValueOf, type MarketView, type UserPosition } from "@/lib/markets";
 import { fetchRedemptions } from "@/lib/history";
 import { localizeError } from "@/lib/errors";
 import { explorerAccount, explorerTx, formatFixed, formatUnix, shorten, toUi } from "@/lib/format";
 import { kindLabel, marketKind, questionTitle, timeCopy } from "@/lib/display";
+import { parsePubkey } from "@/lib/program";
+import { ataOf } from "@/lib/tokens";
 import { useSettings } from "@/components/providers";
-import { useGuestSession } from "@/components/guest-session";
-import { useQuery } from "@tanstack/react-query";
+import { useGuestSession, type SandboxBalance } from "@/components/guest-session";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, CopyText, DataFreshness, Reveal, StableText, StateBlock, WalletButton, onSpot, openFaucetMenu, openWalletModal } from "@/components/ui";
 import { TickingCountdown } from "@/components/live";
 import { MeSkeleton } from "@/components/skeletons";
@@ -77,6 +82,8 @@ export default function MePage() {
     entering,
     locked,
     lastError,
+    balanceStale,
+    balanceUpdatedAt,
     enterSandbox,
   } = useGuestSession();
   const { connection } = useConnection();
@@ -85,7 +92,9 @@ export default function MePage() {
   const { settings } = useSettings();
   const now = useMarketPhaseTime(markets);
   const t = useT();
+  const queryClient = useQueryClient();
   const [guideOpen, setGuideOpen] = useState(false);
+  const [syncMode, setSyncMode] = useState<SyncMode>("live");
   const programId = program?.programId.toBase58() ?? "";
   const wallet = effectivePublicKey?.toBase58() ?? "";
   const marketIds = markets.map((m) => m.address.toBase58()).join(",");
@@ -94,6 +103,17 @@ export default function MePage() {
     queryKey: ["positions", connection.rpcEndpoint, programId, wallet, marketIds],
     queryFn: async () => {
       const all = await fetchPositionsBatch(connection, program!.programId, markets, effectivePublicKey!);
+      if (isSandbox && wallet) {
+        const match = all.find((r) => r.market.collateralMint.toBase58() === settings.collateralMint.trim());
+        if (match) {
+          const balKey = ["sandbox-balance", connection.rpcEndpoint, settings.collateralMint, wallet];
+          queryClient.setQueryData<SandboxBalance>(balKey, (prev) =>
+            prev && prev.usdtAtoms !== match.position.collateral
+              ? { ...prev, usdtAtoms: match.position.collateral }
+              : prev
+          );
+        }
+      }
       return all.filter(
         (r) =>
           r.position.yes > 0n ||
@@ -110,6 +130,43 @@ export default function MePage() {
     queryFn: () => fetchRedemptions(connection, effectivePublicKey!, program!.programId),
     enabled: Boolean(program && effectivePublicKey),
   });
+
+  const posRefetchRef = useRef(positionsQuery.refetch);
+  posRefetchRef.current = positionsQuery.refetch;
+  const redRefetchRef = useRef(redemptionsQuery.refetch);
+  redRefetchRef.current = redemptionsQuery.refetch;
+  const hasMarketList = markets.length > 0;
+  const hasProgram = Boolean(program);
+  const collateralTp =
+    markets.find((m) => m.collateralMint.toBase58() === settings.collateralMint.trim())?.tokenProgram ??
+    TOKEN_PROGRAM_ID;
+  const tpAddr = collateralTp.toBase58();
+
+  useEffect(() => {
+    if (!wallet || !hasProgram) {
+      setSyncMode("live");
+      return;
+    }
+    const ownerPk = new PublicKey(wallet);
+    const mintPk = parsePubkey(settings.collateralMint);
+    const accounts: PublicKey[] = [ownerPk];
+    if (mintPk) {
+      try {
+        accounts.push(ataOf(mintPk, ownerPk, new PublicKey(tpAddr)));
+      } catch {
+        // jsdom Buffer polyfill can disrupt findProgramAddressSync in unit tests.
+      }
+    }
+    return subscribeAccountsWithFallback({
+      connection,
+      accounts,
+      onRefresh: async () => {
+        if (hasMarketList) await posRefetchRef.current({ throwOnError: true });
+        await redRefetchRef.current({ throwOnError: true });
+      },
+      onModeChange: setSyncMode,
+    });
+  }, [connection, hasMarketList, hasProgram, settings.collateralMint, tpAddr, wallet]);
 
   const rows: Row[] = positionsQuery.data ?? [];
   const redemptions = redemptionsQuery.data ?? [];
@@ -224,9 +281,14 @@ export default function MePage() {
           <StableText k="me.title" />
         </h1>
         <DataFreshness
-          updatedAt={updatedAt}
+          updatedAt={Math.max(updatedAt ?? 0, positionsQuery.dataUpdatedAt || 0, isSandbox ? balanceUpdatedAt ?? 0 : 0) || null}
           refreshing={refreshing || positionsQuery.isFetching}
-          staleError={isStaleError}
+          staleError={Boolean(
+            isStaleError ||
+              (positionsQuery.isError && Boolean(positionsQuery.data)) ||
+              syncMode === "stale" ||
+              (isSandbox && balanceStale)
+          )}
           onRefresh={() => {
             void reload();
             void positionsQuery.refetch();
@@ -302,7 +364,7 @@ export default function MePage() {
                   {claimCount > 0 ? (
                     <p className="void-text text-sm leading-6">
                       <StableText
-                        k="me.unclaimedBanner"
+                        k={claimCount === 1 ? "me.unclaimedBannerOne" : "me.unclaimedBanner"}
                         vars={{ count: claimCount, amount: `${claimTotal.toFixed(2)} ${COLLATERAL_SYMBOL}` }}
                         block
                       />

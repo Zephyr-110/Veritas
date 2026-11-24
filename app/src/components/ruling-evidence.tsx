@@ -51,10 +51,10 @@ export function RulingEvidence({ market }: { market: MarketView }) {
           const pushLink = sig && explorerTx(sig, settings.cluster);
           const price = toUi(r.median, market.priceDecimals, market.priceDecimals);
           return <p key={side} className="num text-sm">
-            {t("evidence." + side)} · {t("evidence.id")} <Source href={pushLink}>{r.epoch}/{r.round}</Source>
-            {counts && <> · {t("evidence.counter")} <Source href={witnessLink}>{counts[i]}</Source></>}
-            {" · "}{t("evidence.price")} <Source href={pushLink}>{side === "post" ? <strong>{price}</strong> : price}</Source>
-            {" · "}{t("evidence.time")} <Source href={pushLink}>{new Date(r.observationsTimestamp * 1000).toISOString().replace(".000Z", "Z")}</Source>
+            {t("evidence." + side)} · {t("evidence.id")} {r.epoch}/{r.round}
+            {counts && <> · {t("evidence.counter")} {counts[i]}</>}
+            {" · "}{t("evidence.price")} {side === "post" ? <strong>{price}</strong> : price}
+            {" · "}{t("evidence.time")} {new Date(r.observationsTimestamp * 1000).toISOString().replace(".000Z", "Z")}
             {sig && <> · <Source href={pushLink}>{t("evidence.push")}</Source></>}
           </p>;
         })}

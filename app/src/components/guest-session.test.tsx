@@ -51,6 +51,8 @@ function Harness() {
       <span data-testid="busy">{String(busy)}</span>
       <span data-testid="usdt">{session.balance ? session.balance.usdtAtoms.toString() : "none"}</span>
       <span data-testid="sol">{session.balance ? String(session.balance.solLamports) : "none"}</span>
+      <span data-testid="stale">{String(session.balanceStale)}</span>
+      <span data-testid="mode-sync">{session.balanceSyncMode}</span>
       <span data-testid="err">{session.lastError ?? "none"}</span>
       <button type="button" onClick={() => void session.enterSandbox()}>
         enter
@@ -255,6 +257,7 @@ describe("GuestSessionProvider state machine", () => {
     await waitFor(() => expect(screen.getByTestId("mode")).toHaveTextContent("sandbox"));
     expect(screen.getByTestId("usdt")).toHaveTextContent("30000000");
     expect(screen.getByTestId("sol")).toHaveTextContent("40000000");
+    expect(screen.getByTestId("stale")).toHaveTextContent("false");
 
     // Simulate full page reload (fresh QueryClient + Providers, RPC still hanging)
     unmount();
@@ -262,6 +265,7 @@ describe("GuestSessionProvider state machine", () => {
     await waitFor(() => expect(screen.getByTestId("mode")).toHaveTextContent("sandbox"));
     expect(screen.getByTestId("usdt")).toHaveTextContent("30000000");
     expect(screen.getByTestId("sol")).toHaveTextContent("40000000");
+    expect(screen.getByTestId("stale")).toHaveTextContent("true");
   });
 
   it("shows a target-reached receipt for zero top-ups and logs the backend reason privately on failure", async () => {

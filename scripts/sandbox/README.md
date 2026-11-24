@@ -1,19 +1,23 @@
 # Veritas Sandbox Keeper & Settlement Scripts
 
-Standalone Node 22 scripts (`tick.js` and `settle-all.js`) for running staggered 15-minute deep devnet markets and settling expired markets across the entire Veritas program without Next.js build artifacts or extra npm dependencies.
+Standalone Node 22 scripts (`tick.js`, `daily.js`, and `settle-all.js`) for running staggered 15-minute deep devnet markets, a fixed-time daily 24-hour rotating market line, and settling expired markets across the entire Veritas program without Next.js build artifacts or extra npm dependencies.
 
 ## Architecture
 
-1. **`tick.js` (Market Keeper)**
+1. **`tick.js` (15-Minute Market Keeper + Self-Sweep Settler)**
    - Maintains 4 staggered **15-minute** (`900s`) deep devnet markets (`150 USDT` seed + `2 USDT` alternating initial trade) across `BTC/USD`, `ETH/USD`, `SOL/USD`, and `LINK/USD` at `:00`, `:04`, `:08`, and `:12` offsets (`-5s` before the minute boundary).
    - Because each asset resolves in its staggered slot, one deep 15-minute market finishes every **3–4 minutes** while preserving continuous front-page depth.
    - Execution order per tick:
-     1. Batch-sync status of all tracked `open` markets (`getMultipleAccountsInfo`) and detach pre-expiry `settle.js --watch <feed>` workers (~10s before `endTs`, via `expiry-watch.js`) for immediate settlement. Inside the open ±10-second window, a worker also witnesses the pre-expiry feed counter and its first post-expiry successor. It reuses existing witnesses and caps snapshot submissions at three, including one possible pre-expiry refresh.
+     1. Batch-sync status of all tracked `open` markets (`getMultipleAccountsInfo`), detach pre-expiry `settle.js --watch <feed>` workers (~10s before `endTs`, via `expiry-watch.js`), and immediately **self-sweep** any tracked expired `open` markets via detached `settle.js` workers (targeting ~1 minute post-expiry settlement even if a watch window was missed). Inside the open ±10-second window, a watch worker also witnesses the pre-expiry feed counter and its first post-expiry successor.
      2. Open any missing staggered markets + place `2 USDT` initial bets **first** (zero gap even if settlement RPC calls stall).
-     3. Reclaim LP (`get_liquidity`), redeem winning/voided shares (`get_collateral`), and close empty ATAs **last** (global settlement runs via `--watch` workers and `settle-all.js`).
+     3. Reclaim LP (`get_liquidity`), redeem winning/voided shares (`get_collateral`), and close empty ATAs **last**.
 
-2. **`settle-all.js` (Global Permissionless Settler)**
-   - Decoupled from `state.json`: scans **all** `open` `Market` accounts (`dataSize: 409`, discriminator and status filters) owned by `PROGRAM_ID`—including user-created, sandbox-created, or older bot markets.
+2. **`daily.js` (Daily 24-Hour Rotating Line)**
+   - Opens **one 24-hour** (`86400s`) market per day at a fixed UTC time (`DAILY_OPEN_HOUR_UTC:DAILY_OPEN_MINUTE_UTC`, default `00:00Z`), rotating daily across `BTC/USD -> ETH/USD -> SOL/USD -> LINK/USD` with `~150 USDT` initial LP seed (`DAILY_SEED_USDT=150`) and its own state file (`scripts/sandbox/state-daily.json`), leaving the 15-minute keeper cadence untouched.
+   - Shares the same per-minute B1 self-sweep settlement (`scheduleWatches` + `scheduleExpiredSettlements`) and fund recycling.
+
+3. **`settle-all.js` (Global Fallback Permissionless Settler)**
+   - Retained as global safety net decoupled from `state*.json`: scans **all** `open` `Market` accounts (`dataSize: 409`, discriminator and status filters) owned by `PROGRAM_ID`—including user-created, sandbox-created, or older bot markets.
    - Settles every expired market at least `SETTLE_MIN_AGE_SEC` past `endTs` and still within the inclusive 48-hour settlement window (newest-expired first) by invoking `scripts/settle.js`.
    - After settlement, voids open markets past 48 hours and reclaims operator-created terminal markets strictly more than 30 days after finalization. The creator receives remaining vault collateral and closed-account rent. Each maintenance pass handles up to `SETTLE_MAX_PER_RUN` successful transactions.
    - Supports single cron runs, `--dry-run` inspection, and `--loop` polling daemon mode.
@@ -31,9 +35,11 @@ If copying outside a full repo checkout onto an Ubuntu VPS:
 │   ├── settle.js
 │   └── sandbox/
 │       ├── tick.js
+│       ├── daily.js
 │       ├── expiry-watch.js
 │       ├── settle-all.js
-│       └── state.json         # auto-created by tick.js
+│       ├── state.json         # auto-created by tick.js
+│       └── state-daily.json   # auto-created by daily.js
 └── app/src/idl/prediction_market.json
 ```
 
@@ -41,6 +47,7 @@ Verify offline in any clean directory before enabling cron:
 
 ```bash
 node scripts/sandbox/tick.js --self-check
+node scripts/sandbox/daily.js --self-check
 node scripts/sandbox/settle-all.js --self-check
 ```
 
@@ -90,6 +97,7 @@ SHELL=/bin/bash
 PATH=/usr/local/bin:/usr/bin:/bin
 
 * * * * * flock -n /tmp/veritas-sandbox-tick.lock env SOLANA_RPC=https://api.devnet.solana.com WALLET_PATH=/opt/veritas/operator.json /usr/bin/node /opt/veritas/scripts/sandbox/tick.js >> /var/log/veritas-tick.log 2>&1
+* * * * * flock -n /tmp/veritas-daily-tick.lock env SOLANA_RPC=https://api.devnet.solana.com WALLET_PATH=/opt/veritas/operator.json /usr/bin/node /opt/veritas/scripts/sandbox/daily.js >> /var/log/veritas-daily.log 2>&1
 * * * * * flock -n /tmp/veritas-settle-all.lock env SOLANA_RPC=https://api.devnet.solana.com WALLET_PATH=/opt/veritas/operator.json /usr/bin/node /opt/veritas/scripts/sandbox/settle-all.js >> /var/log/veritas-settle.log 2>&1
 ```
 

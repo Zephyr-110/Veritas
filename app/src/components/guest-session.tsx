@@ -11,10 +11,13 @@ import {
   type ReactNode,
 } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { subscribeAccountsWithFallback, type SyncMode } from "@/lib/account-sync";
 import { parseTxError, isSubmissionRejection } from "@/lib/errors";
 import { explorerTx } from "@/lib/format";
+import type { MarketView, UserPosition } from "@/lib/markets";
 import { parsePubkey } from "@/lib/program";
 import { sendSandboxIxs, type SandboxTxStage } from "@/lib/sandbox-send";
 import { ataOf, fetchMintMeta, unpackAmount } from "@/lib/tokens";
@@ -52,6 +55,9 @@ type GuestSessionCtx = {
   locked: boolean;
   balance: SandboxBalance | null;
   balanceLoading: boolean;
+  balanceStale: boolean;
+  balanceUpdatedAt: number | null;
+  balanceSyncMode: SyncMode;
   lastError: string | null;
   refillNotice: string | null;
   clearError: () => void;
@@ -208,6 +214,9 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
   const [refillNotice, setRefillNotice] = useState<string | null>(null);
   const [entering, setEntering] = useState(false);
   const [txPending, setTxPending] = useState(false);
+  const [mintTokenProgram, setMintTokenProgram] = useState<PublicKey>(TOKEN_PROGRAM_ID);
+  const [balanceSyncMode, setBalanceSyncMode] = useState<SyncMode>("live");
+  const [seededBalance, setSeededBalance] = useState<{ addr: string; at: number } | null>(null);
 
   const keypairRef = useRef<Keypair | null>(null);
   const activeRef = useRef(false);
@@ -297,6 +306,24 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
     [connection?.rpcEndpoint, settings.collateralMint, settings.rpcUrl]
   );
 
+  const convergeSandboxPositions = useCallback(
+    (addr: string, usdtAtoms: bigint) => {
+      const rpc = connection?.rpcEndpoint;
+      if (!rpc) return;
+      for (const q of queryClient.getQueryCache().findAll({ queryKey: ["position", rpc] })) {
+        const qk = q.queryKey;
+        if (qk.length < 5 || qk[4] !== addr || !q.state.data) continue;
+        const m = queryClient.getQueryData<MarketView>(["market", rpc, qk[2], qk[3]]);
+        if (!m || m.collateralMint.toBase58() === settings.collateralMint.trim()) {
+          queryClient.setQueryData<UserPosition>(qk, (prev) =>
+            prev && prev.collateral !== usdtAtoms ? { ...prev, collateral: usdtAtoms } : prev
+          );
+        }
+      }
+    },
+    [connection?.rpcEndpoint, queryClient, settings.collateralMint]
+  );
+
   const seedBalanceFromFaucet = useCallback(
     (
       addr: string,
@@ -320,13 +347,15 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
           usdtDecimals: data.usdtDecimals,
         };
         queryClient.setQueryData<SandboxBalance>(balanceKeyFor(addr), seeded);
+        setSeededBalance({ addr, at: Date.now() });
+        convergeSandboxPositions(addr, seeded.usdtAtoms);
         return seeded;
       } catch {
         // Fallback to live RPC query if response numeric fields cannot be coerced.
         return null;
       }
     },
-    [balanceKeyFor, queryClient]
+    [balanceKeyFor, convergeSandboxPositions, queryClient]
   );
 
   const balanceQuery = useQuery<SandboxBalance>({
@@ -338,16 +367,45 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
         connection.getBalance(pk, "confirmed"),
         fetchMintMeta(connection, mint),
       ]);
+      setMintTokenProgram((prev) => (prev.equals(meta.tokenProgram) ? prev : meta.tokenProgram));
       const ata = ataOf(mint, pk, meta.tokenProgram);
       const ataInfo = await connection.getAccountInfo(ata, "confirmed");
       const usdtAtoms = unpackAmount(ata, ataInfo, meta.tokenProgram);
+      convergeSandboxPositions(pk.toBase58(), usdtAtoms);
       return { solLamports, usdtAtoms, usdtDecimals: meta.decimals };
     },
     initialData: isSandbox ? cachedBalanceRef.current ?? undefined : undefined,
     initialDataUpdatedAt: 0,
     enabled: Boolean(isSandbox && keypair && mintValid),
-    refetchInterval: isSandbox ? 15_000 : false,
+    refetchInterval: false,
   });
+
+  const balanceRefetchRef = useRef(balanceQuery.refetch);
+  balanceRefetchRef.current = balanceQuery.refetch;
+
+  const mintTpAddr = mintTokenProgram.toBase58();
+  useEffect(() => {
+    if (!isSandbox || !sandboxAddr || !mintValid) {
+      setBalanceSyncMode("live");
+      return;
+    }
+    const ownerPk = new PublicKey(sandboxAddr);
+    const mint = new PublicKey(settings.collateralMint.trim());
+    const accounts: PublicKey[] = [ownerPk];
+    try {
+      accounts.push(ataOf(mint, ownerPk, new PublicKey(mintTpAddr)));
+    } catch {
+      // jsdom Buffer polyfill can disrupt findProgramAddressSync in unit tests.
+    }
+    return subscribeAccountsWithFallback({
+      connection,
+      accounts,
+      onRefresh: async () => {
+        await balanceRefetchRef.current({ throwOnError: true });
+      },
+      onModeChange: setBalanceSyncMode,
+    });
+  }, [connection, isSandbox, mintTpAddr, mintValid, sandboxAddr, settings.collateralMint]);
 
   useEffect(() => {
     if (isSandbox && keypair && balanceQuery.data && balanceQuery.data !== cachedBalanceRef.current) {
@@ -452,6 +510,8 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
       const existing = hadExistingKey ? await inspectExistingFunds(kp.publicKey) : null;
       if (existing) {
         queryClient.setQueryData<SandboxBalance>(balanceKeyFor(addr), existing);
+        setSeededBalance({ addr, at: Date.now() });
+        convergeSandboxPositions(addr, existing.usdtAtoms);
         setErrorKey(data.error || "errors.sandboxFaucetFailed");
         commitActive(true);
         persist(kp, true, existing);
@@ -481,6 +541,8 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
       const existing = hadExistingKey ? await inspectExistingFunds(kp.publicKey) : null;
       if (existing) {
         queryClient.setQueryData<SandboxBalance>(balanceKeyFor(addr), existing);
+        setSeededBalance({ addr, at: Date.now() });
+        convergeSandboxPositions(addr, existing.usdtAtoms);
         setErrorKey("errors.sandboxFaucetFailed");
         commitActive(true);
         persist(kp, true, existing);
@@ -514,6 +576,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
     bump,
     commitActive,
     commitKeypair,
+    convergeSandboxPositions,
     describeFaucetError,
     inspectExistingFunds,
     isRealConnected,
@@ -603,6 +666,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
     if (enteringRef.current || txPendingRef.current) return;
     setErrorKey(null);
     setRefillNotice(null);
+    setSeededBalance(null);
     commitActive(false);
     if (keypairRef.current) {
       persist(keypairRef.current, false);
@@ -779,6 +843,16 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
 
   const lastError = errorKey ? describeFaucetError(errorKey) : null;
   const resolvedBalance = isSandbox ? balanceQuery.data ?? cachedBalanceRef.current : null;
+  const seededAt = isSandbox && seededBalance?.addr === sandboxAddr ? seededBalance.at : 0;
+  const rawBalanceUpdatedAt = isSandbox
+    ? Math.max(balanceQuery.dataUpdatedAt || 0, seededAt) || null
+    : null;
+  const balanceStale = Boolean(
+    isSandbox &&
+      resolvedBalance &&
+      (rawBalanceUpdatedAt === null || balanceQuery.isError || balanceSyncMode === "stale")
+  );
+  const balanceUpdatedAt = isSandbox ? rawBalanceUpdatedAt : null;
 
   const value = useMemo<GuestSessionCtx>(
     () => ({
@@ -796,6 +870,9 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
       locked,
       balance: resolvedBalance,
       balanceLoading: isSandbox ? balanceQuery.isPending && !resolvedBalance : false,
+      balanceStale,
+      balanceUpdatedAt,
+      balanceSyncMode: isSandbox ? balanceSyncMode : "live",
       lastError,
       refillNotice,
       clearError,
@@ -821,6 +898,9 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
       locked,
       resolvedBalance,
       balanceQuery.isPending,
+      balanceStale,
+      balanceUpdatedAt,
+      balanceSyncMode,
       lastError,
       refillNotice,
       clearError,
@@ -861,6 +941,9 @@ export function useGuestSession(): GuestSessionCtx {
     locked: false,
     balance: null,
     balanceLoading: false,
+    balanceStale: false,
+    balanceUpdatedAt: null,
+    balanceSyncMode: "live",
     lastError: null,
     refillNotice: null,
     clearError: () => {},

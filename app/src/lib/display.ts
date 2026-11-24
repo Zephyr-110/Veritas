@@ -23,12 +23,49 @@ const DURATION_ZH_TITLE =
 
 type DurationUnit = "min" | "hour" | "day" | "sec";
 
+export type DurationFilter = "all" | "2m" | "15m" | "24h";
+
+const UNIT_SECONDS: Record<DurationUnit, number> = {
+  sec: 1,
+  min: 60,
+  hour: 3600,
+  day: 86_400,
+};
+
 function normalizeDurationUnit(raw: string): DurationUnit {
   const u = raw.toLowerCase();
   if (u === "分钟" || u.startsWith("m")) return "min";
   if (u === "小时" || u.startsWith("h")) return "hour";
   if (u === "天" || u.startsWith("d")) return "day";
   return "sec";
+}
+
+/** Extracts market round duration in seconds from templated EN/ZH titles, or null for custom/stamp titles. */
+export function marketDurationSec(market: Pick<MarketView, "title">): number | null {
+  const en = DURATION_EN_TITLE.exec(market.title);
+  if (en) {
+    const qty = Number(en[4]);
+    const sec = qty * UNIT_SECONDS[normalizeDurationUnit(en[5])];
+    return Number.isFinite(sec) && sec > 0 ? sec : null;
+  }
+  const zh = DURATION_ZH_TITLE.exec(market.title);
+  if (zh) {
+    const qty = Number(zh[2]);
+    const sec = qty * UNIT_SECONDS[normalizeDurationUnit(zh[3])];
+    return Number.isFinite(sec) && sec > 0 ? sec : null;
+  }
+  return null;
+}
+
+/** Maps templated market titles into the /markets duration filter buckets. */
+export function marketDurationBucket(
+  market: Pick<MarketView, "title">
+): Exclude<DurationFilter, "all"> | null {
+  const sec = marketDurationSec(market);
+  if (sec === 120) return "2m";
+  if (sec === 900) return "15m";
+  if (sec === 86_400) return "24h";
+  return null;
 }
 
 function formatDurationTitle(
