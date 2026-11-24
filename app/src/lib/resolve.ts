@@ -18,7 +18,7 @@ import { sendIxs } from "./send";
 const OCR2_PROGRAM_KEY = new PublicKey(CHAINLINK_OCR2_PROGRAM_ID);
 const MAX_SIGNATURE_PAGES = 20;
 const SIGNATURES_PER_PAGE = 500;
-const TX_BATCH_SIZE = 8;
+export const TX_BATCH_SIZE = 8;
 
 export type StraddlingReports = {
   pre: Ocr2TransmitReport;

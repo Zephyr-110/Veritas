@@ -3,7 +3,7 @@ import { PublicKey, type Connection } from "@solana/web3.js";
 import { parseOcr2Transmit, type Ocr2TransmitReport } from "./chainlink";
 import { type DecodedMarketSnapshot } from "./codec";
 import { type MarketView } from "./markets";
-import { extractOcr2Instructions } from "./resolve";
+import { extractOcr2Instructions, fetchTxBatch, TX_BATCH_SIZE } from "./resolve";
 import { instructionGroups } from "./transaction-history";
 
 const RESOLVE = Buffer.from([155, 23, 80, 173, 46, 74, 23, 239]);
@@ -27,6 +27,21 @@ export function witnessCounts(snapshot: DecodedMarketSnapshot | null, pre: Ocr2T
 
 type ResolvedMarket = Pick<MarketView, "address" | "finishTs" | "endTs" | "ocr2State" | "settledPublishTime" | "settledPrice">;
 
+async function* candidateTransactions(connection: Connection, candidates: { signature: string }[], signal?: AbortSignal) {
+  for (let i = 0; i < candidates.length; i += TX_BATCH_SIZE) {
+    signal?.throwIfAborted();
+    const signatures = candidates.slice(i, i + TX_BATCH_SIZE).map((c) => c.signature);
+    const transactions = await fetchTxBatch(connection, signatures);
+    // A JSON-RPC batch may return its responses out of order.
+    const bySignature = new Map(transactions.flatMap(tx => tx ? [[tx.transaction.signatures[0], tx] as const] : []));
+    for (const signature of signatures) {
+      signal?.throwIfAborted();
+      const tx = bySignature.get(signature);
+      if (tx) yield { signature, tx };
+    }
+  }
+}
+
 export async function fetchRuling(connection: Connection, program: PublicKey, market: ResolvedMarket, signal?: AbortSignal) {
   let before: string | undefined;
   for (;;) {
@@ -35,16 +50,13 @@ export async function fetchRuling(connection: Connection, program: PublicKey, ma
     const candidates = page.filter(s => !s.err && (s.blockTime == null || Math.abs(s.blockTime - market.finishTs) <= 30))
       .sort((a, b) => Math.abs((a.blockTime ?? market.finishTs) - market.finishTs)
         - Math.abs((b.blockTime ?? market.finishTs) - market.finishTs));
-    for (const candidate of candidates) {
-      signal?.throwIfAborted();
-      const tx = await connection.getTransaction(candidate.signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
-      if (!tx) continue;
+    for await (const { signature, tx } of candidateTransactions(connection, candidates, signal)) {
       for (const ix of instructionGroups(tx).flat()) {
         if (!ix.program.equals(program) || !ix.accounts[1]?.equals(market.address)
           || !ix.accounts[3]?.equals(market.ocr2State)) continue;
         const pair = decodeResolveReports(ix.data);
         if (pair && pair.pre.observationsTimestamp < market.endTs && pair.post.observationsTimestamp === market.settledPublishTime
-          && pair.post.median === market.settledPrice) return { ...pair, signature: candidate.signature };
+          && pair.post.median === market.settledPrice) return { ...pair, signature };
       }
     }
     const last = page.at(-1);
@@ -66,10 +78,8 @@ export async function findPushSignatures(connection: Connection, feed: PublicKey
     const candidates = page.filter(s => !s.err && (s.blockTime == null || (s.blockTime >= from && s.blockTime <= until)))
       .sort((a, b) => Math.abs((a.blockTime ?? until) - ruling.post.observationsTimestamp)
         - Math.abs((b.blockTime ?? until) - ruling.post.observationsTimestamp));
-    for (const candidate of candidates) {
-      signal?.throwIfAborted();
-      const tx = await connection.getTransaction(candidate.signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
-      if (!tx?.meta || tx.meta.err) continue;
+    for await (const { signature, tx } of candidateTransactions(connection, candidates, signal)) {
+      if (!tx.meta || tx.meta.err) continue;
       for (const raw of extractOcr2Instructions(tx)) {
         const pushed = parseOcr2Transmit(raw, ruling.pre.configDigest);
         if (!pushed) continue;
@@ -77,7 +87,7 @@ export async function findPushSignatures(connection: Connection, feed: PublicKey
           const report = ruling[side];
           // Relayers may use a different nonce or subset of oracle signatures
           // for the same signed report context and content.
-          if (pushed.raw.subarray(1, 158).equals(report.raw.subarray(1, 158))) result[side] = candidate.signature;
+          if (pushed.raw.subarray(1, 158).equals(report.raw.subarray(1, 158))) result[side] = signature;
         }
       }
       if (result.pre && result.post) return result;

@@ -8,13 +8,14 @@ Standalone Node 22 scripts (`tick.js` and `settle-all.js`) for running staggered
    - Maintains 4 staggered **15-minute** (`900s`) deep devnet markets (`150 USDT` seed + `2 USDT` alternating initial trade) across `BTC/USD`, `ETH/USD`, `SOL/USD`, and `LINK/USD` at `:00`, `:04`, `:08`, and `:12` offsets (`-5s` before the minute boundary).
    - Because each asset resolves in its staggered slot, one deep 15-minute market finishes every **3–4 minutes** while preserving continuous front-page depth.
    - Execution order per tick:
-     1. Batch-sync status of all tracked `open` markets (`getMultipleAccountsInfo`) and detach pre-expiry `settle.js --watch <feed>` workers (~10s before `endTs`, via `expiry-watch.js`) for immediate settlement.
+     1. Batch-sync status of all tracked `open` markets (`getMultipleAccountsInfo`) and detach pre-expiry `settle.js --watch <feed>` workers (~10s before `endTs`, via `expiry-watch.js`) for immediate settlement. Inside the open ±10-second window, a worker also witnesses the pre-expiry feed counter and its first post-expiry successor. It reuses existing witnesses and caps snapshot submissions at three, including one possible pre-expiry refresh.
      2. Open any missing staggered markets + place `2 USDT` initial bets **first** (zero gap even if settlement RPC calls stall).
      3. Reclaim LP (`get_liquidity`), redeem winning/voided shares (`get_collateral`), and close empty ATAs **last** (global settlement runs via `--watch` workers and `settle-all.js`).
 
 2. **`settle-all.js` (Global Permissionless Settler)**
-   - Decoupled from `state.json`: scans **all** `open` `Market` accounts (`dataSize: 409`, discriminator filter) owned by `PROGRAM_ID`—including user-created, sandbox-created, or older bot markets.
-   - Settles every expired market whose age since `endTs` is in `[SETTLE_MIN_AGE_SEC, 172800)` (newest-expired first) by invoking `scripts/settle.js`.
+   - Decoupled from `state.json`: scans **all** `open` `Market` accounts (`dataSize: 409`, discriminator and status filters) owned by `PROGRAM_ID`—including user-created, sandbox-created, or older bot markets.
+   - Settles every expired market at least `SETTLE_MIN_AGE_SEC` past `endTs` and still within the inclusive 48-hour settlement window (newest-expired first) by invoking `scripts/settle.js`.
+   - After settlement, voids open markets past 48 hours and reclaims operator-created terminal markets strictly more than 30 days after finalization. The creator receives remaining vault collateral and closed-account rent. Each maintenance pass handles up to `SETTLE_MAX_PER_RUN` successful transactions.
    - Supports single cron runs, `--dry-run` inspection, and `--loop` polling daemon mode.
 
 ## Server Layout

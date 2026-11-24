@@ -16,6 +16,7 @@ const {
   Keypair,
   PublicKey,
   SYSVAR_CLOCK_PUBKEY,
+  SystemProgram,
   Transaction,
   sendAndConfirmTransaction,
 } = require("@solana/web3.js");
@@ -535,6 +536,57 @@ async function resolveTx(program, payer, marketPubkey, market, pair, snapshot) {
   return new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }), ix);
 }
 
+// Snapshot writes run alongside the report watcher. Read the feed, clock and existing
+// witnesses at one bank slot so a browser or an earlier worker's write counts too.
+async function recordExpirySnapshots(connection, program, payer, address, market, feed) {
+  const { endTs } = market;
+  const waitMs = (endTs - WAKE_SEC) * 1000 - Date.now();
+  if (waitMs > 75_000) return;
+  if (waitMs > 0) await pause(waitMs);
+  const deadline = (endTs + 10) * 1000;
+  const [snapshot] = PublicKey.findProgramAddressSync([Buffer.from("snapshot"), address.toBuffer()], program.programId);
+  const attempted = new Set();
+  while (Date.now() < deadline && attempted.size < 3) {
+    try {
+      const [head, saved, clock] = await connection.getMultipleAccountsInfo([feed, snapshot, SYSVAR_CLOCK_PUBKEY], "processed");
+      if (!head || !saved || !clock) return;
+      const chainNow = Number(clock.data.readBigInt64LE(32));
+      const counter = head.data.readUInt32LE(143);
+      const publishTime = Number(head.data.readBigInt64LE(208));
+      const entries = decodeMarketSnapshot(saved.data)?.entries;
+      if (!entries || entries.length >= 16 || chainNow >= endTs + 10 || entries.at(-1)?.ts >= endTs) return;
+      if (shouldRecordSnapshot({ endTs, chainNow, counter, publishTime, entries, attempted })) {
+        const ix = await program.methods.takeSnapshot().accountsPartial({
+          caller: payer.publicKey, market: address, snapshot, ocr2State: market.ocr2State,
+          feed, clock: SYSVAR_CLOCK_PUBKEY, systemProgram: SystemProgram.programId,
+        }).instruction();
+        const { blockhash } = await connection.getLatestBlockhash("confirmed");
+        const tx = new Transaction({ feePayer: payer.publicKey, recentBlockhash: blockhash }).add(ix);
+        tx.sign(payer);
+        if (Date.now() >= deadline) return;
+        if (Date.now() > (endTs - 10) * 1000) {
+          attempted.add(counter);
+          const sig = await connection.sendRawTransaction(tx.serialize(), { preflightCommitment: "processed", maxRetries: 0 });
+          console.log(`[snapshot] ${address} submitted counter=${counter} tx=${sig}`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[snapshot] ${address}: ${err.message}`);
+    }
+    if (Date.now() < deadline) await pause(650);
+  }
+}
+
+function shouldRecordSnapshot({ endTs, chainNow, counter, publishTime, entries, attempted }) {
+  const last = entries.at(-1);
+  if (chainNow <= endTs - 10 || chainNow >= endTs + 10 || publishTime <= 0 ||
+      entries.length >= 16 || attempted.has(counter) || (last && (last.ts >= endTs || last.counter >= counter))) return false;
+  if (publishTime >= endTs) return Boolean(last && last.counter + 1 === counter);
+  // Reserve one of the three submissions for the first post-expiry counter.
+  if (entries.length >= 15 || attempted.size >= 2) return false;
+  return (!last && !attempted.size) || chainNow >= endTs - 2;
+}
+
 async function runWatch(connection, program, payer, marketPk, market, opts) {
   const endTs = market.endTs;
   const log = msg => console.log(`[wake] ${new Date().toISOString()} ${marketPk} ${msg}`);
@@ -683,7 +735,16 @@ async function settle(opts, marketPubkey) {
     return;
   }
 
-  if (opts.feed) return await runWatch(connection, program, payer, marketPubkey, market, opts);
+  if (opts.feed) {
+    const witness = opts.dryRun ? null :
+      recordExpirySnapshots(connection, program, payer, marketPubkey, market, opts.feed)
+        .catch(err => console.warn(`[snapshot] ${marketPubkey}: ${err.message}`));
+    try {
+      return await runWatch(connection, program, payer, marketPubkey, market, opts);
+    } finally {
+      await witness;
+    }
+  }
   const now = Math.floor(Date.now() / 1000);
   if (now < market.endTs) {
     const endIso = new Date(market.endTs * 1000).toISOString();
@@ -745,4 +806,4 @@ if (require.main === module) main().catch((err) => {
   process.exit(1);
 });
 
-module.exports = { parseOcr2Transmit, pickStraddlingPair };
+module.exports = { parseOcr2Transmit, pickStraddlingPair, shouldRecordSnapshot, recordExpirySnapshots };

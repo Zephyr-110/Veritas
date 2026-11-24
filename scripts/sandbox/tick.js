@@ -1167,7 +1167,9 @@ async function main() {
   await runTick();
 }
 
-main().catch((err) => {
+if (require.main === module) main().catch((err) => {
   console.error("SANDBOX_TICK_FAIL:", err && err.stack ? err.stack : err);
   process.exit(1);
 });
+
+module.exports = { loadIdl, loadKeypair, fetchMintMeta, ataOf, ensureAtaIx };

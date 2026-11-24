@@ -5,14 +5,20 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
-const { utils } = require("@coral-xyz/anchor");
-const { Connection, PublicKey } = require("@solana/web3.js");
+const { AnchorProvider, Program, Wallet, utils } = require("@coral-xyz/anchor");
+const { ComputeBudgetProgram, Connection, PublicKey } = require("@solana/web3.js");
+
+const { loadIdl, loadKeypair, fetchMintMeta, ataOf, ensureAtaIx } = require("./tick");
+const { tryLock } = require("./expiry-watch");
 
 const DEFAULT_RPC = "https://api.devnet.solana.com";
 const DEFAULT_PROGRAM_ID = "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER";
 
 const MARKET_ACCOUNT_SIZE = 409;
 const MARKET_DISCRIMINATOR = [219, 190, 213, 55, 0, 227, 198, 154];
+const STATUS_OFFSET = 129;
+const CREATOR_OFFSET = 16;
+const CLAIM_WINDOW_SEC = 30 * 24 * 60 * 60;
 const RESOLVE_WINDOW_SEC = 172_800;
 
 function usage(exitCode = 0) {
@@ -22,7 +28,7 @@ function usage(exitCode = 0) {
 
 Options:
   --self-check     Verify dependencies, settle.js path, filter encoding, and decoding offline
-  --dry-run        Scan program markets and print settle candidates without sending transactions
+  --dry-run        Scan program markets and print settlement, void and rent-recovery candidates without sending transactions
   --loop           Continuously sweep every SETTLE_LOOP_INTERVAL_SEC seconds
   -h, --help       Show this help message
 
@@ -165,12 +171,7 @@ function decodeMarket(data) {
   const statusMap = ["open", "resolved", "windowBurn", "staleBurn"];
   const status = statusMap[statusByte];
   if (!status) throw new Error(`Unknown market status byte: ${statusByte}`);
-  const collateralMint = c.pubkey();
-  const winnerTag = c.u8();
-  const winner = winnerTag === 0 ? null : winnerTag === 1 ? (c.u8() === 0 ? "yes" : "no") : null;
-  c.u8(); // marketCollateralBump
-  const prediction = c.bytes(64);
-  c.u64(); // finishTs
+  const terms = readMarketTerms(c);
   c.i128(); // lZero
   c.i64(); // lastAccrualTs
   c.i128(); // cumYesPerShare
@@ -193,15 +194,24 @@ function decodeMarket(data) {
     yesMint,
     noMint,
     status,
-    collateralMint,
-    winner,
-    title: decodeTitle(prediction),
+    ...terms,
     endTs,
     ocr2State,
     threshold,
     priceDecimals,
     settleAbove,
   };
+}
+
+// The optional winner adds a byte on resolved markets, shifting finishTs.
+function readMarketTerms(c) {
+  const collateralMint = c.pubkey();
+  const winnerTag = c.u8();
+  const winner = winnerTag === 0 ? null : winnerTag === 1 ? (c.u8() === 0 ? "yes" : "no") : null;
+  c.u8(); // marketCollateralBump
+  const prediction = c.bytes(64);
+  const finishTs = Number(c.u64());
+  return { collateralMint, winner, title: decodeTitle(prediction), finishTs };
 }
 
 function marketDiscriminatorBase58() {
@@ -212,11 +222,9 @@ function classifyOpenMarket(market, nowSec, minAgeSec) {
   if (!market || market.status !== "open") return null;
   const targetEndTs = market.endTs > 0 ? market.endTs : market.expiry;
   const age = nowSec - targetEndTs;
+  if (nowSec > market.expiry + RESOLVE_WINDOW_SEC) return { kind: "pastWindow", age, targetEndTs };
   if (age < minAgeSec) {
     return { kind: "waiting", age, targetEndTs };
-  }
-  if (age >= RESOLVE_WINDOW_SEC) {
-    return { kind: "pastWindow", age, targetEndTs };
   }
   return { kind: "ready", age, targetEndTs };
 }
@@ -292,7 +300,7 @@ function runSelfCheck(cfg) {
 
   const waiting = classifyOpenMarket(openDecoded, endTs + 2, cfg.settleMinAgeSec);
   const ready = classifyOpenMarket(openDecoded, endTs + cfg.settleMinAgeSec, cfg.settleMinAgeSec);
-  const past = classifyOpenMarket(openDecoded, endTs + RESOLVE_WINDOW_SEC, cfg.settleMinAgeSec);
+  const past = classifyOpenMarket(openDecoded, endTs + RESOLVE_WINDOW_SEC + 1, cfg.settleMinAgeSec);
   if (waiting?.kind !== "waiting" || ready?.kind !== "ready" || past?.kind !== "pastWindow") {
     throw new Error("Market classification self-check failed");
   }
@@ -304,6 +312,84 @@ function runSelfCheck(cfg) {
   console.log("[self-check] PASSED");
 }
 
+function marketFilters(status, creator) {
+  const filters = [
+    { dataSize: MARKET_ACCOUNT_SIZE },
+    { memcmp: { offset: 0, bytes: marketDiscriminatorBase58() } },
+    { memcmp: { offset: STATUS_OFFSET, bytes: utils.bytes.bs58.encode(Buffer.from([status])) } },
+  ];
+  if (creator) filters.push({ memcmp: { offset: CREATOR_OFFSET, bytes: creator.toBase58() } });
+  return filters;
+}
+
+async function maintainMarkets(candidates, action, dryRun, submit, limit) {
+  let completed = 0;
+  for (const candidate of candidates) {
+    const key = candidate.address.toBase58();
+    if (dryRun) {
+      console.log(`  [dry-run] ${action} ${key}`);
+      continue;
+    }
+    let release;
+    try {
+      release = await tryLock(key);
+      if (!release) continue;
+      const sig = await submit(candidate);
+      console.log(`[settle-all] ${action} ${key} tx=${sig}`);
+      if (++completed >= limit) break;
+    } catch (err) {
+      console.warn(`[settle-all] ${action} ${key}: ${err.message}`);
+    } finally {
+      release?.();
+    }
+  }
+}
+
+async function runMaintenance(connection, cfg, dryRun, expired) {
+  const payer = dryRun && !fs.existsSync(cfg.walletPath) ? null : loadKeypair(cfg.walletPath);
+  const owner = payer?.publicKey;
+  const program = dryRun ? null : new Program(loadIdl(cfg.programId).idl,
+    new AnchorProvider(connection, new Wallet(payer), { commitment: "confirmed", preflightCommitment: "confirmed" }));
+  await maintainMarkets(expired, "void", dryRun, ({ address }) =>
+    program.methods.voidMarket().accountsPartial({ signer: owner, market: address }).rpc(), cfg.maxPerRun);
+
+  if (!owner) {
+    console.log("[dry-run] rent recovery scan requires the operator public key; wallet file absent");
+    return;
+  }
+  const reclaimable = [];
+  for (const status of [1, 2, 3]) {
+    try {
+      const rows = await connection.getProgramAccounts(cfg.programId, {
+        commitment: "confirmed",
+        filters: marketFilters(status, owner),
+        // collateralMint through finishTs, including the longest Option<Side> encoding.
+        dataSlice: { offset: STATUS_OFFSET + 1, length: 107 },
+      });
+      const now = Math.floor(Date.now() / 1000);
+      for (const row of rows) {
+        try {
+          const terms = readMarketTerms(new Cursor(row.account.data));
+          if (terms.finishTs > 0 && now > terms.finishTs + CLAIM_WINDOW_SEC) {
+            reclaimable.push({ address: row.pubkey, ...terms });
+          }
+        } catch (err) { console.warn(`[settle-all] decode ${row.pubkey}: ${err.message}`); }
+      }
+    } catch (err) { console.warn(`[settle-all] rent scan status=${status}: ${err.message}`); }
+  }
+  await maintainMarkets(reclaimable, "burn", dryRun, async ({ address, collateralMint }) => {
+    const { tokenProgram } = await fetchMintMeta(connection, collateralMint);
+    // The IDL derives the pool, vault, mint and snapshot PDAs from the supplied market address.
+    return program.methods.burnAccount().accountsPartial({
+      signer: owner, market: address, collateralMint, tokenProgram,
+      collateralAta: ataOf(collateralMint, owner, tokenProgram),
+    }).preInstructions([
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+      ensureAtaIx(owner, collateralMint, tokenProgram, owner),
+    ]).rpc();
+  }, cfg.maxPerRun);
+}
+
 async function runSweep(cfg, flags) {
   const settleScriptPath = resolveSettleScript();
   if (!flags.dryRun && !fs.existsSync(cfg.walletPath)) {
@@ -313,17 +399,14 @@ async function runSweep(cfg, flags) {
   const connection = new Connection(cfg.rpcUrl, "confirmed");
   const rawAccounts = await connection.getProgramAccounts(cfg.programId, {
     commitment: "confirmed",
-    filters: [
-      { dataSize: MARKET_ACCOUNT_SIZE },
-      { memcmp: { offset: 0, bytes: marketDiscriminatorBase58() } },
-    ],
+    filters: marketFilters(0),
   });
 
   const nowSec = Math.floor(Date.now() / 1000);
   const ready = [];
   let openCount = 0;
   let waitingCount = 0;
-  let pastWindowCount = 0;
+  const expired = [];
 
   for (const item of rawAccounts) {
     let market;
@@ -340,7 +423,7 @@ async function runSweep(cfg, flags) {
     if (cls.kind === "waiting") {
       waitingCount += 1;
     } else if (cls.kind === "pastWindow") {
-      pastWindowCount += 1;
+      expired.push({ address: item.pubkey });
     } else if (cls.kind === "ready") {
       ready.push({
         address: item.pubkey.toBase58(),
@@ -356,13 +439,14 @@ async function runSweep(cfg, flags) {
   const selected = ready.slice(0, cfg.maxPerRun);
 
   console.log(
-    `[settle-all] total=${rawAccounts.length} open=${openCount} waiting=${waitingCount} pastWindow=${pastWindowCount} ready=${ready.length} processing=${selected.length}`
+    `[settle-all] total=${rawAccounts.length} open=${openCount} waiting=${waitingCount} pastWindow=${expired.length} ready=${ready.length} processing=${selected.length}`
   );
 
   if (flags.dryRun) {
     for (const m of selected) {
       console.log(`  [dry-run] ${m.address} age=${m.age}s title="${m.title}"`);
     }
+    await runMaintenance(connection, cfg, true, expired);
     return { attempted: selected.length, settled: 0, failed: 0 };
   }
 
@@ -383,6 +467,7 @@ async function runSweep(cfg, flags) {
     }
   }
 
+  await runMaintenance(connection, cfg, false, expired);
   console.log(`[settle-all] sweep done: settled=${settled} failed=${failed}`);
   return { attempted: selected.length, settled, failed };
 }
@@ -422,7 +507,9 @@ async function main() {
   }
 }
 
-main().catch((err) => {
+if (require.main === module) main().catch((err) => {
   console.error(`[settle-all] fatal: ${err?.stack || err}`);
   process.exit(1);
 });
+
+module.exports = { classifyOpenMarket, runMaintenance };

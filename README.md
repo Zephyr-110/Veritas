@@ -184,6 +184,8 @@ npm run lint                 # ESLint check (eslint .)
 npm run test:coverage        # Run all 29 Vitest suites (294 tests + 4 opt-in devnet checks) with v8 coverage gates
 ```
 
+The default public Devnet RPC is rate-limited. For local development, set `NEXT_PUBLIC_SOLANA_RPC` in `app/.env.local` to your own Devnet RPC endpoint.
+
 The client IDL under `app/src/idl/` is generated via `npm run gen-idl` (from `app/`, or `node app/scripts/gen-idl.js`). Further frontend details live in [app/README.md](app/README.md).
 
 ### 3. Continuous Integration
