@@ -64,71 +64,73 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
   return (
     <div className="stack-4">
       {canMerge || canClaimWinner || canClaimVoid ? (
-        <Card className="stack-4">
-          {canMerge ? (
-            <>
-              <p className="text-sm text-zinc-400">
-                <StableText k="settle.mergeBody" vars={{ symbol: COLLATERAL_SYMBOL }} block />
-              </p>
-              {isSandbox ? (
-                <Button
-                  type="button"
-                  tone="secondary"
-                  disabled={locked}
-                  onClick={() => openWalletModal()}
-                >
-                  <StableText
-                    k="settle.sandboxMergeCta"
-                    vars={{ amount: money(mergeable, market.decimals) }}
-                    align="center"
-                  />
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  busy={busy}
-                  disabled={busy || !realPublicKey || !program}
-                  onClick={() =>
-                    realPublicKey &&
-                    program &&
-                    run(t("tx.cashOut"), () => ixMergeToken(program, market, realPublicKey, mergeable))
+        <div id="settle-claim" className="scroll-mt-20">
+          <Card className="stack-4">
+            {canMerge ? (
+              <>
+                <p className="text-sm text-zinc-400">
+                  <StableText k="settle.mergeBody" vars={{ symbol: COLLATERAL_SYMBOL }} block />
+                </p>
+                {isSandbox ? (
+                  <Button
+                    type="button"
+                    tone="secondary"
+                    disabled={locked}
+                    onClick={() => openWalletModal()}
+                  >
+                    <StableText
+                      k="settle.sandboxMergeCta"
+                      vars={{ amount: money(mergeable, market.decimals) }}
+                      align="center"
+                    />
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    busy={busy}
+                    disabled={busy || !realPublicKey || !program}
+                    onClick={() =>
+                      realPublicKey &&
+                      program &&
+                      run(t("tx.cashOut"), () => ixMergeToken(program, market, realPublicKey, mergeable))
+                    }
+                  >
+                    <StableText
+                      k="settle.cashOut"
+                      vars={{ amount: money(mergeable, market.decimals) }}
+                      align="center"
+                    />
+                  </Button>
+                )}
+              </>
+            ) : null}
+            {canClaimWinner && program ? (
+              <Button
+                type="button"
+                tone={market.winner === "yes" ? "yes" : "no"}
+                busy={anyBusy}
+                disabled={anyBusy || (isSandbox && locked) || !effectivePublicKey}
+                onClick={() => {
+                  if (!effectivePublicKey) return;
+                  const mint = market.winner === "yes" ? market.pdas.yesMint : market.pdas.noMint;
+                  const build = () =>
+                    ixGetCollateral(program, market, effectivePublicKey, mint, winningAmount);
+                  if (isSandbox) {
+                    return runSandbox(t("tx.collectWinnings"), build);
                   }
-                >
-                  <StableText
-                    k="settle.cashOut"
-                    vars={{ amount: money(mergeable, market.decimals) }}
-                    align="center"
-                  />
-                </Button>
-              )}
-            </>
-          ) : null}
-          {canClaimWinner && program ? (
-            <Button
-              type="button"
-              tone={market.winner === "yes" ? "yes" : "no"}
-              busy={anyBusy}
-              disabled={anyBusy || (isSandbox && locked) || !effectivePublicKey}
-              onClick={() => {
-                if (!effectivePublicKey) return;
-                const mint = market.winner === "yes" ? market.pdas.yesMint : market.pdas.noMint;
-                const build = () =>
-                  ixGetCollateral(program, market, effectivePublicKey, mint, winningAmount);
-                if (isSandbox) {
-                  return runSandbox(t("tx.collectWinnings"), build);
-                }
-                return run(t("tx.collectWinnings"), build);
-              }}
-            >
-              <StableText
-                k="settle.collectAmount"
-                vars={{ amount: money(winningAmount, market.decimals) }}
-                align="center"
-              />
-            </Button>
-          ) : null}
-          {canClaimVoid ? <VoidClaim market={market} position={position} /> : null}
-        </Card>
+                  return run(t("tx.collectWinnings"), build);
+                }}
+              >
+                <StableText
+                  k="settle.collectAmount"
+                  vars={{ amount: money(winningAmount, market.decimals) }}
+                  align="center"
+                />
+              </Button>
+            ) : null}
+            {canClaimVoid ? <VoidClaim market={market} position={position} /> : null}
+          </Card>
+        </div>
       ) : null}
 
       {showSnapshot ? <SnapshotCard market={market} now={now} /> : null}
@@ -297,7 +299,8 @@ function ResolveButton({ market, disabled }: { market: MarketView; disabled: boo
   useEffect(() => {
     if (disabled || reports) return;
     let active = true;
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let delayMs = 4000;
     async function check() {
       try {
         const snap = await fetchMarketSnapshot(connection, snapshot);
@@ -305,7 +308,11 @@ function ResolveButton({ market, disabled }: { market: MarketView; disabled: boo
         const pair = await findStraddlingReports(connection, ocr2State, endTs, snap);
         if (active) setReady({ key, reports: pair });
       } catch {
-        if (active) timer = setTimeout(check, 4000);
+        if (active) {
+          const wait = delayMs;
+          delayMs = Math.min(15_000, delayMs * 2);
+          timer = setTimeout(() => void check(), wait);
+        }
       }
     }
     void check();
@@ -364,10 +371,14 @@ function VoidClaim({ market, position }: { market: MarketView; position: UserPos
   const { busy: sandboxBusy, runSandbox } = useSandboxTx();
   const anyBusy = busy || sandboxBusy;
   const t = useT();
+  const evenAmount = (nextSide: Side) => {
+    const sideMax = nextSide === "yes" ? position.yes : position.no;
+    const even = sideMax - (sideMax % 2n);
+    return toUi(even, market.decimals, 6);
+  };
   const [side, setSide] = useState<Side>(position.yes >= position.no ? "yes" : "no");
   const max = side === "yes" ? position.yes : position.no;
-  const even = max - (max % 2n);
-  const [amount, setAmount] = useState(toUi(even, market.decimals, 6));
+  const [amount, setAmount] = useState(() => evenAmount(side));
   const parsed = useMemo(() => {
     try {
       return { value: fromUi(amount || "0", market.decimals), invalid: false };
@@ -380,7 +391,11 @@ function VoidClaim({ market, position }: { market: MarketView; position: UserPos
     <div className="w-full stack-3 border border-[var(--hair)] bg-[var(--seg-bg)] p-4">
       <SegTabs
         value={side}
-        onChange={setSide}
+        onChange={(nextSide) => {
+          if (nextSide === side) return;
+          setSide(nextSide);
+          setAmount(evenAmount(nextSide));
+        }}
         options={[
           {
             value: "yes",

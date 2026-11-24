@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PublicKey } from "@solana/web3.js";
 import { CLAIM_WINDOW, RESOLVE_WINDOW, SNAPSHOT_MAX_ENTRIES } from "@/lib/constants";
@@ -169,7 +169,10 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("SettleDesk 合并与兑付", () => {
   it("双边合并（Merge）：按 min(yes, no) 显示 Merge 3 USDT 并调用 ixMergeToken", async () => {
@@ -227,11 +230,11 @@ describe("SettleDesk 作废半价退款（VoidClaim）", () => {
     );
   });
 
-  it("输入 0 或切到无余额的一侧时按钮禁用", async () => {
+  it("输入 0 或切到无余额的一侧时重置金额并禁用按钮", async () => {
     const market = makeMarket({ status: "staleBurn" });
     renderDesk(market, makePosition({ yes: 5_000_000n, no: 0n }));
 
-    const input = screen.getByRole("textbox");
+    const input = screen.getByRole("textbox") as HTMLInputElement;
     await userEvent.clear(input);
     await userEvent.type(input, "0");
     expect(screen.getByRole("button", { name: /Redeem 0\.00 USDT/ })).toBeDisabled();
@@ -239,7 +242,33 @@ describe("SettleDesk 作废半价退款（VoidClaim）", () => {
     await userEvent.clear(input);
     await userEvent.type(input, "2");
     await userEvent.click(screen.getByRole("button", { name: "Redeem NO" }));
-    expect(screen.getByRole("button", { name: /Redeem 1\.00 USDT/ })).toBeDisabled();
+    expect(input.value).toBe("0");
+    expect(screen.getByRole("button", { name: /Redeem 0\.00 USDT/ })).toBeDisabled();
+  });
+
+  it("切换 YES/NO 时将金额重置为新一侧的平额", async () => {
+    const market = makeMarket({ status: "staleBurn" });
+    const { container } = renderDesk(
+      market,
+      makePosition({ yes: 5_000_001n, no: 2_000_001n })
+    );
+
+    expect(container.querySelector("#settle-claim")).not.toBeNull();
+    const input = screen.getByRole("textbox") as HTMLInputElement;
+    expect(input.value).toBe("5");
+    expect(screen.getByRole("button", { name: "Redeem 2.50 USDT" })).toBeEnabled();
+
+    await userEvent.clear(input);
+    await userEvent.type(input, "4");
+    await userEvent.click(screen.getByRole("button", { name: "Redeem YES" }));
+    expect(input.value).toBe("4");
+    await userEvent.click(screen.getByRole("button", { name: "Redeem NO" }));
+    expect(input.value).toBe("2");
+    expect(screen.getByRole("button", { name: "Redeem 1.00 USDT" })).toBeEnabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Redeem YES" }));
+    expect(input.value).toBe("5");
+    expect(screen.getByRole("button", { name: "Redeem 2.50 USDT" })).toBeEnabled();
   });
 });
 
@@ -337,6 +366,67 @@ describe("SettleDesk 裁决与超时作废", () => {
     expect(screen.getByRole("button", { name: "Submit settlement" })).toBeDisabled();
     expect(screen.getByText(/waiting for the first/i)).toBeVisible();
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it("就绪轮询按 4s -> 8s -> 15s 退避，就绪后立即停止", async () => {
+    vi.useFakeTimers();
+    const advance = (ms: number) =>
+      act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+    findStraddlingReports
+      .mockRejectedValueOnce(new Error("errors.ocr2NoPostReport"))
+      .mockRejectedValueOnce(new Error("errors.ocr2NoPostReport"))
+      .mockRejectedValueOnce(new Error("errors.ocr2NoPostReport"))
+      .mockRejectedValueOnce(new Error("errors.ocr2NoPostReport"))
+      .mockResolvedValueOnce({ pre: {}, post: {}, hasSnapshot: false });
+    const endTs = Math.floor(Date.now() / 1000) - 100;
+    renderDesk(makeMarket({ expiry: endTs, endTs }));
+
+    await advance(0);
+    expect(findStraddlingReports).toHaveBeenCalledTimes(1);
+
+    await advance(3999);
+    expect(findStraddlingReports).toHaveBeenCalledTimes(1);
+    await advance(1);
+    expect(findStraddlingReports).toHaveBeenCalledTimes(2);
+
+    await advance(7999);
+    expect(findStraddlingReports).toHaveBeenCalledTimes(2);
+    await advance(1);
+    expect(findStraddlingReports).toHaveBeenCalledTimes(3);
+
+    await advance(14_999);
+    expect(findStraddlingReports).toHaveBeenCalledTimes(3);
+    await advance(1);
+    expect(findStraddlingReports).toHaveBeenCalledTimes(4);
+
+    await advance(14_999);
+    expect(findStraddlingReports).toHaveBeenCalledTimes(4);
+    await advance(1);
+    expect(findStraddlingReports).toHaveBeenCalledTimes(5);
+    expect(screen.getByRole("button", { name: "Submit settlement" })).toBeEnabled();
+
+    await advance(60_000);
+    expect(findStraddlingReports).toHaveBeenCalledTimes(5);
+  });
+
+  it("组件卸载时立即停止就绪轮询", async () => {
+    vi.useFakeTimers();
+    const advance = (ms: number) =>
+      act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+    findStraddlingReports.mockRejectedValue(new Error("errors.ocr2NoPostReport"));
+    const endTs = Math.floor(Date.now() / 1000) - 100;
+    const { unmount } = renderDesk(makeMarket({ expiry: endTs, endTs }));
+
+    await advance(0);
+    expect(findStraddlingReports).toHaveBeenCalledTimes(1);
+
+    unmount();
+    await advance(60_000);
+    expect(findStraddlingReports).toHaveBeenCalledTimes(1);
   });
 
   it("超过 48h 裁决窗口：Submit settlement 禁用，Void market 可用并调用 ixVoidMarket", async () => {

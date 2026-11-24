@@ -5,7 +5,10 @@
 [![Solana Devnet](https://img.shields.io/badge/Solana-Devnet-14F195?style=flat-square&logo=solana&logoColor=white)](https://explorer.solana.com/address/CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER?cluster=devnet)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 
-[Open Veritas on Solana Devnet](https://veritas.zephyr110.com/)
+**1-Minute Verification**
+- **Live Devnet Sandbox:** [Open Veritas on Solana Devnet](https://veritas.zephyr110.com/)
+- **Live Settlement Proof:** [`5d5FcdpyBHcibizcMP3CEgcWEWRQVruvh8QhGQGVq9FPevfbGno4fDjM2KVhpbuVsavrZRud8PCqJaeiBzeg6uzp`](https://explorer.solana.com/tx/5d5FcdpyBHcibizcMP3CEgcWEWRQVruvh8QhGQGVq9FPevfbGno4fDjM2KVhpbuVsavrZRud8PCqJaeiBzeg6uzp?cluster=devnet) — first live proof of primary-track adjacent-round (`epoch/round`) settlement.
+- **Oracle Census & Snapshot Fallback:** [Devnet 6-Feed OCR2 Census (2026-11-22)](docs/oracle-census-2026-11-22.md) — 2,384 consecutive reports with zero skipped rounds; the snapshot fallback track is covered by the contract test suite (CI green).
 
 ![Veritas homepage with live Chainlink prices and the sandbox entry point](app/public/veritas-home.png)
 

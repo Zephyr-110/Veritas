@@ -334,10 +334,15 @@ export default function MePage() {
                               (claimable > 0n || hasLp)
                             ? { key: "me.actionClaim", cls: "text-white font-semibold" }
                             : { key: "markets.view", cls: "text-zinc-400" };
-                  const rowHref =
-                    "/markets/" +
-                    market.address.toBase58() +
-                    (action.key === "me.actionClaim" ? "#lp-withdraw" : "");
+                  const claimAnchor =
+                    action.key !== "me.actionClaim"
+                      ? ""
+                      : claimable > 0n
+                        ? "#settle-claim"
+                        : hasLp
+                          ? "#lp-withdraw"
+                          : "";
+                  const rowHref = "/markets/" + market.address.toBase58() + claimAnchor;
                   return (
                     <Link
                       key={market.address.toBase58()}
