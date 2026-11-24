@@ -8,7 +8,7 @@
 **1-Minute Verification**
 - **Live Devnet Sandbox:** [Open Veritas on Solana Devnet](https://veritas.zephyr110.com/)
 - **Live Settlement Proof:** [`5d5FcdpyBHcibizcMP3CEgcWEWRQVruvh8QhGQGVq9FPevfbGno4fDjM2KVhpbuVsavrZRud8PCqJaeiBzeg6uzp`](https://explorer.solana.com/tx/5d5FcdpyBHcibizcMP3CEgcWEWRQVruvh8QhGQGVq9FPevfbGno4fDjM2KVhpbuVsavrZRud8PCqJaeiBzeg6uzp?cluster=devnet) — first live proof of primary-track adjacent-round (`epoch/round`) settlement.
-- **Oracle Census & Snapshot Fallback:** [Devnet 6-Feed OCR2 Census (2026-11-22)](docs/oracle-census-2026-11-22.md) — 2,384 consecutive reports with zero skipped rounds; the snapshot fallback track is covered by the contract test suite (CI green).
+- Across six Devnet Chainlink OCR2 feeds, **172,714 reports** landed on November 22, 2026 (UTC). The round sequence jumped **24 times**. When a jump straddles market expiry, a matching on-chain snapshot can certify the two reports for settlement. [Census, transaction signatures and replay instructions](docs/oracle-census-2026-11-22.md)
 
 ![Veritas homepage with live Chainlink prices and the sandbox entry point](app/public/veritas-home.png)
 

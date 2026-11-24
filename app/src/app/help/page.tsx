@@ -11,7 +11,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { CopyText, Reveal, StableText, onSpot } from "@/components/ui";
-import { DEFAULT_PROGRAM_ID, GITHUB_REPO } from "@/lib/constants";
+import { DEFAULT_PROGRAM_ID, GITHUB_REPO, ORACLE_CENSUS_URL } from "@/lib/constants";
 import { useMarkets } from "@/hooks/use-markets";
 import { useNow } from "@/hooks/use-now";
 import { LiveCountdown } from "@/components/live";
@@ -232,6 +232,9 @@ export default function HelpPage() {
           </h2>
           <DeepItem id="permissionless" titleKey="help.a0Title" whyKey="help.a0" howKey="help.a0Sub" />
           <DeepItem id="settlement" titleKey="help.a2Title" whyKey="help.a2" howKey="help.a2Sub">
+            <a href={ORACLE_CENSUS_URL} className="link-accent text-sm">
+              <StableText k="help.censusEvidence" />
+            </a>
             <div className="stack-2 border border-[var(--hair)] bg-[var(--seg-bg)] p-4 text-sm leading-relaxed text-zinc-300">
               <p>
                 <StableText k="help.a2Tier1" block />

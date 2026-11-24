@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { useMarkets, useMarketPhaseTime, useVisibleVaults } from "@/hooks/use-markets";
 import { listSection, marketKind, questionTitle } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
+import { ORACLE_CENSUS_URL } from "@/lib/constants";
 import { DemoVideo } from "@/components/demo-video";
 import { PricePanel } from "@/components/price-tape";
 import { PulseAreaMark } from "@/components/logo-marks";
@@ -162,9 +163,9 @@ export default function HomePage() {
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--hair)] bg-[var(--seg-bg)] px-5 py-2.5 text-xs">
-              <span className="text-zinc-400">
+              <a href={ORACLE_CENSUS_URL} className="link-accent">
                 <StableText k="home.settleCensusLabel" />
-              </span>
+              </a>
               <span className="num font-semibold text-white">
                 <StableText k="home.settleCensusValue" align="end" />
               </span>
