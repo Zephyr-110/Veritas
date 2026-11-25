@@ -36,6 +36,7 @@ const {
   loadKeypair,
   loadState,
   parseAssets,
+  persistCreatedMarketToDb,
   recycleFinalizedEntries,
   resolveSettleScript,
   safeTokenAmount,
@@ -372,6 +373,7 @@ async function runDailyTick({ forceOpen = false } = {}) {
         console.log(
           `[daily:create] slot=${slot.slotKey} (${slot.asset.symbol}) ${marketAddr} expiry=${slot.expiry} seed=${cfg.seedUsdt} USDT tx=${createSig}`
         );
+        await persistCreatedMarketToDb(connection, cfg.programId, pdas.market, nowSec);
 
         if (betAtoms > 0n) {
           const side = state.nextBetSide === "no" ? "no" : "yes";
@@ -391,6 +393,7 @@ async function runDailyTick({ forceOpen = false } = {}) {
           state.nextBetSide = side === "yes" ? "no" : "yes";
           saveState(cfg.statePath, state);
           console.log(`[daily:bet] (${slot.asset.symbol}) ${marketAddr} side=${side} amount=${cfg.betUsdt} USDT tx=${betSig}`);
+          await persistCreatedMarketToDb(connection, cfg.programId, pdas.market, nowSec);
         }
       }
     }

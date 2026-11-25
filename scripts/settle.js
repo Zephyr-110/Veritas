@@ -5,11 +5,33 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { AnchorProvider, Program, Wallet, utils } = require("@coral-xyz/anchor");
+const { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, unpackAccount, unpackMint } = require("@solana/spl-token");
 const { WAKE_SEC, WATCH_AFTER_SEC, tryLock, watchReports } = require(
   fs.existsSync(path.join(__dirname, "sandbox", "expiry-watch.js"))
     ? "./sandbox/expiry-watch"
     : "./expiry-watch"
 );
+
+function loadOptionalModule(candidates) {
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      try {
+        return require(p);
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+const dbLib = loadOptionalModule([
+  path.join(__dirname, "db.js"),
+  path.join(__dirname, "..", "db.js"),
+]);
+const indexerLib = loadOptionalModule([
+  path.join(__dirname, "index-markets.js"),
+  path.join(__dirname, "..", "index-markets.js"),
+]);
 const {
   ComputeBudgetProgram,
   Connection,
@@ -485,6 +507,7 @@ async function findStraddlingReports(connection, ocr2State, endTs, snapshot) {
         for (const ixData of extractOcr2Instructions(tx)) {
           const parsed = parseOcr2Transmit(ixData, state.latestConfigDigest, state.f);
           if (!parsed) continue;
+          parsed.pushSignature = sig;
           sigToReport.set(sig, parsed);
           const id = `${parsed.epoch}:${parsed.round}`;
           if (!seenKey.has(id)) {
@@ -622,7 +645,10 @@ async function runWatch(connection, program, payer, marketPk, market, opts) {
         if (!tx) return; // Indexed signature without transaction body: retry next pass.
         for (const raw of extractOcr2Instructions(tx)) {
           const r = parseOcr2Transmit(raw, state.latestConfigDigest, state.f);
-          if (r) collected.push(r);
+          if (r) {
+            r.pushSignature = signature;
+            collected.push(r);
+          }
         }
         seen.add(signature);
         pending.delete(signature);
@@ -654,7 +680,10 @@ async function runWatch(connection, program, payer, marketPk, market, opts) {
             const info = await connection.getAccountInfo(marketPk, "confirmed");
             if (info) {
               const result = decodeMarket(info.data);
-              if (result.status !== "open") return log(`status=${result.status} finishTs=${result.finishTs} expiryToChain=${result.finishTs - endTs}s tx=${signature}`);
+              if (result.status !== "open") {
+                await persistSettledMarket(connection, program.programId, marketPk, pair, signature, opts.feed);
+                return log(`status=${result.status} finishTs=${result.finishTs} expiryToChain=${result.finishTs - endTs}s tx=${signature}`);
+              }
             }
           }
           if (n % 5 === 0 && await connection.getBlockHeight("confirmed") > latest.lastValidBlockHeight && !status) break;
@@ -689,6 +718,106 @@ async function main() {
   } finally {
     releaseSlot?.();
     release();
+  }
+}
+
+async function persistSettledMarket(connection, programId, marketPk, pair, resolveSig, feedPk) {
+  if (!dbLib || !pair || !resolveSig) return;
+  const db = dbLib.tryOpenDb();
+  if (!db) return;
+  try {
+    const [marketInfo, snapshotPda] = await Promise.all([
+      connection.getAccountInfo(marketPk, "confirmed"),
+      Promise.resolve(
+        PublicKey.findProgramAddressSync(
+          [Buffer.from("snapshot"), marketPk.toBuffer()],
+          programId
+        )[0]
+      ),
+    ]);
+    if (!marketInfo) return;
+    const account = dbLib.decodeMarketFull(marketInfo.data);
+    const pdas = dbLib.findMarketPdas(programId, account.id);
+    const [snapshotInfo, vaultInfo, mintInfo] = await connection.getMultipleAccountsInfo(
+      [snapshotPda, pdas.collateralVault, account.collateralMint],
+      "confirmed"
+    );
+    const tp = mintInfo && mintInfo.owner.equals(TOKEN_2022_PROGRAM_ID)
+      ? TOKEN_2022_PROGRAM_ID
+      : TOKEN_PROGRAM_ID;
+    let decimals = 6;
+    if (mintInfo) {
+      try { decimals = unpackMint(account.collateralMint, mintInfo, tp).decimals; } catch { /* fallback 6 */ }
+    }
+    let vault = 0n;
+    if (vaultInfo) {
+      try { vault = unpackAccount(pdas.collateralVault, vaultInfo, tp).amount; } catch { /* fallback 0n */ }
+    }
+    const marketRow = dbLib.buildMarketRow({
+      programId,
+      address: marketPk,
+      account,
+      tokenProgram: tp,
+      decimals,
+      vault,
+    });
+    dbLib.upsertMarkets(db, [marketRow]);
+    dbLib.refreshClaimableForMarket(db, marketRow);
+
+    if (account.status === "resolved") {
+      const snapshot = snapshotInfo ? dbLib.decodeMarketSnapshot(snapshotInfo.data) : null;
+      const preset = dbLib.feedByState(account.ocr2State);
+      const feedAddr = feedPk ? feedPk.toBase58() : preset ? preset.feed : null;
+      const cluster = indexerLib ? indexerLib.inferCluster(connection.rpcEndpoint) : "devnet";
+      let prePush = pair.pre.pushSignature || null;
+      let postPush = pair.post.pushSignature || null;
+      if ((!prePush || !postPush) && feedAddr && indexerLib?.findPushSignaturesForRuling) {
+        try {
+          const pushes = await indexerLib.findPushSignaturesForRuling(
+            connection,
+            new PublicKey(feedAddr),
+            { ...pair, signature: resolveSig }
+          );
+          prePush = prePush || pushes.pre || null;
+          postPush = postPush || pushes.post || null;
+        } catch {
+          // leave partial push links for background backfill
+        }
+      }
+      const counts = dbLib.witnessCounts(snapshot, pair.pre, pair.post);
+      dbLib.upsertSettlementEvidence(db, {
+        market_address: marketRow.address,
+        program_id: marketRow.program_id,
+        feed_address: feedAddr,
+        snapshot_address: snapshotPda.toBase58(),
+        resolve_signature: resolveSig,
+        resolve_tx_url: dbLib.explorerTxUrl(resolveSig, cluster),
+        settled_price: marketRow.settled_price,
+        price_decimals: marketRow.price_decimals,
+        winner: marketRow.winner,
+        status: marketRow.status,
+        pre_epoch: pair.pre.epoch,
+        pre_round: pair.pre.round,
+        pre_counter: counts ? counts[0] : null,
+        pre_price: pair.pre.median.toString(),
+        pre_timestamp: pair.pre.observationsTimestamp,
+        pre_push_signature: prePush,
+        pre_push_tx_url: prePush ? dbLib.explorerTxUrl(prePush, cluster) : null,
+        post_epoch: pair.post.epoch,
+        post_round: pair.post.round,
+        post_counter: counts ? counts[1] : null,
+        post_price: pair.post.median.toString(),
+        post_timestamp: pair.post.observationsTimestamp,
+        post_push_signature: postPush,
+        post_push_tx_url: postPush ? dbLib.explorerTxUrl(postPush, cluster) : null,
+        missing_count: counts ? counts[1] - counts[0] - 1 : null,
+        created_at: Math.floor(Date.now() / 1000),
+      });
+    }
+  } catch (err) {
+    console.warn(`[db] settle persist skipped for ${marketPk.toBase58()}: ${err.message}`);
+  } finally {
+    if (db.open) db.close();
   }
 }
 
@@ -791,6 +920,8 @@ async function settle(opts, marketPubkey) {
   const tx = await resolveTx(program, payer, marketPubkey, market, found, found.hasSnapshot ? snapshotPda : null);
   const sig = await sendAndConfirmTransaction(connection, tx, [payer], { commitment: "confirmed" });
   console.log(`Settled tx: ${sig}`);
+
+  await persistSettledMarket(connection, programId, marketPubkey, found, sig, null);
 
   const updatedInfo = await connection.getAccountInfo(marketPubkey, "confirmed");
   if (updatedInfo) {

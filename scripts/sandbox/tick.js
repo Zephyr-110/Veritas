@@ -28,7 +28,61 @@ const {
   Transaction,
 } = require("@solana/web3.js");
 
-const { WAKE_SEC, WATCH_AFTER_SEC } = require("./expiry-watch");
+const { WAKE_SEC, WATCH_AFTER_SEC, tryLock } = require("./expiry-watch");
+
+function loadOptionalModule(candidates) {
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      try {
+        return require(p);
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+const dbLib = loadOptionalModule([
+  path.resolve(__dirname, "..", "db.js"),
+  path.join(__dirname, "db.js"),
+]);
+const indexerLib = loadOptionalModule([
+  path.resolve(__dirname, "..", "index-markets.js"),
+  path.join(__dirname, "index-markets.js"),
+]);
+
+async function persistCreatedMarketToDb(connection, programId, marketPk, openedAt) {
+  if (!dbLib || !indexerLib) return;
+  const db = dbLib.tryOpenDb();
+  if (!db) return;
+  try {
+    const info = await connection.getAccountInfo(marketPk, "confirmed");
+    if (!info) return;
+    const account = dbLib.decodeMarketFull(info.data);
+    const rows = await indexerLib.hydrateMarketRows(connection, programId, [
+      { address: marketPk, account, openedAt },
+    ]);
+    dbLib.upsertMarkets(db, rows);
+  } catch (err) {
+    console.warn(`[db] market upsert skipped for ${marketPk.toBase58()}: ${err.message}`);
+  } finally {
+    if (db.open) db.close();
+  }
+}
+
+async function runIncrementalSyncSafe(connection, programId, backfillEvidenceLimit = 2) {
+  if (!indexerLib) return;
+  let release;
+  try {
+    release = await tryLock("sqlite-sync");
+    if (!release) return;
+    await indexerLib.syncIncremental(connection, programId, { backfillEvidenceLimit });
+  } catch (err) {
+    console.warn(`[db] incremental sync skipped: ${err.message}`);
+  } finally {
+    release?.();
+  }
+}
 
 const DEFAULT_RPC = "https://api.devnet.solana.com";
 const DEFAULT_PROGRAM_ID = "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER";
@@ -1220,6 +1274,7 @@ async function runTick() {
       console.log(
         `[create] (${asset.symbol}) ${marketAddr} expiry=${expiry} threshold=${feed.answer.toString()} tx=${createSig}`
       );
+      await persistCreatedMarketToDb(connection, cfg.programId, pdas.market, nowSec);
 
       // Place alternating 2 USDT opening bet on the new market
       const side = state.nextBetSide === "no" ? "no" : "yes";
@@ -1239,6 +1294,7 @@ async function runTick() {
       state.nextBetSide = side === "yes" ? "no" : "yes";
       saveState(cfg.statePath, state);
       console.log(`[bet] (${asset.symbol}) ${marketAddr} side=${side} amount=${cfg.betUsdt} USDT tx=${betSig}`);
+      await persistCreatedMarketToDb(connection, cfg.programId, pdas.market, nowSec);
 
       [solLamports, usdtBal] = await Promise.all([
         connection.getBalance(payer.publicKey, "confirmed"),
@@ -1261,6 +1317,8 @@ async function runTick() {
     state.markets = [...archivedEntries, ...activeEntries];
     saveState(cfg.statePath, state);
   }
+
+  await runIncrementalSyncSafe(connection, cfg.programId, 2);
 }
 
 async function main() {
@@ -1319,4 +1377,6 @@ module.exports = {
   batchSyncOpenMarkets,
   recycleFinalizedEntries,
   isActiveWindowOpen,
+  persistCreatedMarketToDb,
+  runIncrementalSyncSafe,
 };

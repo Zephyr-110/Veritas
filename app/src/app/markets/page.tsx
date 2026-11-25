@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useMarkets, useMarketPhaseTime } from "@/hooks/use-markets";
-import { listSection, marketDurationBucket, marketKind, questionTitle, type DurationFilter } from "@/lib/display";
+import { useMarketPhaseTime, useMarketsInfinite, useMarketsPage } from "@/hooks/use-markets";
+import { listSection, marketKind, questionTitle, type DurationFilter } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
 import { MarketTable } from "@/components/market-table";
 import { MarketsSkeleton } from "@/components/skeletons";
@@ -26,15 +26,70 @@ const DURATION_FILTERS: ReadonlyArray<{
   { id: "24h", labelKey: "markets.filter24h" },
 ];
 
+const PAGE_SIZE = 30;
+
 export default function MarketsPage() {
   const publicKey = useEffectivePublicKey();
-  const { markets, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarkets();
-  const now = useMarketPhaseTime(markets);
   const t = useT();
   const [tape, setTape] = useState<Tape>("hot");
   const [duration, setDuration] = useState<DurationFilter>("all");
-  const [historyLimit, setHistoryLimit] = useState(30);
-  const showSim = !publicKey && !loading && markets.filter((m) => listSection(marketKind(m, now)) === "live").length === 0;
+
+  const liveQuery = useMarketsPage({
+    section: "live",
+    duration,
+    page: 1,
+    pageSize: PAGE_SIZE,
+    enabled: tape === "hot",
+  });
+  const railLiveQuery = useMarketsPage({
+    section: "live",
+    duration: "all",
+    page: 1,
+    pageSize: 1,
+    enabled: tape !== "hot" || duration !== "all",
+  });
+
+  const phaseSource = useMemo(
+    () => (tape === "hot" ? liveQuery.markets : railLiveQuery.markets),
+    [liveQuery.markets, railLiveQuery.markets, tape]
+  );
+  const now = useMarketPhaseTime(phaseSource);
+
+  const liveMarkets = useMemo(
+    () =>
+      liveQuery.markets
+        .filter((m) => listSection(marketKind(m, now)) === "live")
+        .sort((a, b) => a.expiry - b.expiry),
+    [liveQuery.markets, now]
+  );
+
+  const historyEnabled =
+    tape === "history" || (tape === "hot" && !liveQuery.loading && liveMarkets.length === 0);
+  const historyQuery = useMarketsInfinite({
+    section: "ended",
+    duration,
+    pageSize: PAGE_SIZE,
+    enabled: historyEnabled,
+  });
+
+  const endedMarkets = useMemo(
+    () =>
+      historyQuery.markets
+        .filter((m) => listSection(marketKind(m, now)) === "ended")
+        .sort((a, b) => b.expiry - a.expiry),
+    [historyQuery.markets, now]
+  );
+
+  const railSource = tape === "hot" && duration === "all" ? liveQuery : railLiveQuery;
+  const railLiveMarkets = useMemo(
+    () =>
+      railSource.markets
+        .filter((m) => listSection(marketKind(m, now)) === "live")
+        .sort((a, b) => a.expiry - b.expiry),
+    [now, railSource.markets]
+  );
+
+  const showSim = !publicKey && !railSource.loading && railLiveMarkets.length === 0;
 
   useEffect(() => {
     if (!showSim || typeof window === "undefined" || window.location.hash !== "#sim-preview") return;
@@ -44,32 +99,32 @@ export default function MarketsPage() {
     return () => window.cancelAnimationFrame(raf);
   }, [showSim]);
 
-  const unfilteredGroups = useMemo(() => {
-    const live = markets.filter((m) => listSection(marketKind(m, now)) === "live").sort((a, b) => a.expiry - b.expiry);
-    const next = markets.filter((m) => listSection(marketKind(m, now)) === "next").sort((a, b) => a.expiry - b.expiry);
-    return { live, next };
-  }, [markets, now]);
+  const currentLive: MarketView | null = railLiveMarkets[0] ?? null;
 
-  const filteredMarkets = useMemo(
-    () => (duration === "all" ? markets : markets.filter((m) => marketDurationBucket(m) === duration)),
-    [duration, markets]
-  );
+  const activeError = tape === "hot" ? liveQuery.error : historyQuery.error;
+  const hasAnyRows =
+    tape === "hot"
+      ? liveMarkets.length > 0 || endedMarkets.length > 0
+      : endedMarkets.length > 0;
+  const initialLoading =
+    tape === "hot"
+      ? (liveQuery.loading && !liveQuery.markets.length) ||
+        (historyEnabled && liveMarkets.length === 0 && historyQuery.loading && !historyQuery.markets.length)
+      : historyQuery.loading && !historyQuery.markets.length;
 
-  const groups = useMemo(() => {
-    const live = filteredMarkets.filter((m) => listSection(marketKind(m, now)) === "live").sort((a, b) => a.expiry - b.expiry);
-    const next = filteredMarkets.filter((m) => listSection(marketKind(m, now)) === "next").sort((a, b) => a.expiry - b.expiry);
-    const ended = filteredMarkets.filter((m) => listSection(marketKind(m, now)) === "ended").sort((a, b) => b.expiry - a.expiry);
-    return { live, next, ended };
-  }, [filteredMarkets, now]);
+  const reload = async () => {
+    await Promise.all([
+      tape === "hot" ? liveQuery.reload() : Promise.resolve(),
+      historyEnabled ? historyQuery.reload() : Promise.resolve(),
+      tape !== "hot" || duration !== "all" ? railLiveQuery.reload() : Promise.resolve(),
+    ]);
+  };
 
-  const nextMarket: MarketView | null = unfilteredGroups.next[0] ?? null;
-  const currentLive = [...unfilteredGroups.live].sort((a, b) => a.expiry - b.expiry)[0] ?? null;
-
-  if (error && !markets.length) {
+  if (activeError && !hasAnyRows) {
     return (
       <StateBlock
         kind="error"
-        title={t("markets.loadError", { error: localizeError(error) })}
+        title={t("markets.loadError", { error: localizeError(activeError) })}
         body={<StableText k="markets.loadHint" block />}
         action={
           <Button type="button" tone="secondary" onClick={() => void reload()}>
@@ -80,19 +135,18 @@ export default function MarketsPage() {
     );
   }
 
-  if (loading && !markets.length) {
+  if (initialLoading && !hasAnyRows) {
     return <MarketsSkeleton />;
   }
 
-  const endedPreview =
-    tape === "hot" && groups.live.length === 0 && groups.next.length === 0 && groups.ended.length > 0;
+  const endedPreview = tape === "hot" && liveMarkets.length === 0 && endedMarkets.length > 0;
   const sections =
     tape === "hot"
       ? [
           {
             key: "live",
             titleKey: "markets.live",
-            rows: groups.live,
+            rows: liveMarkets,
             emptyTitleKey: "markets.emptyLiveTitle",
             emptyBodyKey: "markets.emptyLiveBody",
           },
@@ -101,32 +155,33 @@ export default function MarketsPage() {
                 {
                   key: "ended",
                   titleKey: "markets.ended" as const,
-                  rows: groups.ended,
+                  rows: endedMarkets,
                   emptyTitleKey: "markets.emptyEndedTitle" as const,
                   emptyBodyKey: "markets.emptyEndedBody" as const,
                 },
               ]
-            : groups.next.length > 0
-              ? [
-                  {
-                    key: "next",
-                    titleKey: "markets.next" as const,
-                    rows: groups.next,
-                    emptyTitleKey: "markets.emptyNextTitle" as const,
-                    emptyBodyKey: "markets.emptyNextBody" as const,
-                  },
-                ]
-              : []),
+            : []),
         ]
       : [
           {
             key: "ended",
             titleKey: "markets.ended",
-            rows: groups.ended,
+            rows: endedMarkets,
             emptyTitleKey: "markets.emptyEndedTitle",
             emptyBodyKey: "markets.emptyEndedBody",
           },
         ];
+
+  const updatedAt =
+    tape === "hot" ? liveQuery.updatedAt ?? historyQuery.updatedAt : historyQuery.updatedAt;
+  const refreshing =
+    tape === "hot"
+      ? liveQuery.refreshing || historyQuery.refreshing
+      : historyQuery.refreshing;
+  const isStaleError =
+    tape === "hot"
+      ? liveQuery.isStaleError || historyQuery.isStaleError
+      : historyQuery.isStaleError;
 
   return (
     <div className="split split-markets">
@@ -148,10 +203,7 @@ export default function MarketsPage() {
               <button
                 key={id}
                 type="button"
-                onClick={() => {
-                  setTape(id);
-                  setHistoryLimit(30);
-                }}
+                onClick={() => setTape(id)}
                 className={
                   "px-3 py-1 text-xs " +
                   (tape === id ? "seg-on font-medium" : "text-zinc-400 hover:text-white")
@@ -170,10 +222,7 @@ export default function MarketsPage() {
                 key={chip.id}
                 type="button"
                 aria-pressed={active}
-                onClick={() => {
-                  setDuration(chip.id);
-                  setHistoryLimit(30);
-                }}
+                onClick={() => setDuration(chip.id)}
                 className={
                   "border px-3 py-1 text-xs transition-colors " +
                   (active
@@ -194,7 +243,7 @@ export default function MarketsPage() {
                   <StableText k={section.titleKey} />
                 </h2>
                 {section.rows.length ? (
-                  <MarketTable markets={section.key === "ended" ? section.rows.slice(0, historyLimit) : section.rows} />
+                  <MarketTable markets={section.rows} useIndexedVault />
                 ) : (
                   <StateBlock
                     kind="empty"
@@ -205,7 +254,7 @@ export default function MarketsPage() {
                         <Button type="button" tone="secondary" onClick={() => setDuration("all")}>
                           <StableText k="markets.clearFilter" align="center" />
                         </Button>
-                      ) : section.key === "next" && groups.live.length === 0 ? undefined : (
+                      ) : section.key === "next" && liveMarkets.length === 0 ? undefined : (
                         <Link href="/create">
                           <Button type="button" tone={section.key === "live" ? "primary" : "secondary"}>
                             <StableText k="markets.emptyCta" align="center" />
@@ -215,8 +264,13 @@ export default function MarketsPage() {
                     }
                   />
                 )}
-                {section.key === "ended" && section.rows.length > historyLimit && (
-                  <Button type="button" tone="secondary" onClick={() => setHistoryLimit((n) => n + 30)}>
+                {section.key === "ended" && historyQuery.hasMore && (
+                  <Button
+                    type="button"
+                    tone="secondary"
+                    busy={historyQuery.loadingMore}
+                    onClick={() => void historyQuery.loadMore()}
+                  >
                     <StableText k="markets.loadMore" />
                   </Button>
                 )}
@@ -224,7 +278,7 @@ export default function MarketsPage() {
             ))}
           </div>
         </Reveal>
-        {!publicKey && unfilteredGroups.live.length === 0 ? (
+        {!publicKey && railLiveMarkets.length === 0 ? (
           <Reveal>
             <SimOrderPreview />
           </Reveal>
@@ -234,16 +288,9 @@ export default function MarketsPage() {
         <Reveal>
           <div onMouseMove={onSpot} className="surface p-5 stack-3">
             <div className="section-title">
-              <StableText k={nextMarket ? "markets.nextRound" : "markets.thisRound"} />
+              <StableText k="markets.thisRound" />
             </div>
-            {nextMarket ? (
-              <>
-                <div className="line-clamp-2 leading-snug text-sm text-white">{questionTitle(nextMarket)}</div>
-                <div className="text-right">
-                  <TickingCountdown expiry={nextMarket.expiry} className="text-[28px] num-accent" />
-                </div>
-              </>
-            ) : currentLive ? (
+            {currentLive ? (
               <>
                 <div className="line-clamp-2 leading-snug text-sm text-white">{questionTitle(currentLive)}</div>
                 <div className="text-right">

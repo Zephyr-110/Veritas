@@ -8,8 +8,29 @@ const { spawnSync } = require("child_process");
 const { AnchorProvider, Program, Wallet, utils } = require("@coral-xyz/anchor");
 const { ComputeBudgetProgram, Connection, PublicKey } = require("@solana/web3.js");
 
-const { loadIdl, loadKeypair, fetchMintMeta, ataOf, ensureAtaIx } = require("./tick");
+const {
+  loadIdl,
+  loadKeypair,
+  fetchMintMeta,
+  ataOf,
+  ensureAtaIx,
+  runIncrementalSyncSafe,
+} = require("./tick");
 const { tryLock } = require("./expiry-watch");
+
+function loadOptionalDb() {
+  for (const p of [path.resolve(__dirname, "..", "db.js"), path.join(__dirname, "db.js")]) {
+    if (fs.existsSync(p)) {
+      try {
+        return require(p);
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+const dbLib = loadOptionalDb();
 
 const DEFAULT_RPC = "https://api.devnet.solana.com";
 const DEFAULT_PROGRAM_ID = "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER";
@@ -357,25 +378,47 @@ async function runMaintenance(connection, cfg, dryRun, expired) {
     console.log("[dry-run] rent recovery scan requires the operator public key; wallet file absent");
     return;
   }
-  const reclaimable = [];
-  for (const status of [1, 2, 3]) {
-    try {
-      const rows = await connection.getProgramAccounts(cfg.programId, {
-        commitment: "confirmed",
-        filters: marketFilters(status, owner),
-        // collateralMint through finishTs, including the longest Option<Side> encoding.
-        dataSlice: { offset: STATUS_OFFSET + 1, length: 107 },
-      });
-      const now = Math.floor(Date.now() / 1000);
-      for (const row of rows) {
-        try {
-          const terms = readMarketTerms(new Cursor(row.account.data));
-          if (terms.finishTs > 0 && now > terms.finishTs + CLAIM_WINDOW_SEC) {
-            reclaimable.push({ address: row.pubkey, ...terms });
-          }
-        } catch (err) { console.warn(`[settle-all] decode ${row.pubkey}: ${err.message}`); }
+  let reclaimable = null;
+  if (dbLib && process.env.VERITAS_DISABLE_DB_MAINTENANCE !== "1") {
+    const db = dbLib.tryOpenDb(undefined, { readonly: true });
+    if (db) {
+      try {
+        if (dbLib.hasIndexedMarkets(db, cfg.programId.toBase58())) {
+          const cutoff = Math.floor(Date.now() / 1000) - CLAIM_WINDOW_SEC;
+          reclaimable = dbLib
+            .getReclaimableMarkets(db, cfg.programId.toBase58(), owner.toBase58(), cutoff, cfg.maxPerRun * 2)
+            .map((row) => ({
+              address: new PublicKey(row.address),
+              collateralMint: new PublicKey(row.collateral_mint),
+              finishTs: Number(row.finish_ts),
+            }));
+        }
+      } finally {
+        if (db.open) db.close();
       }
-    } catch (err) { console.warn(`[settle-all] rent scan status=${status}: ${err.message}`); }
+    }
+  }
+  if (reclaimable === null) {
+    reclaimable = [];
+    for (const status of [1, 2, 3]) {
+      try {
+        const rows = await connection.getProgramAccounts(cfg.programId, {
+          commitment: "confirmed",
+          filters: marketFilters(status, owner),
+          // collateralMint through finishTs, including the longest Option<Side> encoding.
+          dataSlice: { offset: STATUS_OFFSET + 1, length: 107 },
+        });
+        const now = Math.floor(Date.now() / 1000);
+        for (const row of rows) {
+          try {
+            const terms = readMarketTerms(new Cursor(row.account.data));
+            if (terms.finishTs > 0 && now > terms.finishTs + CLAIM_WINDOW_SEC) {
+              reclaimable.push({ address: row.pubkey, ...terms });
+            }
+          } catch (err) { console.warn(`[settle-all] decode ${row.pubkey}: ${err.message}`); }
+        }
+      } catch (err) { console.warn(`[settle-all] rent scan status=${status}: ${err.message}`); }
+    }
   }
   await maintainMarkets(reclaimable, "burn", dryRun, async ({ address, collateralMint }) => {
     const { tokenProgram } = await fetchMintMeta(connection, collateralMint);
@@ -468,6 +511,7 @@ async function runSweep(cfg, flags) {
   }
 
   await runMaintenance(connection, cfg, false, expired);
+  await runIncrementalSyncSafe(connection, cfg.programId, 3);
   console.log(`[settle-all] sweep done: settled=${settled} failed=${failed}`);
   return { attempted: selected.length, settled, failed };
 }

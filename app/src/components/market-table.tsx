@@ -12,9 +12,17 @@ import { TickingCountdown } from "./live";
 import { PriceAge } from "./price-age";
 import { Button, onSpot, StableText, StatusChip } from "./ui";
 
-export function MarketTable({ markets }: { markets: MarketView[] }) {
+const EMPTY_MARKETS: MarketView[] = [];
+
+export function MarketTable({
+  markets,
+  useIndexedVault = false,
+}: {
+  markets: MarketView[];
+  useIndexedVault?: boolean;
+}) {
   const now = useMarketPhaseTime(markets);
-  const vaultFor = useVisibleVaults(markets);
+  const vaultFor = useVisibleVaults(useIndexedVault ? EMPTY_MARKETS : markets);
   const { quotes } = useFeeds();
   const t = useT();
   return (
@@ -40,7 +48,7 @@ export function MarketTable({ markets }: { markets: MarketView[] }) {
         </div>
       </div>
       {markets.map((market, index) => {
-        const vault = vaultFor(market);
+        const vault = useIndexedVault ? market.vault : vaultFor(market);
         const kind = marketKind(market, now);
         const live = kind === "live";
         const actionKey =

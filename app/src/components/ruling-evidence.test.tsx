@@ -113,6 +113,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 describe("RulingEvidence component", () => {
@@ -199,5 +200,58 @@ describe("RulingEvidence component", () => {
     expect(screen.getByText(/7201493\/5/).closest("a")).toBeNull();
     expect(screen.getByText(/7201493\/6/).closest("a")).toBeNull();
     expect(screen.queryByText(/Missing reports/i)).toBeNull();
+  });
+
+  it("serves cached settlement evidence from SQLite API without calling on-chain RPC queries", async () => {
+    const market = makeResolvedMarket();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          found: true,
+          evidence: {
+            marketAddress: market.address.toBase58(),
+            programId: "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER",
+            feedAddress: FEEDS[0].feed,
+            snapshotAddress: market.pdas.snapshot.toBase58(),
+            resolveSignature: "db-resolve-sig",
+            resolveTxUrl: "https://solscan.io/tx/db-resolve-sig?cluster=devnet",
+            settledPrice: "6340222800000",
+            priceDecimals: 8,
+            winner: "yes",
+            status: "resolved",
+            preEpoch: 7201555,
+            preRound: 2,
+            preCounter: 41922063,
+            prePrice: "6338055208989",
+            preTimestamp: 1795447821,
+            prePushSignature: "db-push-pre",
+            prePushTxUrl: "https://solscan.io/tx/db-push-pre?cluster=devnet",
+            postEpoch: 7201555,
+            postRound: 3,
+            postCounter: 41922064,
+            postPrice: "6340222800000",
+            postTimestamp: 1795447824,
+            postPushSignature: "db-push-post",
+            postPushTxUrl: "https://solscan.io/tx/db-push-post?cluster=devnet",
+            missingCount: 0,
+            createdAt: 1795447838,
+          },
+        }),
+      })
+    );
+
+    renderWithQuery(<RulingEvidence market={market} />);
+
+    await waitFor(() => expect(screen.getByText("Missing reports: 0")).toBeInTheDocument());
+    expect(screen.getByText("63402.228").tagName).toBe("STRONG");
+    expect(screen.getByRole("link", { name: "Resolve transaction" })).toHaveAttribute(
+      "href",
+      "https://solscan.io/tx/db-resolve-sig?cluster=devnet"
+    );
+    expect(fetchRuling).not.toHaveBeenCalled();
+    expect(fetchMarketSnapshot).not.toHaveBeenCalled();
+    expect(findPushSignatures).not.toHaveBeenCalled();
   });
 });

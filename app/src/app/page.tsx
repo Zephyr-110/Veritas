@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { useMarkets, useMarketPhaseTime, useVisibleVaults } from "@/hooks/use-markets";
+import { useMarketPhaseTime, useMarketsPage } from "@/hooks/use-markets";
 import { listSection, marketKind, questionTitle } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
 import { ORACLE_CENSUS_URL } from "@/lib/constants";
+import type { MarketView } from "@/lib/markets";
 import { DemoVideo } from "@/components/demo-video";
 import { PricePanel } from "@/components/price-tape";
 import { PulseAreaMark } from "@/components/logo-marks";
@@ -29,8 +30,9 @@ export default function HomePage() {
     lastError,
     enterSandbox,
   } = useGuestSession();
-  const { markets, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarkets();
-  const now = useMarketPhaseTime(markets);
+  const liveQuery = useMarketsPage({ section: "live", duration: "all", page: 1, pageSize: 20 });
+  const endedQuery = useMarketsPage({ section: "ended", duration: "all", page: 1, pageSize: 6 });
+  const now = useMarketPhaseTime(liveQuery.markets);
   const t = useT();
   const locale = useLocale();
   const mountedNow = now > 0;
@@ -38,28 +40,31 @@ export default function HomePage() {
   const live = useMemo(
     () =>
       mountedNow
-        ? markets.filter((market) => marketKind(market, now) === "live").sort((a, b) => a.expiry - b.expiry)
+        ? liveQuery.markets
+            .filter((market) => marketKind(market, now) === "live")
+            .sort((a, b) => a.expiry - b.expiry)
         : [],
-    [markets, mountedNow, now]
+    [liveQuery.markets, mountedNow, now]
   );
-  const next = useMemo(
+  const nextMarket = null as MarketView | null;
+  const preview = useMemo(
     () =>
       mountedNow
-        ? markets.filter((market) => listSection(marketKind(market, now)) === "next").sort((a, b) => a.expiry - b.expiry)
+        ? endedQuery.markets
+            .filter((market) => listSection(marketKind(market, now)) === "ended")
+            .sort((a, b) => b.expiry - a.expiry)
+            .slice(0, 6)
         : [],
-    [markets, mountedNow, now]
+    [endedQuery.markets, mountedNow, now]
   );
-  const nextMarket = next[0] ?? null;
-  const finished = useMemo(
-    () =>
-      mountedNow
-        ? markets.filter((market) => listSection(marketKind(market, now)) === "ended").sort((a, b) => b.expiry - a.expiry)
-        : [],
-    [markets, mountedNow, now]
-  );
-  const preview = finished.slice(0, 6);
-  const vaultFor = useVisibleVaults(preview);
-  const merged = !loading && !error && live.length === 0;
+  const refreshing = liveQuery.refreshing || endedQuery.refreshing;
+  const updatedAt = liveQuery.updatedAt ?? endedQuery.updatedAt;
+  const isStaleError = liveQuery.isStaleError || endedQuery.isStaleError;
+  const error = liveQuery.error ?? endedQuery.error;
+  const reload = async () => {
+    await Promise.all([liveQuery.reload(), endedQuery.reload()]);
+  };
+  const merged = !liveQuery.loading && !liveQuery.error && live.length === 0;
 
   const feesLead = tPair("home.howFeesLead", undefined, locale);
   const feesHelp = tPair("home.howHelp", undefined, locale);
@@ -264,7 +269,7 @@ export default function HomePage() {
                   <StableText k="common.tryAgain" align="center" />
                 </Button>
               </div>
-            ) : loading && !markets.length ? (
+            ) : liveQuery.loading && !liveQuery.markets.length ? (
               <MarketTableSkeleton rows={4} />
             ) : live.length ? (
               <div className="fade-in stack-3">
@@ -273,7 +278,7 @@ export default function HomePage() {
                     <StableText k="home.simLiveHint" block />
                   </p>
                 ) : null}
-                <MarketTable markets={live} />
+                <MarketTable markets={live} useIndexedVault />
               </div>
             ) : (
               <div className="surface fade-in p-5">
@@ -355,18 +360,18 @@ export default function HomePage() {
             <StableText k="home.finished" />
           </h2>
           <div className="mt-5">
-            {loading && !markets.length ? (
+            {endedQuery.loading && !endedQuery.markets.length ? (
               <MarketTableSkeleton rows={3} />
-            ) : finished.length ? (
+            ) : preview.length ? (
               <div className="fade-in">
                 <div className="home-fin-strip">
                   {preview.map((market) => (
                     <div key={market.address.toBase58()} className="home-fin-item">
-                      <MarketCard market={market} vault={vaultFor(market) ?? null} />
+                      <MarketCard market={market} vault={market.vault} />
                     </div>
                   ))}
                 </div>
-                {finished.length > 6 ? (
+                {endedQuery.total > 6 ? (
                   <div className="mt-3 text-right">
                     <Link href="/markets" className="link-accent text-[15px]">
                       <StableText k="home.viewAllFinished" align="end" /> →

@@ -4,7 +4,9 @@ import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PublicKey } from "@solana/web3.js";
 import { FEEDS } from "@/lib/feeds";
-import type { MarketView, UserPosition } from "@/lib/markets";
+import { toUi } from "@/lib/format";
+import type { WalletPositionsSummaryDto } from "@/lib/market-dto";
+import { isFinalizedStatus, isVoidedStatus, pendingValueOf, type MarketView, type UserPosition } from "@/lib/markets";
 import { LocaleProvider } from "@/i18n/provider";
 
 const NOW = 1_767_225_600;
@@ -13,11 +15,10 @@ const PROGRAM_KEY = new PublicKey("CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER"
 
 type PositionRow = { market: MarketView; position: UserPosition };
 
-const marketState = vi.hoisted(() => ({
-  markets: [] as MarketView[],
+const positionState = vi.hoisted(() => ({
+  rows: [] as PositionRow[],
 }));
 
-const fetchPositionsBatch = vi.hoisted(() => vi.fn<() => Promise<PositionRow[]>>());
 const fetchRedemptions = vi.hoisted(() => vi.fn());
 
 vi.mock("next/link", () => ({
@@ -36,23 +37,52 @@ vi.mock("@/hooks/use-program", () => ({
   useProgram: () => ({ programId: PROGRAM_KEY }),
 }));
 
+function buildSummary(rows: PositionRow[]): WalletPositionsSummaryDto {
+  const claimableOf = (market: MarketView, position: UserPosition) => {
+    if (market.status === "resolved") return market.winner === "yes" ? position.yes : position.no;
+    if (isVoidedStatus(market.status)) {
+      return position.yes > 1n || position.no > 1n ? (position.yes + position.no) / 2n : 0n;
+    }
+    return 0n;
+  };
+  const finalized = rows.filter(({ market }) => isFinalizedStatus(market.status));
+  return {
+    totalMarkets: rows.length,
+    sumYes: rows.reduce((a, r) => a + Number(toUi(r.position.yes, r.market.decimals, 2)), 0),
+    sumNo: rows.reduce((a, r) => a + Number(toUi(r.position.no, r.market.decimals, 2)), 0),
+    sumPending: rows.reduce(
+      (a, r) => a + Number(toUi(pendingValueOf(r.market, r.position), r.market.decimals, 4)),
+      0
+    ),
+    claimCount: finalized.filter(({ market, position }) => claimableOf(market, position) > 0n).length,
+    claimTotal: finalized.reduce(
+      (a, { market, position }) => a + Number(toUi(claimableOf(market, position), market.decimals, 2)),
+      0
+    ),
+    lpUnclaimed: finalized.some(
+      ({ position }) => position.lpShares > 0n || position.pendingYes > 0n || position.pendingNo > 0n
+    ),
+  };
+}
+
 vi.mock("@/hooks/use-markets", () => ({
-  useMarkets: () => ({
-    markets: marketState.markets,
+  useWalletPositionsPage: () => ({
+    rows: positionState.rows,
+    summary: buildSummary(positionState.rows),
+    total: positionState.rows.length,
+    hasMore: false,
+    syncedAt: NOW,
     loading: false,
+    loadingMore: false,
     refreshing: false,
     updatedAt: NOW * 1000,
     isStaleError: false,
     error: null,
+    loadMore: vi.fn(),
     reload: vi.fn(),
   }),
   useMarketPhaseTime: () => NOW,
 }));
-
-vi.mock("@/lib/markets", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/markets")>();
-  return { ...actual, fetchPositionsBatch };
-});
 
 vi.mock("@/lib/history", () => ({
   fetchRedemptions,
@@ -163,8 +193,7 @@ function renderMePage() {
 }
 
 beforeEach(() => {
-  marketState.markets = [];
-  fetchPositionsBatch.mockReset().mockResolvedValue([]);
+  positionState.rows = [];
   fetchRedemptions.mockReset().mockResolvedValue([]);
 });
 
@@ -210,14 +239,7 @@ describe("MePage Claim 跳转分流", () => {
       finishTs: NOW - 300,
     });
 
-    marketState.markets = [
-      winnerMarket,
-      voidMarket,
-      lpOnlyMarket,
-      liveMarket,
-      loserViewMarket,
-    ];
-    fetchPositionsBatch.mockResolvedValue([
+    positionState.rows = [
       {
         market: winnerMarket,
         position: makePosition({ yes: 4_000_000n, lpShares: 0n }),
@@ -238,7 +260,7 @@ describe("MePage Claim 跳转分流", () => {
         market: loserViewMarket,
         position: makePosition({ no: 2_000_000n, lpShares: 0n }),
       },
-    ]);
+    ];
 
     renderMePage();
 
@@ -281,13 +303,12 @@ describe("MePage Claim 跳转分流", () => {
       endTs: NOW - 600,
       finishTs: NOW - 300,
     });
-    marketState.markets = [winnerMarket];
-    fetchPositionsBatch.mockResolvedValue([
+    positionState.rows = [
       {
         market: winnerMarket,
         position: makePosition({ yes: 3_000_000n, lpShares: 0n }),
       },
-    ]);
+    ];
 
     renderMePage();
 

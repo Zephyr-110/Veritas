@@ -16,7 +16,8 @@
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
     "@solana/spl-token": "^0.4.15",
-    "@solana/web3.js": "^1.99.0"
+    "@solana/web3.js": "^1.99.0",
+    "better-sqlite3": "^13.2.0"
   },
   "devDependencies": {
     "@types/chai": "^5.2.3",
@@ -27,5 +28,3 @@
     "typescript": "^5.9.3"
   }
 }
-
-

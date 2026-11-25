@@ -1,15 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { ExternalLink } from "lucide-react";
-import { useMarketPhaseTime, useMarkets } from "@/hooks/use-markets";
+import { useMarketPhaseTime, useWalletPositionsPage } from "@/hooks/use-markets";
 import { useProgram } from "@/hooks/use-program";
 import { subscribeAccountsWithFallback, type SyncMode } from "@/lib/account-sync";
-import { fetchPositionsBatch, isFinalizedStatus, isVoidedStatus, pendingValueOf, type MarketView, type UserPosition } from "@/lib/markets";
+import { isVoidedStatus, pendingValueOf, type MarketView, type UserPosition } from "@/lib/markets";
 import { fetchRedemptions } from "@/lib/history";
 import { localizeError } from "@/lib/errors";
 import { explorerAccount, explorerTx, formatFixed, formatUnix, shorten, toUi } from "@/lib/format";
@@ -88,57 +88,51 @@ export default function MePage() {
   } = useGuestSession();
   const { connection } = useConnection();
   const program = useProgram();
-  const { markets, loading, refreshing, updatedAt, isStaleError, error, reload } = useMarkets();
   const { settings } = useSettings();
-  const now = useMarketPhaseTime(markets);
   const t = useT();
   const queryClient = useQueryClient();
   const [guideOpen, setGuideOpen] = useState(false);
   const [syncMode, setSyncMode] = useState<SyncMode>("live");
   const programId = program?.programId.toBase58() ?? "";
   const wallet = effectivePublicKey?.toBase58() ?? "";
-  const marketIds = markets.map((m) => m.address.toBase58()).join(",");
 
-  const positionsQuery = useQuery({
-    queryKey: ["positions", connection.rpcEndpoint, programId, wallet, marketIds],
-    queryFn: async () => {
-      const all = await fetchPositionsBatch(connection, program!.programId, markets, effectivePublicKey!);
-      if (isSandbox && wallet) {
-        const match = all.find((r) => r.market.collateralMint.toBase58() === settings.collateralMint.trim());
-        if (match) {
-          const balKey = ["sandbox-balance", connection.rpcEndpoint, settings.collateralMint, wallet];
-          queryClient.setQueryData<SandboxBalance>(balKey, (prev) =>
-            prev && prev.usdtAtoms !== match.position.collateral
-              ? { ...prev, usdtAtoms: match.position.collateral }
-              : prev
-          );
-        }
-      }
-      return all.filter(
-        (r) =>
-          r.position.yes > 0n ||
-          r.position.no > 0n ||
-          r.position.lpShares > 0n ||
-          r.position.pendingYes > 0n ||
-          r.position.pendingNo > 0n
-      );
-    },
-    enabled: Boolean(program && effectivePublicKey && markets.length),
+  const positionsQuery = useWalletPositionsPage({
+    wallet,
+    programId,
+    rpcUrl: settings.rpcUrl,
+    pageSize: 30,
+    enabled: Boolean(program && effectivePublicKey),
   });
+  const rows: Row[] = positionsQuery.rows;
+  const summary = positionsQuery.summary;
+  const phaseMarkets = useMemo(() => rows.map((r) => r.market), [rows]);
+  const now = useMarketPhaseTime(phaseMarkets);
+
+  useEffect(() => {
+    if (!isSandbox || !wallet || !rows.length) return;
+    const match = rows.find((r) => r.market.collateralMint.toBase58() === settings.collateralMint.trim());
+    if (!match) return;
+    const balKey = ["sandbox-balance", connection.rpcEndpoint, settings.collateralMint, wallet];
+    queryClient.setQueryData<SandboxBalance>(balKey, (prev) =>
+      prev && prev.usdtAtoms !== match.position.collateral
+        ? { ...prev, usdtAtoms: match.position.collateral }
+        : prev
+    );
+  }, [connection.rpcEndpoint, isSandbox, queryClient, rows, settings.collateralMint, wallet]);
+
   const redemptionsQuery = useQuery({
     queryKey: ["redemptions", connection.rpcEndpoint, programId, wallet],
     queryFn: () => fetchRedemptions(connection, effectivePublicKey!, program!.programId),
     enabled: Boolean(program && effectivePublicKey),
   });
 
-  const posRefetchRef = useRef(positionsQuery.refetch);
-  posRefetchRef.current = positionsQuery.refetch;
+  const posRefetchRef = useRef(positionsQuery.reload);
+  posRefetchRef.current = positionsQuery.reload;
   const redRefetchRef = useRef(redemptionsQuery.refetch);
   redRefetchRef.current = redemptionsQuery.refetch;
-  const hasMarketList = markets.length > 0;
   const hasProgram = Boolean(program);
   const collateralTp =
-    markets.find((m) => m.collateralMint.toBase58() === settings.collateralMint.trim())?.tokenProgram ??
+    rows.find((r) => r.market.collateralMint.toBase58() === settings.collateralMint.trim())?.market.tokenProgram ??
     TOKEN_PROGRAM_ID;
   const tpAddr = collateralTp.toBase58();
 
@@ -161,16 +155,15 @@ export default function MePage() {
       connection,
       accounts,
       onRefresh: async () => {
-        if (hasMarketList) await posRefetchRef.current({ throwOnError: true });
+        await posRefetchRef.current(true);
         await redRefetchRef.current({ throwOnError: true });
       },
       onModeChange: setSyncMode,
     });
-  }, [connection, hasMarketList, hasProgram, settings.collateralMint, tpAddr, wallet]);
+  }, [connection, hasProgram, settings.collateralMint, tpAddr, wallet]);
 
-  const rows: Row[] = positionsQuery.data ?? [];
   const redemptions = redemptionsQuery.data ?? [];
-  const busy = (Boolean(effectivePublicKey) && positionsQuery.isPending) || redemptionsQuery.isPending;
+  const busy = (Boolean(effectivePublicKey) && positionsQuery.loading) || redemptionsQuery.isPending;
 
   if (!effectivePublicKey) {
     return (
@@ -242,35 +235,26 @@ export default function MePage() {
       </div>
     );
   }
-  if (error && !markets.length) {
+  if (positionsQuery.error && !rows.length) {
     return (
       <StateBlock
         kind="error"
-        title={t("markets.loadError", { error: localizeError(error) })}
+        title={t("markets.loadError", { error: localizeError(positionsQuery.error) })}
         action={
-          <Button type="button" tone="secondary" onClick={() => void reload()}>
+          <Button type="button" tone="secondary" onClick={() => void positionsQuery.reload(true)}>
             <StableText k="common.tryAgain" align="center" />
           </Button>
         }
       />
     );
   }
-  if ((loading || busy) && !rows.length && markets.length > 0) {
-    return <MeSkeleton />;
-  }
-  if (loading && !markets.length) {
+  if (busy && !rows.length) {
     return <MeSkeleton />;
   }
 
-  const finalizedRows = rows.filter(({ market }) => isFinalizedStatus(market.status));
-  const claimCount = finalizedRows.filter(({ market, position }) => claimableOf(market, position) > 0n).length;
-  const claimTotal = finalizedRows.reduce(
-    (a, { market, position }) => a + Number(toUi(claimableOf(market, position), market.decimals, 2)),
-    0
-  );
-  const lpUnclaimed = finalizedRows.some(
-    ({ position }) => position.lpShares > 0n || position.pendingYes > 0n || position.pendingNo > 0n
-  );
+  const claimCount = summary.claimCount;
+  const claimTotal = summary.claimTotal;
+  const lpUnclaimed = summary.lpUnclaimed;
 
   const solscanAccount = explorerAccount(wallet, settings.cluster);
 
@@ -281,17 +265,16 @@ export default function MePage() {
           <StableText k="me.title" />
         </h1>
         <DataFreshness
-          updatedAt={Math.max(updatedAt ?? 0, positionsQuery.dataUpdatedAt || 0, isSandbox ? balanceUpdatedAt ?? 0 : 0) || null}
-          refreshing={refreshing || positionsQuery.isFetching}
+          updatedAt={Math.max(positionsQuery.updatedAt ?? 0, isSandbox ? balanceUpdatedAt ?? 0 : 0) || null}
+          refreshing={positionsQuery.refreshing}
           staleError={Boolean(
-            isStaleError ||
-              (positionsQuery.isError && Boolean(positionsQuery.data)) ||
+            positionsQuery.isStaleError ||
+              (positionsQuery.error && rows.length > 0) ||
               syncMode === "stale" ||
               (isSandbox && balanceStale)
           )}
           onRefresh={() => {
-            void reload();
-            void positionsQuery.refetch();
+            void positionsQuery.reload(true);
             void redemptionsQuery.refetch();
           }}
         />
@@ -342,20 +325,18 @@ export default function MePage() {
           {rows.length ? (
             <>
               <div onMouseMove={onSpot} className="surface flex flex-wrap gap-x-10 gap-y-4 p-6">
-                <Stat labelKey="me.sumMarkets" value={String(rows.length)} />
+                <Stat labelKey="me.sumMarkets" value={String(summary.totalMarkets)} />
                 <Stat
                   labelKey="me.sumYes"
-                  value={rows.reduce((a, r) => a + Number(toUi(r.position.yes, r.market.decimals, 2)), 0).toFixed(2)}
+                  value={summary.sumYes.toFixed(2)}
                 />
                 <Stat
                   labelKey="me.sumNo"
-                  value={rows.reduce((a, r) => a + Number(toUi(r.position.no, r.market.decimals, 2)), 0).toFixed(2)}
+                  value={summary.sumNo.toFixed(2)}
                 />
                 <Stat
                   labelKey="me.sumPending"
-                  value={rows
-                    .reduce((a, r) => a + Number(toUi(pendingValueOf(r.market, r.position), r.market.decimals, 4)), 0)
-                    .toFixed(4)}
+                  value={summary.sumPending.toFixed(4)}
                   accent
                 />
               </div>
@@ -456,6 +437,16 @@ export default function MePage() {
                   );
                 })}
               </div>
+              {positionsQuery.hasMore ? (
+                <Button
+                  type="button"
+                  tone="secondary"
+                  busy={positionsQuery.loadingMore}
+                  onClick={() => void positionsQuery.loadMore()}
+                >
+                  <StableText k="markets.loadMore" />
+                </Button>
+              ) : null}
             </>
           ) : (
             <StateBlock
@@ -483,7 +474,7 @@ export default function MePage() {
               {redemptions.map((row) => {
                 const href = explorerTx(row.signature, settings.cluster);
                 const address = row.market.toBase58();
-                const market = markets.find(m => m.address.equals(row.market));
+                const market = rows.find((r) => r.market.address.equals(row.market))?.market;
                 const symbol = row.mint.toBase58() === settings.collateralMint ? COLLATERAL_SYMBOL : shorten(row.mint.toBase58());
                 return (
                   <div key={row.id} onMouseMove={onSpot} className="surface p-4 stack-2">

@@ -4,7 +4,9 @@ import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PublicKey } from "@solana/web3.js";
 import { emptyQuotes } from "@/lib/chainlink";
+import { listSection, marketDurationBucket, marketKind, type DurationFilter } from "@/lib/display";
 import { FEEDS } from "@/lib/feeds";
+import type { ListSectionFilter } from "@/lib/market-dto";
 import type { MarketView } from "@/lib/markets";
 import { LocaleProvider } from "@/i18n/provider";
 
@@ -23,16 +25,110 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+function filterMockMarkets(section: ListSectionFilter, duration: DurationFilter) {
+  const byDur =
+    duration === "all"
+      ? marketState.markets
+      : marketState.markets.filter((m) => marketDurationBucket(m) === duration);
+  if (section === "live") {
+    return byDur
+      .filter((m) => listSection(marketKind(m, NOW)) === "live")
+      .sort((a, b) => a.expiry - b.expiry);
+  }
+  if (section === "ended") {
+    return byDur
+      .filter((m) => listSection(marketKind(m, NOW)) === "ended")
+      .sort((a, b) => b.expiry - a.expiry);
+  }
+  return byDur;
+}
+
 vi.mock("@/hooks/use-markets", () => ({
-  useMarkets: () => ({
-    markets: marketState.markets,
-    loading: false,
-    refreshing: false,
-    updatedAt: NOW * 1000,
-    isStaleError: false,
-    error: null,
-    reload: vi.fn(),
-  }),
+  useMarketsPage: ({
+    section,
+    duration = "all",
+    page = 1,
+    pageSize = 30,
+    enabled = true,
+  }: {
+    section: ListSectionFilter;
+    duration?: DurationFilter;
+    page?: number;
+    pageSize?: number;
+    enabled?: boolean;
+  }) => {
+    if (!enabled) {
+      return {
+        markets: [],
+        total: 0,
+        hasMore: false,
+        indexedAt: NOW,
+        loading: false,
+        refreshing: false,
+        updatedAt: NOW * 1000,
+        isStaleError: false,
+        error: null,
+        reload: vi.fn(),
+      };
+    }
+    const all = filterMockMarkets(section, duration);
+    const slice = all.slice((page - 1) * pageSize, page * pageSize);
+    return {
+      markets: slice,
+      total: all.length,
+      hasMore: page * pageSize < all.length,
+      indexedAt: NOW,
+      loading: false,
+      refreshing: false,
+      updatedAt: NOW * 1000,
+      isStaleError: false,
+      error: null,
+      reload: vi.fn(),
+    };
+  },
+  useMarketsInfinite: ({
+    section,
+    duration = "all",
+    pageSize = 30,
+    enabled = true,
+  }: {
+    section: ListSectionFilter;
+    duration?: DurationFilter;
+    pageSize?: number;
+    enabled?: boolean;
+  }) => {
+    if (!enabled) {
+      return {
+        markets: [],
+        total: 0,
+        hasMore: false,
+        indexedAt: NOW,
+        loading: false,
+        loadingMore: false,
+        refreshing: false,
+        updatedAt: NOW * 1000,
+        isStaleError: false,
+        error: null,
+        loadMore: vi.fn(),
+        reload: vi.fn(),
+      };
+    }
+    const all = filterMockMarkets(section, duration);
+    return {
+      markets: all.slice(0, pageSize),
+      total: all.length,
+      hasMore: all.length > pageSize,
+      indexedAt: NOW,
+      loading: false,
+      loadingMore: false,
+      refreshing: false,
+      updatedAt: NOW * 1000,
+      isStaleError: false,
+      error: null,
+      loadMore: vi.fn(),
+      reload: vi.fn(),
+    };
+  },
   useMarketPhaseTime: () => NOW,
   useVisibleVaults: () => (m: MarketView) => m.vault,
 }));

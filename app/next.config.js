@@ -3,6 +3,7 @@ const path = require("path");
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   outputFileTracingRoot: path.join(__dirname),
+  serverExternalPackages: ["better-sqlite3"],
   transpilePackages: [
     "@solana/wallet-adapter-base",
     "@solana/wallet-adapter-react",

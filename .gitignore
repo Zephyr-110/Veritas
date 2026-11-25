@@ -64,6 +64,11 @@ Cargo.lock.bak
 *.log
 *.orig
 
+# SQLite local index files
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
 # Local tooling
 .codex/
 .cursor/
