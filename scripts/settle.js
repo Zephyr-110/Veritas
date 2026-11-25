@@ -559,58 +559,201 @@ async function resolveTx(program, payer, marketPubkey, market, pair, snapshot) {
   return new Transaction().add(ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }), ix);
 }
 
+const SNAPSHOT_PRE_LEAD_SEC = 8;
+const SNAPSHOT_MAX_ENTRIES = 16;
+const SNAPSHOT_MAX_SUBMISSIONS = 10;
+const SNAPSHOT_RETRY_MS = 1500;
+const SNAPSHOT_POLL_MS = 650;
+const SNAPSHOT_FAST_POLL_MS = 300;
+const SNAPSHOT_WAIT_POST_MS = 2800;
+
+function createSnapshotCoordinator(endTs, { maxWaitMs = SNAPSHOT_WAIT_POST_MS } = {}) {
+  let postRecorded = false;
+  let finished = false;
+  let stopped = false;
+  let lastChainNow = 0;
+  let wakePoll = null;
+  const waiters = new Set();
+
+  const notifyWaiters = () => {
+    for (const notify of [...waiters]) notify();
+  };
+
+  return {
+    get postRecorded() {
+      return postRecorded;
+    },
+    get finished() {
+      return finished;
+    },
+    get stopped() {
+      return stopped;
+    },
+    get isWaiting() {
+      return waiters.size > 0;
+    },
+    get lastChainNow() {
+      return lastChainNow;
+    },
+    updateChainNow(chainNow) {
+      lastChainNow = chainNow;
+      if (chainNow >= endTs + 9) notifyWaiters();
+    },
+    markPostRecorded() {
+      postRecorded = true;
+      notifyWaiters();
+      if (wakePoll) wakePoll();
+    },
+    finish() {
+      finished = true;
+      notifyWaiters();
+    },
+    stop() {
+      stopped = true;
+      if (wakePoll) wakePoll();
+      notifyWaiters();
+    },
+    nudge() {
+      if (wakePoll) wakePoll();
+    },
+    sleep(ms) {
+      if (ms <= 0 || stopped || finished || postRecorded) return Promise.resolve();
+      return new Promise((resolve) => {
+        let timer = null;
+        const done = () => {
+          if (timer) clearTimeout(timer);
+          timer = null;
+          if (wakePoll === done) wakePoll = null;
+          resolve();
+        };
+        wakePoll = done;
+        timer = setTimeout(done, ms);
+      });
+    },
+    async waitForPost(deadlineMs) {
+      if (postRecorded || finished || stopped) return postRecorded;
+      if (lastChainNow >= endTs + 9) return false;
+      this.nudge();
+      const now = Date.now();
+      const capMs = Math.min(now + maxWaitMs, (endTs + 9) * 1000, deadlineMs ?? Infinity);
+      const remaining = capMs - now;
+      if (remaining <= 0) return postRecorded;
+      await new Promise((resolve) => {
+        let timer = null;
+        const check = () => {
+          if (!postRecorded && !finished && !stopped && lastChainNow < endTs + 9) return;
+          cleanup();
+        };
+        const cleanup = () => {
+          if (timer) clearTimeout(timer);
+          timer = null;
+          waiters.delete(check);
+          resolve();
+        };
+        waiters.add(check);
+        timer = setTimeout(cleanup, remaining);
+        check();
+      });
+      return postRecorded;
+    },
+  };
+}
+
 // Snapshot writes run alongside the report watcher. Read the feed, clock and existing
 // witnesses at one bank slot so a browser or an earlier worker's write counts too.
-async function recordExpirySnapshots(connection, program, payer, address, market, feed) {
-  const { endTs } = market;
-  const waitMs = (endTs - WAKE_SEC) * 1000 - Date.now();
-  if (waitMs > 75_000) return;
-  if (waitMs > 0) await pause(waitMs);
-  const deadline = (endTs + 10) * 1000;
-  const [snapshot] = PublicKey.findProgramAddressSync([Buffer.from("snapshot"), address.toBuffer()], program.programId);
-  const attempted = new Set();
-  while (Date.now() < deadline && attempted.size < 3) {
-    try {
-      const [head, saved, clock] = await connection.getMultipleAccountsInfo([feed, snapshot, SYSVAR_CLOCK_PUBKEY], "processed");
-      if (!head || !saved || !clock) return;
-      const chainNow = Number(clock.data.readBigInt64LE(32));
-      const counter = head.data.readUInt32LE(143);
-      const publishTime = Number(head.data.readBigInt64LE(208));
-      const entries = decodeMarketSnapshot(saved.data)?.entries;
-      if (!entries || entries.length >= 16 || chainNow >= endTs + 10 || entries.at(-1)?.ts >= endTs) return;
-      if (shouldRecordSnapshot({ endTs, chainNow, counter, publishTime, entries, attempted })) {
-        const ix = await program.methods.takeSnapshot().accountsPartial({
-          caller: payer.publicKey, market: address, snapshot, ocr2State: market.ocr2State,
-          feed, clock: SYSVAR_CLOCK_PUBKEY, systemProgram: SystemProgram.programId,
-        }).instruction();
-        const { blockhash } = await connection.getLatestBlockhash("confirmed");
-        const tx = new Transaction({ feePayer: payer.publicKey, recentBlockhash: blockhash }).add(ix);
-        tx.sign(payer);
-        if (Date.now() >= deadline) return;
-        if (Date.now() > (endTs - 10) * 1000) {
-          attempted.add(counter);
-          const sig = await connection.sendRawTransaction(tx.serialize(), { preflightCommitment: "processed", maxRetries: 0 });
+async function recordExpirySnapshots(
+  connection,
+  program,
+  payer,
+  address,
+  market,
+  feed,
+  coord = null,
+  { pollMs = SNAPSHOT_POLL_MS, fastPollMs = SNAPSHOT_FAST_POLL_MS, retryAfterMs = SNAPSHOT_RETRY_MS } = {}
+) {
+  try {
+    const { endTs } = market;
+    const waitMs = (endTs - WAKE_SEC) * 1000 - Date.now();
+    if (waitMs > 75_000) return;
+    if (waitMs > 0) await (coord ? coord.sleep(waitMs) : pause(waitMs));
+    const deadline = (endTs + 12) * 1000;
+    const [snapshot] = PublicKey.findProgramAddressSync([Buffer.from("snapshot"), address.toBuffer()], program.programId);
+    const attempted = new Map();
+    let submissions = 0;
+    let lastSubmittedAt = 0;
+    while (Date.now() < deadline && !coord?.stopped) {
+      try {
+        const [head, saved, clock] = await connection.getMultipleAccountsInfo([feed, snapshot, SYSVAR_CLOCK_PUBKEY], "processed");
+        if (!head || !saved || !clock) return;
+        const chainNow = Number(clock.data.readBigInt64LE(32));
+        const counter = head.data.readUInt32LE(143);
+        const publishTime = Number(head.data.readBigInt64LE(208));
+        const entries = decodeMarketSnapshot(saved.data)?.entries;
+        if (!entries) return;
+        if (entries.at(-1)?.ts >= endTs) {
+          coord?.markPostRecorded();
+          return;
+        }
+        coord?.updateChainNow(chainNow);
+        if (entries.length >= SNAPSHOT_MAX_ENTRIES || chainNow >= endTs + 10) return;
+        if (submissions >= SNAPSHOT_MAX_SUBMISSIONS && Date.now() - lastSubmittedAt >= retryAfterMs) return;
+        const nowMs = Date.now();
+        if (shouldRecordSnapshot({ endTs, chainNow, counter, publishTime, entries, attempted, submissions, nowMs, retryAfterMs })) {
+          const ix = await program.methods.takeSnapshot().accountsPartial({
+            caller: payer.publicKey, market: address, snapshot, ocr2State: market.ocr2State,
+            feed, clock: SYSVAR_CLOCK_PUBKEY, systemProgram: SystemProgram.programId,
+          }).instruction();
+          const { blockhash } = await connection.getLatestBlockhash("confirmed");
+          const tx = new Transaction({ feePayer: payer.publicKey, recentBlockhash: blockhash }).add(ix);
+          tx.sign(payer);
+          if (coord?.stopped || Date.now() >= deadline) return;
+          const sig = await connection.sendRawTransaction(tx.serialize(), { preflightCommitment: "processed", maxRetries: 2 });
+          const sentAt = Date.now();
+          submissions += 1;
+          lastSubmittedAt = sentAt;
+          attempted.set(counter, sentAt);
           console.log(`[snapshot] ${address} submitted counter=${counter} tx=${sig}`);
         }
+      } catch (err) {
+        console.warn(`[snapshot] ${address}: ${err.message}`);
       }
-    } catch (err) {
-      console.warn(`[snapshot] ${address}: ${err.message}`);
+      if (Date.now() < deadline && !coord?.stopped) {
+        const delay = coord?.isWaiting ? fastPollMs : pollMs;
+        await (coord ? coord.sleep(delay) : pause(delay));
+      }
     }
-    if (Date.now() < deadline) await pause(650);
+  } finally {
+    coord?.finish();
   }
 }
 
-function shouldRecordSnapshot({ endTs, chainNow, counter, publishTime, entries, attempted }) {
+function shouldRecordSnapshot({
+  endTs,
+  chainNow,
+  counter,
+  publishTime,
+  entries,
+  attempted,
+  submissions = 0,
+  nowMs = Date.now(),
+  retryAfterMs = SNAPSHOT_RETRY_MS,
+}) {
+  if (chainNow < endTs - SNAPSHOT_PRE_LEAD_SEC || chainNow >= endTs + 10) return false;
+  if (publishTime <= 0 || entries.length >= SNAPSHOT_MAX_ENTRIES || submissions >= SNAPSHOT_MAX_SUBMISSIONS) {
+    return false;
+  }
   const last = entries.at(-1);
-  if (chainNow <= endTs - 10 || chainNow >= endTs + 10 || publishTime <= 0 ||
-      entries.length >= 16 || attempted.has(counter) || (last && (last.ts >= endTs || last.counter >= counter))) return false;
-  if (publishTime >= endTs) return Boolean(last && last.counter + 1 === counter);
-  // Reserve one of the three submissions for the first post-expiry counter.
-  if (entries.length >= 15 || attempted.size >= 2) return false;
-  return (!last && !attempted.size) || chainNow >= endTs - 2;
+  if (last && (last.ts >= endTs || last.counter >= counter)) return false;
+  if (attempted instanceof Map) {
+    const sentAt = attempted.get(counter);
+    if (sentAt != null && nowMs - sentAt < retryAfterMs) return false;
+  } else if (attempted && typeof attempted.has === "function") {
+    if (attempted.has(counter)) return false;
+  }
+  return true;
 }
 
-async function runWatch(connection, program, payer, marketPk, market, opts) {
+async function runWatch(connection, program, payer, marketPk, market, opts, coord = null) {
   const endTs = market.endTs;
   const log = msg => console.log(`[wake] ${new Date().toISOString()} ${marketPk} ${msg}`);
   const waitMs = (endTs - WAKE_SEC) * 1000 - Date.now();
@@ -659,6 +802,11 @@ async function runWatch(connection, program, payer, marketPk, market, opts) {
     pick: reports => pickStraddlingPair(reports, endTs, state.rMax, null),
     onPair: async (pair, deadline) => {
       if (opts.dryRun) return log("dry run; pair ready");
+      if (coord) {
+        const recorded = await coord.waitForPost(deadline);
+        if (!recorded) log("post snapshot wait timed out; resolving anyway");
+        coord.stop();
+      }
       const tx = await resolveTx(program, payer, marketPk, market, pair, null);
       tx.feePayer = payer.publicKey;
       const latest = await connection.getLatestBlockhash("confirmed");
@@ -865,12 +1013,14 @@ async function settle(opts, marketPubkey) {
   }
 
   if (opts.feed) {
+    const coord = opts.dryRun ? null : createSnapshotCoordinator(market.endTs);
     const witness = opts.dryRun ? null :
-      recordExpirySnapshots(connection, program, payer, marketPubkey, market, opts.feed)
+      recordExpirySnapshots(connection, program, payer, marketPubkey, market, opts.feed, coord)
         .catch(err => console.warn(`[snapshot] ${marketPubkey}: ${err.message}`));
     try {
-      return await runWatch(connection, program, payer, marketPubkey, market, opts);
+      return await runWatch(connection, program, payer, marketPubkey, market, opts, coord);
     } finally {
+      coord?.stop();
       await witness;
     }
   }
@@ -937,4 +1087,4 @@ if (require.main === module) main().catch((err) => {
   process.exit(1);
 });
 
-module.exports = { parseOcr2Transmit, areReportsAdjacent, pickStraddlingPair, shouldRecordSnapshot, recordExpirySnapshots };
+module.exports = { parseOcr2Transmit, areReportsAdjacent, pickStraddlingPair, shouldRecordSnapshot, recordExpirySnapshots, createSnapshotCoordinator, runWatch };
