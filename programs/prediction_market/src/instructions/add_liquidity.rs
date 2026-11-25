@@ -7,6 +7,7 @@ use crate::error::ErrorCode;
 use crate::state::MarketStatus;
 
 use anchor_spl::token_interface::*;
+use fixed::traits::Fixed;
 use fixed::types::I80F48;
 use crate::math::{apply_accrual, compute_accrual};
 
@@ -187,12 +188,14 @@ pub fn add_liquidity(ctx: Context<AddLiquidity>, collateral_amount: u64) -> Resu
     let yes_input_amount = if market.reserve_yes > market.reserve_no {
         collateral_amount} else {
         let yes_temp = reserve_yes.checked_mul(add_collateral).ok_or(ErrorCode::MathOverflow)?;
-        yes_temp.checked_div(reserve_no).ok_or(ErrorCode::MathOverflow)?.to_num::<u64>()
+        let quotient = yes_temp.checked_div(reserve_no).ok_or(ErrorCode::MathOverflow)?;
+        quotient.checked_ceil().ok_or(ErrorCode::MathOverflow)?.to_num()
     }; // yes 应该入池数量
     let no_input_amount = if market.reserve_yes < market.reserve_no {
         collateral_amount} else {
         let no_temp = reserve_no.checked_mul(add_collateral).ok_or(ErrorCode::MathOverflow)?;
-        no_temp.checked_div(reserve_yes).ok_or(ErrorCode::MathOverflow)?.to_num::<u64>()
+        let quotient = no_temp.checked_div(reserve_yes).ok_or(ErrorCode::MathOverflow)?;
+        quotient.checked_ceil().ok_or(ErrorCode::MathOverflow)?.to_num()
     }; // No 应该入池数量
     require!(yes_input_amount > 0 && no_input_amount > 0, ErrorCode::InvalidAmount);
 
