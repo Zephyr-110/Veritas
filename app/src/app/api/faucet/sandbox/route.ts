@@ -22,12 +22,22 @@ import {
   recordIpClaim,
   releaseAddressLock,
 } from "@/lib/sandbox-faucet-guard";
+import {
+  checkDailyCountCap,
+  checkRateLimit,
+  recordDailyCount,
+  recordRateLimit,
+  validateFaucetRequest,
+} from "@/lib/server-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const ATA_RENT_LAMPORTS = 2_039_280;
 const FEE_BUFFER_LAMPORTS = 50_000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const BURST_WINDOW_MS = 60_000;
+const BURST_LIMIT = 12;
 
 function envNumber(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -60,6 +70,16 @@ export async function POST(req: Request) {
   if (!keypairPath) {
     return Response.json({ error: "disabled" }, { status: 404 });
   }
+  const guard = validateFaucetRequest(req);
+  if (!guard.ok) {
+    return Response.json({ error: guard.error }, { status: guard.status });
+  }
+
+  const ip = extractClientIp(req);
+  if (!checkRateLimit("sandbox-faucet-burst", ip, BURST_LIMIT, BURST_WINDOW_MS)) {
+    return Response.json({ error: "rate_limited" }, { status: 429 });
+  }
+  recordRateLimit("sandbox-faucet-burst", ip, BURST_WINDOW_MS);
 
   let recipient: PublicKey;
   try {
@@ -70,6 +90,10 @@ export async function POST(req: Request) {
   }
 
   const address = recipient.toBase58();
+  const addressDailyLimit = envNumber("SANDBOX_FAUCET_ADDRESS_DAILY_LIMIT", 5);
+  if (!checkRateLimit("sandbox-faucet-addr-day", address, addressDailyLimit, DAY_MS)) {
+    return Response.json({ error: "address_limit" }, { status: 429 });
+  }
   const lockMs = envNumber("SANDBOX_FAUCET_LOCK_MS", 10_000);
   if (!acquireAddressLock(address, Date.now(), lockMs)) {
     return Response.json({ error: "locked" }, { status: 429 });
@@ -90,6 +114,7 @@ export async function POST(req: Request) {
     const targetSolLamports = Math.round(envNumber("SANDBOX_FAUCET_SOL_AMOUNT", 0.04) * 1e9);
     const targetUsdtUi = envNumber("SANDBOX_FAUCET_USDT_AMOUNT", 30);
     const ipDailyLimit = envNumber("SANDBOX_FAUCET_IP_DAILY_LIMIT", 5);
+    const dailyClaimCap = envNumber("SANDBOX_FAUCET_DAILY_CLAIM_CAP", 100);
     const dailySolCapLamports = Math.round(
       envNumber("SANDBOX_FAUCET_DAILY_SOL_CAP", 2) * 1e9
     );
@@ -128,9 +153,11 @@ export async function POST(req: Request) {
       });
     }
 
-    const ip = extractClientIp(req);
     if (!checkIpLimit(ip, ipDailyLimit)) {
       return Response.json({ error: "ip_limit" }, { status: 429 });
+    }
+    if (!checkDailyCountCap("sandbox-faucet-daily-claims", dailyClaimCap)) {
+      return Response.json({ error: "daily_cap" }, { status: 503 });
     }
     if (!checkDailySolCap(initial.solBudget, dailySolCapLamports)) {
       return Response.json({ error: "daily_sol_cap" }, { status: 503 });
@@ -167,6 +194,8 @@ export async function POST(req: Request) {
           ) {
             const settled = await inspectRecipient();
             recordIpClaim(ip);
+            recordRateLimit("sandbox-faucet-addr-day", address, DAY_MS);
+            recordDailyCount("sandbox-faucet-daily-claims");
             recordDailySol(initial.solBudget);
             touchActiveSignal();
             return Response.json({
@@ -183,6 +212,8 @@ export async function POST(req: Request) {
         const stateNow = attempt === 0 ? initial : await inspectRecipient();
         if (stateNow.needSol === 0 && !stateNow.needAta && stateNow.needUsdt === 0n) {
           recordIpClaim(ip);
+          recordRateLimit("sandbox-faucet-addr-day", address, DAY_MS);
+          recordDailyCount("sandbox-faucet-daily-claims");
           recordDailySol(initial.solBudget);
           touchActiveSignal();
           return Response.json({
@@ -255,6 +286,8 @@ export async function POST(req: Request) {
         }
 
         recordIpClaim(ip);
+        recordRateLimit("sandbox-faucet-addr-day", address, DAY_MS);
+        recordDailyCount("sandbox-faucet-daily-claims");
         recordDailySol(stateNow.solBudget);
         touchActiveSignal();
         return Response.json({

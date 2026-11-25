@@ -5,7 +5,7 @@ import { utils } from "@coral-xyz/anchor";
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, unpackAccount } from "@solana/spl-token";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { computePending, decodeLpPosition, decodeMarket, i80f48ToAmount } from "./codec";
-import { DEFAULT_PROGRAM_ID, DEFAULT_RPC, LP_POSITION_DISCRIMINATOR } from "./constants";
+import { DEFAULT_PROGRAM_ID, LP_POSITION_DISCRIMINATOR } from "./constants";
 import type { DurationFilter } from "./display";
 import { feedByState } from "./feeds";
 import { explorerTx, toUi } from "./format";
@@ -24,6 +24,7 @@ import { fetchMarketSnapshot, isFinalizedStatus, isVoidedStatus, pendingValueOf 
 import { findLpPosition, findMarketPdas } from "./pdas";
 import { fetchTxBatch } from "./resolve";
 import { fetchRuling, findPushSignatures, witnessCounts } from "./ruling-evidence";
+import { resolveServerRpcUrl } from "./server-security";
 import { instructionGroups } from "./transaction-history";
 import type { FeedKey, MarketStatusName, Side } from "./types";
 
@@ -120,12 +121,15 @@ type GlobalDbState = {
 const globalScope = globalThis as typeof globalThis & {
   __veritasServerDb?: GlobalDbState;
   __veritasWalletSyncs?: Map<string, Promise<{ syncedAt: number | null }>>;
+  __veritasWalletForceSyncAt?: Map<string, number>;
   __veritasEvidenceHealInFlight?: Map<string, Promise<EvidenceResponse>>;
   __veritasEvidenceHealCooldown?: Map<string, number>;
 };
 
 const EVIDENCE_HEAL_COOLDOWN_MS = 5 * 60 * 1000;
 const EVIDENCE_HEAL_COOLDOWN_MAX = 500;
+const WALLET_FORCE_SYNC_COOLDOWN_SEC = 10;
+const WALLET_FORCE_SYNC_MAX = 1000;
 
 export function resolveServerDbPath(explicitPath?: string): string {
   const chosen = explicitPath?.trim() || process.env.VERITAS_DB_PATH?.trim();
@@ -533,12 +537,12 @@ function recordEvidenceHealCooldown(key: string, nowMs = Date.now()): void {
 export function clearEvidenceHealStateForTests(): void {
   globalScope.__veritasEvidenceHealInFlight?.clear();
   globalScope.__veritasEvidenceHealCooldown?.clear();
+  globalScope.__veritasWalletForceSyncAt?.clear();
 }
 
 export async function healSettlementEvidenceOnDemand(opts: {
   marketAddress: string;
   programId?: string;
-  rpcUrl?: string;
   cluster?: string;
   dbPath?: string;
   connectionOverride?: Connection;
@@ -586,7 +590,7 @@ export async function healSettlementEvidenceOnDemand(opts: {
 
   const task = (async (): Promise<EvidenceResponse> => {
     try {
-      const rpcUrl = opts.rpcUrl?.trim() || process.env.SOLANA_RPC || DEFAULT_RPC;
+      const rpcUrl = resolveServerRpcUrl();
       const connection = opts.connectionOverride ?? new Connection(rpcUrl, "confirmed");
       const cluster = opts.cluster?.trim() || inferClusterFromRpc(connection.rpcEndpoint);
       const pid = new PublicKey(programId);
@@ -876,10 +880,11 @@ async function resolveUnknownLpMarket(
 export async function syncWalletPositionsOnDemand(opts: {
   wallet: string;
   programId?: string;
-  rpcUrl?: string;
   forceRefresh?: boolean;
   ttlSec?: number;
+  forceCooldownSec?: number;
   dbPath?: string;
+  connectionOverride?: Connection;
 }): Promise<{ syncedAt: number | null }> {
   const programId = opts.programId?.trim() || DEFAULT_PROGRAM_ID;
   const db = getServerDb(opts.dbPath);
@@ -891,24 +896,43 @@ export async function syncWalletPositionsOnDemand(opts: {
 
   const nowSec = Math.floor(Date.now() / 1000);
   const ttlSec = opts.ttlSec ?? 30;
-  if (process.env.VERITAS_DISABLE_ON_DEMAND_SYNC === "1") {
+  const forceCooldownSec = opts.forceCooldownSec ?? WALLET_FORCE_SYNC_COOLDOWN_SEC;
+  if (process.env.VERITAS_DISABLE_ON_DEMAND_SYNC === "1" && !opts.connectionOverride) {
     return { syncedAt: existingSync?.synced_at ?? null };
   }
-  if (!opts.forceRefresh && existingSync && nowSec - existingSync.synced_at < ttlSec) {
+  const syncKey = `${opts.dbPath ?? "default"}:${programId}:${opts.wallet}`;
+  const lastForceAt = globalScope.__veritasWalletForceSyncAt?.get(syncKey);
+  if (opts.forceRefresh) {
+    if (
+      (existingSync && nowSec - existingSync.synced_at < forceCooldownSec) ||
+      (lastForceAt != null && nowSec - lastForceAt < forceCooldownSec)
+    ) {
+      return { syncedAt: existingSync?.synced_at ?? null };
+    }
+  } else if (existingSync && nowSec - existingSync.synced_at < ttlSec) {
     return { syncedAt: existingSync.synced_at };
   }
 
   if (!globalScope.__veritasWalletSyncs) {
     globalScope.__veritasWalletSyncs = new Map();
   }
-  const syncKey = `${opts.dbPath ?? "default"}:${programId}:${opts.wallet}`;
   const inFlight = globalScope.__veritasWalletSyncs.get(syncKey);
   if (inFlight) return inFlight;
 
+  if (opts.forceRefresh) {
+    if (!globalScope.__veritasWalletForceSyncAt) {
+      globalScope.__veritasWalletForceSyncAt = new Map();
+    }
+    if (globalScope.__veritasWalletForceSyncAt.size >= WALLET_FORCE_SYNC_MAX) {
+      const oldest = globalScope.__veritasWalletForceSyncAt.keys().next().value;
+      if (oldest !== undefined) globalScope.__veritasWalletForceSyncAt.delete(oldest);
+    }
+    globalScope.__veritasWalletForceSyncAt.set(syncKey, nowSec);
+  }
+
   const task = (async () => {
     try {
-      const rpcUrl = opts.rpcUrl?.trim() || process.env.SOLANA_RPC || DEFAULT_RPC;
-      const connection = new Connection(rpcUrl, "confirmed");
+      const connection = opts.connectionOverride ?? new Connection(resolveServerRpcUrl(), "confirmed");
       const pid = new PublicKey(programId);
       const walletPk = new PublicKey(opts.wallet);
 

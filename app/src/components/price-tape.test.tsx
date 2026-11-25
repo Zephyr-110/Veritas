@@ -1,0 +1,121 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { FEEDS } from "@/lib/feeds";
+import type { FeedKey, FeedQuote } from "@/lib/types";
+import { LocaleProvider } from "@/i18n/provider";
+
+const quotesState = vi.hoisted(() => ({
+  quotes: {} as Record<FeedKey, FeedQuote>,
+  ready: true,
+  error: null as string | null,
+}));
+
+vi.mock("@/hooks/use-feeds", () => ({
+  useFeeds: () => ({
+    ...quotesState,
+    retry: vi.fn(),
+  }),
+}));
+
+const { PricePanel } = await import("@/components/price-tape");
+
+function seedQuotes() {
+  const now = Math.floor(Date.now() / 1000);
+  const prices: Record<FeedKey, number> = {
+    btc: 95420.5,
+    eth: 3420.15,
+    sol: 215.4,
+    link: 18.25,
+    usdc: 1.0,
+    usdt: 0.9998,
+  };
+  for (const f of FEEDS) {
+    quotesState.quotes[f.key] = {
+      key: f.key,
+      price: prices[f.key],
+      decimals: 8,
+      publishTime: now - 5,
+      counter: 1,
+      available: true,
+    };
+  }
+}
+
+function renderPanel() {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={qc}>
+      <LocaleProvider>
+        <PricePanel />
+      </LocaleProvider>
+    </QueryClientProvider>
+  );
+}
+
+beforeEach(() => {
+  seedQuotes();
+  quotesState.ready = true;
+  quotesState.error = null;
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+describe("PricePanel", () => {
+  it("renders borderless SVG logos, full names for volatile assets, and code-only for stablecoins", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => [
+          [1700003600, 99, 106, 100, 105],
+          [1700000000, 98, 101, 100, 100],
+        ],
+      })
+    );
+
+    const { container } = renderPanel();
+
+    expect(screen.getByText("Bitcoin")).toBeInTheDocument();
+    expect(screen.getByText("Ethereum")).toBeInTheDocument();
+    expect(screen.getByText("Solana")).toBeInTheDocument();
+    expect(screen.getByText("Chainlink")).toBeInTheDocument();
+    expect(screen.getByText("BTC/USD")).toBeInTheDocument();
+    expect(screen.getByText("USDC/USD")).toBeInTheDocument();
+    expect(screen.getByText("USDT/USD")).toBeInTheDocument();
+    expect(screen.queryByText(/USD Coin|Tether/i)).toBeNull();
+
+    for (const key of ["btc", "eth", "sol", "link", "usdc", "usdt"] as const) {
+      const badge = container.querySelector(`[data-asset-logo="${key}"]`);
+      expect(badge).not.toBeNull();
+      expect(badge?.className).not.toContain("border ");
+      expect(badge?.querySelector("img")).toHaveAttribute("src", `/tokens/${key}.svg`);
+    }
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-sparkline="true"]')).toHaveLength(6);
+    });
+    expect(screen.getAllByText("+5.00%")).toHaveLength(6);
+  });
+
+  it("degrades cleanly without fabricating percentages or sparklines when /chart fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 502,
+      })
+    );
+
+    const { container } = renderPanel();
+
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled());
+    expect(container.querySelectorAll('[data-sparkline="true"]')).toHaveLength(0);
+    expect(screen.queryByText(/0\.00%/)).toBeNull();
+  });
+});

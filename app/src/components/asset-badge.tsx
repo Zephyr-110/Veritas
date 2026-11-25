@@ -9,12 +9,20 @@ export const TOKEN_LOGOS: Partial<Record<FeedKey, string>> = {
   eth: "/tokens/eth.svg",
   sol: "/tokens/sol.svg",
   link: "/tokens/link.svg",
+  usdc: "/tokens/usdc.svg",
+  usdt: "/tokens/usdt.svg",
 };
 
 function fallbackMonogram(symbol?: string, feedKey?: FeedKey | null): string {
   const raw = (symbol || feedKey || "?").split("/")[0].replace(/[^A-Za-z0-9]/g, "");
   return (raw.slice(0, 2) || "?").toUpperCase();
 }
+
+const BADGE_SIZE = {
+  sm: { box: "h-7 w-7", icon: 24 },
+  md: { box: "h-8 w-8", icon: 28 },
+  lg: { box: "h-9 w-9", icon: 32 },
+} as const;
 
 export function AssetBadge({
   feedKey,
@@ -24,7 +32,7 @@ export function AssetBadge({
 }: {
   feedKey?: FeedKey | null;
   symbol?: string;
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "lg";
   className?: string;
 }) {
   const logoSrc = feedKey ? TOKEN_LOGOS[feedKey] : undefined;
@@ -35,15 +43,15 @@ export function AssetBadge({
   }, [logoSrc]);
 
   const showLogo = Boolean(logoSrc && !imgFailed);
-  const iconSize = size === "sm" ? 16 : 18;
-  const boxClass = size === "sm" ? "h-7 w-7" : "h-8 w-8";
+  const { box: boxClass, icon: iconSize } = BADGE_SIZE[size];
 
   return (
     <span
       aria-hidden="true"
       data-asset-logo={showLogo ? feedKey ?? undefined : "fallback"}
       className={cx(
-        "inline-flex shrink-0 items-center justify-center rounded-none border border-[var(--hair)] bg-[var(--seg-bg)] select-none",
+        "inline-flex shrink-0 items-center justify-center rounded-none select-none",
+        !showLogo && "border border-[var(--hair)] bg-[var(--seg-bg)]",
         boxClass,
         className
       )}

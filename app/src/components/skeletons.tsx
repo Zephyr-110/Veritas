@@ -22,17 +22,26 @@ export function Sk({ className }: { className?: string }) {
 export function PricePanelSkeleton() {
   return (
     <div className="surface home-prices panel-float" aria-hidden>
-      <div className="flex items-center justify-between pb-1">
+      <div className="home-prices-head">
         <Sk className="h-3 w-20" />
         <Sk className="h-3 w-24" />
       </div>
-      <div className="mt-1">
+      <div>
         {["a", "b", "c", "d", "e", "f"].map((id) => (
           <div key={id} className="home-prices-row">
-            <Sk className="h-3.5 w-16" />
-            <div className="flex items-baseline gap-2.5">
-              <Sk className="h-5 w-20" />
-              <Sk className="h-3 w-12" />
+            <div className="home-prices-id">
+              <Sk className="h-8 w-8 shrink-0" />
+              <div className="stack-1">
+                <Sk className="h-3.5 w-16" />
+                <Sk className="h-2.5 w-12" />
+              </div>
+            </div>
+            <div className="home-prices-spark">
+              <Sk className="h-4 w-14" />
+            </div>
+            <div className="home-prices-quote">
+              <Sk className="h-4 w-20" />
+              <Sk className="mt-1 h-2.5 w-14" />
             </div>
           </div>
         ))}

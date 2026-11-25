@@ -7,15 +7,32 @@ import {
   transfer,
 } from "@solana/spl-token";
 import { DEFAULT_COLLATERAL_MINT } from "@/lib/constants";
-
-import { acquireAddressLock, releaseAddressLock } from "@/lib/sandbox-faucet-guard";
+import {
+  acquireAddressLock,
+  extractClientIp,
+  releaseAddressLock,
+} from "@/lib/sandbox-faucet-guard";
+import {
+  checkRateLimit,
+  recordRateLimit,
+  validateFaucetRequest,
+} from "@/lib/server-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const CLAIM_AMOUNT = 100n;
 const COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const BURST_WINDOW_MS = 60_000;
+const BURST_LIMIT = 10;
 const DAILY_CAP = 200;
+
+function envPositiveInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) && n >= 0 ? n : fallback;
+}
 
 type ClaimState = Record<string, number>;
 
@@ -32,26 +49,44 @@ export async function POST(req: Request) {
   if (!keypairPath) {
     return Response.json({ error: "disabled" }, { status: 404 });
   }
+  const guard = validateFaucetRequest(req);
+  if (!guard.ok) {
+    return Response.json({ error: guard.error }, { status: guard.status });
+  }
+
+  const ip = extractClientIp(req);
+  if (!checkRateLimit("faucet-burst", ip, BURST_LIMIT, BURST_WINDOW_MS)) {
+    return Response.json({ error: "rate_limited" }, { status: 429 });
+  }
+  recordRateLimit("faucet-burst", ip, BURST_WINDOW_MS);
+
   let address: string;
   try {
     const body = (await req.json()) as { address?: string };
-    address = String(body.address ?? "");
-    new PublicKey(address);
+    address = new PublicKey(String(body.address ?? "").trim()).toBase58();
   } catch {
     return Response.json({ error: "bad_address" }, { status: 400 });
+  }
+
+  const ipDailyLimit = envPositiveInt("FAUCET_IP_DAILY_LIMIT", 5);
+  if (!checkRateLimit("faucet-ip-day", ip, ipDailyLimit, COOLDOWN_MS)) {
+    return Response.json({ error: "ip_limit" }, { status: 429 });
   }
 
   if (!acquireAddressLock(address)) {
     return Response.json({ error: "locked" }, { status: 429 });
   }
+  let keepCooldown = false;
   try {
-    return await claim(address, keypairPath);
+    const res = await claim(address, keypairPath, ip, ipDailyLimit);
+    if (res.ok) keepCooldown = true;
+    return res;
   } finally {
-    releaseAddressLock(address, { keepCooldown: false });
+    releaseAddressLock(address, { keepCooldown });
   }
 }
 
-async function claim(address: string, keypairPath: string) {
+async function claim(address: string, keypairPath: string, ip: string, ipDailyLimit: number) {
   const statePath = process.env.FAUCET_STATE_PATH ?? "/tmp/veritas-faucet.json";
   const state = loadState(statePath);
   const now = Date.now();
@@ -59,9 +94,13 @@ async function claim(address: string, keypairPath: string) {
   if (now - last < COOLDOWN_MS) {
     return Response.json({ error: "cooldown" }, { status: 429 });
   }
+  const dailyCap = envPositiveInt("FAUCET_DAILY_CAP", DAILY_CAP);
   const claimedToday = Object.values(state).filter((ts) => now - ts < COOLDOWN_MS).length;
-  if (claimedToday >= DAILY_CAP) {
+  if (claimedToday >= dailyCap) {
     return Response.json({ error: "daily_cap" }, { status: 429 });
+  }
+  if (!checkRateLimit("faucet-ip-day", ip, ipDailyLimit, COOLDOWN_MS, now)) {
+    return Response.json({ error: "ip_limit" }, { status: 429 });
   }
 
   const secret = Uint8Array.from(JSON.parse(readFileSync(keypairPath, "utf8")) as number[]);
@@ -99,6 +138,7 @@ async function claim(address: string, keypairPath: string) {
       }
       const updated = loadState(statePath);
       updated[address] = Date.now();
+      recordRateLimit("faucet-ip-day", ip, COOLDOWN_MS);
       try {
         writeFileSync(statePath, JSON.stringify(updated));
       } catch {

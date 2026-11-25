@@ -122,7 +122,6 @@ export function RulingEvidence({ market }: { market: MarketView }) {
       "ruling-db",
       settings.programId,
       settings.cluster,
-      connection.rpcEndpoint,
       market.address.toBase58(),
       market.finishTs,
     ],
@@ -132,9 +131,6 @@ export function RulingEvidence({ market }: { market: MarketView }) {
           programId: settings.programId,
           cluster: settings.cluster,
         });
-        if (/^https?:\/\//i.test(connection.rpcEndpoint)) {
-          params.set("rpcUrl", connection.rpcEndpoint);
-        }
         const res = await fetch(
           `/api/evidence/${market.address.toBase58()}?${params.toString()}`,
           { cache: "no-store" }

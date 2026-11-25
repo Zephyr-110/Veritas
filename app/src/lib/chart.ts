@@ -70,3 +70,38 @@ export async function fetchCandles(
     .map((r) => ({ time: r[0], low: r[1], high: r[2], open: r[3], close: r[4] }))
     .sort((a, b) => a.time - b.time);
 }
+
+export type SparklineData = {
+  points: number[];
+  changePct: number | null;
+};
+
+/**
+ * Fetches real 24h hourly closes from the Coinbase /chart relay.
+ * Returns null when upstream candles are unavailable (never fabricates series).
+ */
+export async function fetch24hSparkline(
+  pair: string,
+  nowSec = Math.floor(Date.now() / 1000)
+): Promise<SparklineData | null> {
+  try {
+    const start = new Date((nowSec - 24 * 3600) * 1000).toISOString();
+    const end = new Date(nowSec * 1000).toISOString();
+    const url = `/chart/products/${pair}/candles?granularity=3600&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const rows = (await res.json()) as unknown;
+    if (!Array.isArray(rows) || rows.length < 2) return null;
+    const sorted = rows
+      .filter((r): r is number[] => Array.isArray(r) && r.length >= 5 && Number.isFinite(r[0]) && Number.isFinite(r[3]) && Number.isFinite(r[4]))
+      .sort((a, b) => a[0] - b[0]);
+    if (sorted.length < 2) return null;
+    const points = sorted.map((r) => r[4]);
+    const open = sorted[0][3];
+    const close = points[points.length - 1];
+    const changePct = open > 0 ? ((close - open) / open) * 100 : null;
+    return { points, changePct };
+  } catch {
+    return null;
+  }
+}

@@ -230,13 +230,12 @@ type DeserializedPositionsPage = {
 export function useWalletPositionsPage({
   wallet,
   programId,
-  rpcUrl,
   pageSize = 30,
   enabled = true,
 }: {
   wallet: string;
   programId: string;
-  rpcUrl: string;
+  rpcUrl?: string;
   pageSize?: number;
   enabled?: boolean;
 }) {
@@ -256,7 +255,6 @@ export function useWalletPositionsPage({
       const params = new URLSearchParams({
         wallet,
         programId,
-        rpcUrl,
         page: String(pageParam),
         pageSize: String(pageSize),
       });

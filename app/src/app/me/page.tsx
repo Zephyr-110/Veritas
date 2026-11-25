@@ -99,7 +99,6 @@ export default function MePage() {
   const positionsQuery = useWalletPositionsPage({
     wallet,
     programId,
-    rpcUrl: settings.rpcUrl,
     pageSize: 30,
     enabled: Boolean(program && effectivePublicKey),
   });
