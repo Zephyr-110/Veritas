@@ -215,7 +215,13 @@ export function PricePanel() {
                 </div>
               </div>
               <div className="home-prices-spark">
-                {spark ? <MiniSparkline points={spark.points} changePct={spark.changePct} /> : null}
+                {spark ? (
+                  <MiniSparkline points={spark.points} changePct={spark.changePct} />
+                ) : (
+                  <svg width={64} height={22} viewBox="0 0 64 22" aria-hidden="true" className="block">
+                    <line x1={0} x2={64} y1={11} y2={11} stroke="var(--hair)" strokeDasharray="2 3" />
+                  </svg>
+                )}
               </div>
               <div className="home-prices-quote">
                 <PriceValue value={q.price as number} />

@@ -101,15 +101,21 @@ export function MarketTable({
                       <span className="line-clamp-2 min-w-0 leading-snug text-[15px] font-semibold text-white">
                         {title}
                       </span>
-                      <span className="shrink-0 md:hidden">
-                        <StatusChip market={market} now={now} />
-                      </span>
                     </div>
                     <div className="mt-1 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 text-xs text-zinc-500">
                       <span className="num font-medium text-zinc-300">{targetSpec}</span>
-                      <span className="md:hidden">{formatYesNo(market.yesPrice)}</span>
+                      <span className="lg:hidden">{formatYesNo(market.yesPrice)}</span>
+                      {live ? (
+                        <span className="lg:hidden">
+                          <TickingCountdown expiry={market.expiry} className="text-xs text-zinc-300" />
+                        </span>
+                      ) : (
+                        <span className="lg:hidden">
+                          <StatusChip market={market} now={now} compact />
+                        </span>
+                      )}
                       {spotLine ? (
-                        <span className="hidden items-baseline gap-2 md:inline-flex">
+                        <span className="hidden items-baseline gap-2 lg:inline-flex">
                           <span className="truncate">{spotLine}</span>
                           <PriceAge
                             publishTime={spot?.publishTime ?? null}
@@ -123,7 +129,7 @@ export function MarketTable({
               </div>
               <div className="c-yes text-right">
                 <div className="num text-[17px] font-semibold text-zinc-50">{formatCents(market.yesPrice)}</div>
-                <div className="mt-0.5 hidden text-[11px] text-zinc-500 md:block">
+                <div className="mt-0.5 hidden text-[11px] text-zinc-500 lg:block">
                   {formatYesNo(market.yesPrice)}
                 </div>
               </div>
@@ -145,7 +151,7 @@ export function MarketTable({
                 </div>
               </div>
               <div className="c-status justify-end">
-                <StatusChip market={market} now={now} />
+                <StatusChip market={market} now={now} compact />
               </div>
               <div className="c-trade text-right">
                 <Link href={href} className="relative z-20">

@@ -280,12 +280,12 @@ export function LiquidityCard({ market }: { market: MarketView }) {
   if (!model) return null;
   const active = hover != null ? model.points[hover] : null;
 
-  const W = 340;
-  const H = 148;
+  const W = 640;
+  const H = 200;
   const padL = 6;
   const padR = 8;
-  const padT = 10;
-  const padB = 18;
+  const padT = 12;
+  const padB = 20;
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
   const prices = model.points.map((p) => p.price);
@@ -330,7 +330,7 @@ export function LiquidityCard({ market }: { market: MarketView }) {
         >
           <defs>
             <linearGradient id="impact-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.18} />
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.07} />
               <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
             </linearGradient>
           </defs>
@@ -339,7 +339,8 @@ export function LiquidityCard({ market }: { market: MarketView }) {
             points={line}
             fill="none"
             stroke="var(--accent)"
-            strokeWidth={1.6}
+            strokeWidth={1.25}
+            opacity={0.85}
             pathLength={1}
             strokeDasharray={1}
             className="draw-line"
@@ -365,13 +366,13 @@ export function LiquidityCard({ market }: { market: MarketView }) {
               />
             </g>
           ) : null}
-          <text x={padL} y={H - 4} fontSize={9.5} fill="var(--ink-3)" className="num">
+          <text x={padL} y={H - 4} fontSize={11} fill="var(--ink-3)" className="num">
             0
           </text>
-          <text x={padL + plotW} y={H - 4} fontSize={9.5} fill="var(--ink-3)" textAnchor="end" className="num">
+          <text x={padL + plotW} y={H - 4} fontSize={11} fill="var(--ink-3)" textAnchor="end" className="num">
             {model.maxX.toFixed(0)} U
           </text>
-          <text x={padL + 2} y={y(yHi) + 8} fontSize={9.5} fill="var(--ink-3)" className="num">
+          <text x={padL + 2} y={y(yHi) + 8} fontSize={11} fill="var(--ink-3)" className="num">
             {formatCents(yHi)}
           </text>
         </svg>

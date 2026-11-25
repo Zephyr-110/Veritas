@@ -91,7 +91,7 @@ export default function MePage() {
   const { settings } = useSettings();
   const t = useT();
   const queryClient = useQueryClient();
-  const [guideOpen, setGuideOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(true);
   const [syncMode, setSyncMode] = useState<SyncMode>("live");
   const programId = program?.programId.toBase58() ?? "";
   const wallet = effectivePublicKey?.toBase58() ?? "";

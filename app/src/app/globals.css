@@ -493,10 +493,12 @@ body {
   align-items: start;
 }
 @media (min-width: 1024px) {
-  .split-markets { grid-template-columns: minmax(0, 1fr) 18.5rem; column-gap: 2rem; }
   .split-detail { grid-template-columns: minmax(0, 1fr) 23rem; }
   .split-create { grid-template-columns: minmax(0, 1fr) 22rem; }
   .desk-rail { position: sticky; top: 4.75rem; }
+}
+@media (min-width: 1280px) {
+  .split-markets { grid-template-columns: minmax(0, 1fr) 18.5rem; column-gap: 2rem; }
 }
 
 .sk {
@@ -554,11 +556,11 @@ body {
 .market-row > .c-pool,
 .market-row > .c-status { display: none; }
 
-@media (min-width: 768px) {
+@media (min-width: 1024px) {
   .market-head,
   .market-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 7.5rem 11rem 6.75rem 9.75rem 5.75rem;
+    grid-template-columns: minmax(12rem, 1fr) 6.5rem 8.5rem 7.5rem 7.5rem 5.75rem;
     column-gap: var(--space-4);
     align-items: center;
   }
@@ -724,7 +726,7 @@ html[lang="zh-CN"] .section-title:not(:has([lang])) {
 
 /* Masthead & seamless hero composition */
 .masthead {
-  text-align: center;
+  text-align: left;
   position: relative;
 }
 .mh-tag-mask {
@@ -742,7 +744,7 @@ html[lang="zh-CN"] .section-title:not(:has([lang])) {
 }
 .masthead .mh-brand {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: center;
   gap: 1.25rem;
   font-size: clamp(48px, 6.4vw, 72px);
@@ -1030,8 +1032,8 @@ html[lang="zh-CN"] .home-kicker:not(:has([lang])) {
     overflow: hidden;
     padding-bottom: 0;
     scroll-snap-type: none;
-    -webkit-mask-image: linear-gradient(90deg, transparent 0%, black 2.5%, black 92%, transparent 100%);
-    mask-image: linear-gradient(90deg, transparent 0%, black 2.5%, black 92%, transparent 100%);
+    -webkit-mask-image: linear-gradient(90deg, transparent 0%, black 6%, black 94%, transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0%, black 6%, black 94%, transparent 100%);
   }
   .home-fin-track {
     will-change: transform;

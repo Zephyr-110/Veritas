@@ -80,7 +80,7 @@ export default function HomePage() {
         <div className="home-hero-grid">
           <div className="hero-left">
             <div id="masthead" className="masthead">
-              <div className="fade-in flex items-center justify-center gap-2 text-[12px] font-medium tracking-[0.12em] text-zinc-400 lg:justify-start">
+              <div className="fade-in flex items-center justify-start gap-2 text-[12px] font-medium tracking-[0.12em] text-zinc-400">
                 <span className="live-dot h-1.5 w-1.5 rounded-full bg-[var(--yes)]" />
                 <StableText k="home.badge" />
               </div>
@@ -98,12 +98,12 @@ export default function HomePage() {
                 </span>
               </h1>
             </div>
-            <div className="mt-6 flex flex-col items-center lg:items-start">
-              <p className="home-sub rise-in text-center lg:text-left" style={{ animationDelay: "130ms" }}>
+            <div className="mt-6 flex flex-col items-start">
+              <p className="home-sub rise-in text-left" style={{ animationDelay: "130ms" }}>
                 <StableText k="home.subtitle" block />
               </p>
               <div
-                className="rise-in mt-7 flex flex-wrap justify-center gap-3 lg:justify-start"
+                className="rise-in mt-7 flex flex-wrap justify-start gap-3"
                 style={{ animationDelay: "180ms" }}
               >
                 <Link href="/markets">

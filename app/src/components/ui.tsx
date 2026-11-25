@@ -3,7 +3,7 @@
 import { useAnchorWallet, useConnection, useWallet } from "@solana/wallet-adapter-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Check, ChevronDown, Droplets, ExternalLink, RefreshCw } from "lucide-react";
+import { Check, ChevronDown, Droplets, ExternalLink, Menu, RefreshCw, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import {
   useEffect,
@@ -247,12 +247,20 @@ export function CopyText({ value, label }: { value: string; label?: string }) {
   );
 }
 
-export function StatusChip({ market, now }: { market: MarketView; now?: number }) {
+export function StatusChip({
+  market,
+  now,
+  compact = false,
+}: {
+  market: MarketView;
+  now?: number;
+  compact?: boolean;
+}) {
   const ts = now && now > 0 ? now : 0;
   const kind = marketKind(market, ts);
   const labelKey = kindLabelKey(kind, market);
   return (
-    <Chip tone={kindTone(kind, market)} className="min-w-[8.75rem] justify-center">
+    <Chip tone={kindTone(kind, market)} className={compact ? undefined : "min-w-[8.75rem] justify-center"}>
       {kind === "live" ? <span className="live-dot h-1.5 w-1.5 rounded-full bg-[var(--yes)]" /> : null}
       <StableText k={labelKey} align="center" />
     </Chip>
@@ -792,7 +800,7 @@ export function openFaucetMenu() {
   setFaucetMenuOpen(true);
 }
 
-export function HeaderFaucet() {
+export function HeaderFaucet({ popoverAlign = "right" }: { popoverAlign?: "right" | "left" } = {}) {
   const { publicKey } = useWallet();
   const { isReal, isSandbox, hasSavedKey, entering, locked, lastError, clearError, enterSandbox } =
     useGuestSession();
@@ -876,7 +884,12 @@ export function HeaderFaucet() {
         <StableText k="nav.faucet" align="center" />
       </button>
       {open ? (
-        <div className="faucet-pop absolute right-0 top-full z-50 mt-2 w-72 border border-[var(--line)] bg-zinc-950 p-4 shadow-2xl sm:w-80">
+        <div
+          className={cx(
+            "faucet-pop absolute top-full z-50 mt-2 w-72 border border-[var(--line)] bg-zinc-950 p-4 shadow-2xl sm:w-80",
+            popoverAlign === "left" ? "left-0" : "right-0"
+          )}
+        >
           <div className="stack-3">
             <div className="stack-1">
               <div className="flex items-center justify-between">
@@ -1265,11 +1278,13 @@ export function Header() {
   const { settings } = useSettings();
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const { connection } = useConnection();
   const [ok, setOk] = useState<boolean | null>(null);
   const { mode } = useGuestSession();
 
   useEffect(() => {
+    setMenuOpen(false);
     if (window.location.hash) return;
     const frame = requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "instant" }));
     return () => cancelAnimationFrame(frame);
@@ -1297,9 +1312,18 @@ export function Header() {
     { href: "/help", key: "nav.help" as const },
   ];
 
+  const clusterDot = (
+    <span
+      className={cx(
+        "h-1.5 w-1.5 rounded-full",
+        ok ? "live-dot bg-[var(--yes)]" : ok === false ? "bg-[var(--no)]" : "bg-zinc-500"
+      )}
+    />
+  );
+
   return (
     <header className="app-header nav-in sticky top-0 z-40">
-      <div className="page-width relative mx-auto flex min-h-14 min-w-0 flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-4 md:h-14 md:flex-nowrap md:py-0">
+      <div className="page-width relative mx-auto flex h-14 min-w-0 items-center justify-between gap-2 px-3 sm:px-4">
         <div className="flex shrink-0 items-center gap-3 md:gap-6">
           <Link href="/" className="header-brand flex items-center gap-2.5 text-[var(--ink-strong)]">
             <PulseAreaMark size={26} />
@@ -1321,54 +1345,103 @@ export function Header() {
                       : "border border-transparent text-[var(--ink-2)] hover:text-[var(--ink-strong)]"
                   )}
                 >
-                  <StableText k={item.key} align="center" />
+                  {t(item.key)}
                 </Link>
               );
             })}
           </nav>
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5 sm:flex-none sm:gap-2">
+        <div className="flex min-w-0 items-center justify-end gap-1.5 sm:gap-2">
           <button
             type="button"
             onClick={() => setOpen(true)}
             className="hidden h-8 items-center gap-2 border border-[var(--hair)] bg-[var(--seg-bg)] px-2.5 text-xs text-[var(--ink)] hover:border-[var(--line)] hover:text-[var(--ink-strong)] md:inline-flex"
           >
-            <span
-              className={cx(
-                "h-1.5 w-1.5 rounded-full",
-                ok ? "live-dot bg-[var(--yes)]" : ok === false ? "bg-[var(--no)]" : "bg-zinc-500"
-              )}
-            />
+            {clusterDot}
             <StableText k={clusterKey(settings.cluster)} align="center" />
           </button>
-          <Button
-            type="button"
-            tone="secondary"
-            className="h-8 whitespace-nowrap px-2.5 text-[11px] md:hidden"
-            onClick={() => setOpen(true)}
-          >
-            <StableText k="nav.settings" align="center" />
-          </Button>
-          <ThemeToggle />
-          <LangSwitch />
+          <div className="hidden md:contents">
+            <ThemeToggle />
+            <LangSwitch />
+          </div>
           {mode === "sandbox" ? (
             <SandboxCapsule />
           ) : mode === "real" ? (
             <>
-              <HeaderFaucet />
+              <div className="hidden md:contents">
+                <HeaderFaucet />
+              </div>
               <WalletButton />
             </>
           ) : (
             <>
-              <HeaderFaucet />
-              <SandboxEnterButton />
+              <div className="hidden md:contents">
+                <HeaderFaucet />
+                <SandboxEnterButton />
+              </div>
               <WalletButton />
             </>
           )}
+          <button
+            type="button"
+            aria-label={t("nav.menu")}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((v) => !v)}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-[var(--hair)] bg-[var(--seg-bg)] text-[var(--ink)] hover:border-[var(--line)] hover:text-[var(--ink-strong)] md:hidden"
+          >
+            {menuOpen ? <X className="h-4 w-4" aria-hidden /> : <Menu className="h-4 w-4" aria-hidden />}
+          </button>
         </div>
       </div>
-      <nav className="page-width mx-auto flex gap-1 overflow-x-auto px-3 pb-2 sm:px-4 lg:hidden">
+
+      {menuOpen ? (
+        <div className="stack-3 border-t border-[var(--hair)] bg-[var(--float-bg)] px-4 py-3 md:hidden">
+          <nav className="stack-1">
+            {nav.map((item) => {
+              const active = pathname.startsWith(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMenuOpen(false)}
+                  className={cx(
+                    "block px-3 py-2 text-sm",
+                    active
+                      ? "border border-[var(--card-line)] bg-[var(--seg-thumb)] font-medium text-[var(--ink-strong)]"
+                      : "border border-transparent text-[var(--ink-2)] hover:text-[var(--ink-strong)]"
+                  )}
+                >
+                  <StableText k={item.key} />
+                </Link>
+              );
+            })}
+          </nav>
+          <div className="flex flex-wrap items-center gap-2 border-t border-[var(--hair)] pt-3">
+            <ThemeToggle />
+            <LangSwitch />
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                setOpen(true);
+              }}
+              className="inline-flex h-8 items-center gap-2 border border-[var(--hair)] bg-[var(--seg-bg)] px-2.5 text-xs text-[var(--ink)] hover:border-[var(--line)] hover:text-[var(--ink-strong)]"
+            >
+              {clusterDot}
+              <StableText k={clusterKey(settings.cluster)} align="center" />
+            </button>
+          </div>
+          {mode !== "sandbox" ? (
+            <div className="flex flex-wrap items-center gap-2 border-t border-[var(--hair)] pt-3">
+              <HeaderFaucet popoverAlign="left" />
+              {mode === "none" ? <SandboxEnterButton /> : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <nav className="page-width mx-auto hidden gap-1 overflow-x-auto px-3 pb-2 sm:px-4 md:flex lg:hidden">
         {nav.map((item) => {
           const active = pathname.startsWith(item.href);
           return (
