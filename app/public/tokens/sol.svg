@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <defs>
+    <linearGradient id="sol-grad" x1="4" y1="20" x2="20" y2="4" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#00FFA3" />
+      <stop offset="50%" stop-color="#03E1FF" />
+      <stop offset="100%" stop-color="#9945FF" />
+    </linearGradient>
+  </defs>
+  <path d="M5.6 16.3a.75.75 0 0 1 .53-.22h13.52c.34 0 .51.41.27.65l-2.66 2.66a.75.75 0 0 1-.53.22H3.21a.38.38 0 0 1-.27-.65l2.66-2.66z" fill="url(#sol-grad)" />
+  <path d="M5.6 4.61a.75.75 0 0 1 .53-.22h13.52c.34 0 .51.41.27.65l-2.66 2.66a.75.75 0 0 1-.53.22H3.21a.38.38 0 0 1-.27-.65L5.6 4.61z" fill="url(#sol-grad)" />
+  <path d="M17.26 10.42a.75.75 0 0 0-.53-.22H3.21a.38.38 0 0 0-.27.65l2.66 2.66c.14.14.33.22.53.22h13.52c.34 0 .51-.41.27-.65l-2.66-2.66z" fill="url(#sol-grad)" />
+</svg>

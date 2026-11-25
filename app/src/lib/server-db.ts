@@ -4,22 +4,26 @@ import Database from "better-sqlite3";
 import { utils } from "@coral-xyz/anchor";
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, unpackAccount } from "@solana/spl-token";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { computePending, decodeLpPosition, i80f48ToAmount } from "./codec";
+import { computePending, decodeLpPosition, decodeMarket, i80f48ToAmount } from "./codec";
 import { DEFAULT_PROGRAM_ID, DEFAULT_RPC, LP_POSITION_DISCRIMINATOR } from "./constants";
 import type { DurationFilter } from "./display";
-import { toUi } from "./format";
-import type {
-  ListSectionFilter,
-  MarketsPageResponse,
-  SerializedMarket,
-  SettlementEvidenceDto,
-  WalletPositionItemDto,
-  WalletPositionsPageResponse,
-  WalletPositionsSummaryDto,
+import { feedByState } from "./feeds";
+import { explorerTx, toUi } from "./format";
+import {
+  isEvidenceComplete,
+  type EvidenceResponse,
+  type ListSectionFilter,
+  type MarketsPageResponse,
+  type SerializedMarket,
+  type SettlementEvidenceDto,
+  type WalletPositionItemDto,
+  type WalletPositionsPageResponse,
+  type WalletPositionsSummaryDto,
 } from "./market-dto";
-import { isFinalizedStatus, isVoidedStatus, pendingValueOf } from "./markets";
-import { findLpPosition } from "./pdas";
+import { fetchMarketSnapshot, isFinalizedStatus, isVoidedStatus, pendingValueOf } from "./markets";
+import { findLpPosition, findMarketPdas } from "./pdas";
 import { fetchTxBatch } from "./resolve";
+import { fetchRuling, findPushSignatures, witnessCounts } from "./ruling-evidence";
 import { instructionGroups } from "./transaction-history";
 import type { FeedKey, MarketStatusName, Side } from "./types";
 
@@ -116,7 +120,12 @@ type GlobalDbState = {
 const globalScope = globalThis as typeof globalThis & {
   __veritasServerDb?: GlobalDbState;
   __veritasWalletSyncs?: Map<string, Promise<{ syncedAt: number | null }>>;
+  __veritasEvidenceHealInFlight?: Map<string, Promise<EvidenceResponse>>;
+  __veritasEvidenceHealCooldown?: Map<string, number>;
 };
+
+const EVIDENCE_HEAL_COOLDOWN_MS = 5 * 60 * 1000;
+const EVIDENCE_HEAL_COOLDOWN_MAX = 500;
 
 export function resolveServerDbPath(explicitPath?: string): string {
   const chosen = explicitPath?.trim() || process.env.VERITAS_DB_PATH?.trim();
@@ -435,6 +444,390 @@ export function querySettlementEvidence(
     missingCount: row.missing_count,
     createdAt: row.created_at,
   };
+}
+
+const UPSERT_EVIDENCE_SQL = `
+  INSERT INTO settlement_evidence (
+    market_address, program_id, feed_address, snapshot_address,
+    resolve_signature, resolve_tx_url, settled_price, price_decimals,
+    winner, status, pre_epoch, pre_round, pre_counter, pre_price,
+    pre_timestamp, pre_push_signature, pre_push_tx_url,
+    post_epoch, post_round, post_counter, post_price,
+    post_timestamp, post_push_signature, post_push_tx_url,
+    missing_count, created_at
+  ) VALUES (
+    @market_address, @program_id, @feed_address, @snapshot_address,
+    @resolve_signature, @resolve_tx_url, @settled_price, @price_decimals,
+    @winner, @status, @pre_epoch, @pre_round, @pre_counter, @pre_price,
+    @pre_timestamp, @pre_push_signature, @pre_push_tx_url,
+    @post_epoch, @post_round, @post_counter, @post_price,
+    @post_timestamp, @post_push_signature, @post_push_tx_url,
+    @missing_count, @created_at
+  )
+  ON CONFLICT(market_address) DO UPDATE SET
+    feed_address = COALESCE(NULLIF(settlement_evidence.feed_address, ''), excluded.feed_address),
+    pre_counter = COALESCE(settlement_evidence.pre_counter, excluded.pre_counter),
+    post_counter = COALESCE(settlement_evidence.post_counter, excluded.post_counter),
+    pre_push_signature = COALESCE(NULLIF(settlement_evidence.pre_push_signature, ''), excluded.pre_push_signature),
+    pre_push_tx_url = COALESCE(NULLIF(settlement_evidence.pre_push_tx_url, ''), excluded.pre_push_tx_url),
+    post_push_signature = COALESCE(NULLIF(settlement_evidence.post_push_signature, ''), excluded.post_push_signature),
+    post_push_tx_url = COALESCE(NULLIF(settlement_evidence.post_push_tx_url, ''), excluded.post_push_tx_url),
+    missing_count = COALESCE(settlement_evidence.missing_count, excluded.missing_count)
+`;
+
+export function upsertSettlementEvidence(
+  evidence: SettlementEvidenceDto,
+  dbPath?: string
+): void {
+  const db = getServerDb(dbPath);
+  db.prepare(UPSERT_EVIDENCE_SQL).run({
+    market_address: evidence.marketAddress,
+    program_id: evidence.programId,
+    feed_address: evidence.feedAddress ?? null,
+    snapshot_address: evidence.snapshotAddress,
+    resolve_signature: evidence.resolveSignature,
+    resolve_tx_url: evidence.resolveTxUrl ?? null,
+    settled_price: evidence.settledPrice,
+    price_decimals: evidence.priceDecimals,
+    winner: evidence.winner ?? null,
+    status: evidence.status,
+    pre_epoch: evidence.preEpoch,
+    pre_round: evidence.preRound,
+    pre_counter: evidence.preCounter ?? null,
+    pre_price: evidence.prePrice,
+    pre_timestamp: evidence.preTimestamp,
+    pre_push_signature: evidence.prePushSignature ?? null,
+    pre_push_tx_url: evidence.prePushTxUrl ?? null,
+    post_epoch: evidence.postEpoch,
+    post_round: evidence.postRound,
+    post_counter: evidence.postCounter ?? null,
+    post_price: evidence.postPrice,
+    post_timestamp: evidence.postTimestamp,
+    post_push_signature: evidence.postPushSignature ?? null,
+    post_push_tx_url: evidence.postPushTxUrl ?? null,
+    missing_count: evidence.missingCount ?? null,
+    created_at: evidence.createdAt,
+  });
+}
+
+function inferClusterFromRpc(rpcUrl = ""): string {
+  const lower = rpcUrl.toLowerCase();
+  if (lower.includes("127.0.0.1") || lower.includes("localhost")) return "localnet";
+  if (lower.includes("mainnet")) return "mainnet-beta";
+  if (lower.includes("testnet")) return "testnet";
+  return "devnet";
+}
+
+function recordEvidenceHealCooldown(key: string, nowMs = Date.now()): void {
+  if (!globalScope.__veritasEvidenceHealCooldown) {
+    globalScope.__veritasEvidenceHealCooldown = new Map();
+  }
+  const map = globalScope.__veritasEvidenceHealCooldown;
+  if (map.size >= EVIDENCE_HEAL_COOLDOWN_MAX) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) map.delete(oldest);
+  }
+  map.set(key, nowMs + EVIDENCE_HEAL_COOLDOWN_MS);
+}
+
+export function clearEvidenceHealStateForTests(): void {
+  globalScope.__veritasEvidenceHealInFlight?.clear();
+  globalScope.__veritasEvidenceHealCooldown?.clear();
+}
+
+export async function healSettlementEvidenceOnDemand(opts: {
+  marketAddress: string;
+  programId?: string;
+  rpcUrl?: string;
+  cluster?: string;
+  dbPath?: string;
+  connectionOverride?: Connection;
+}): Promise<EvidenceResponse> {
+  const programId = opts.programId?.trim() || DEFAULT_PROGRAM_ID;
+  const existing = querySettlementEvidence(opts.marketAddress, programId, opts.dbPath);
+
+  if (isEvidenceComplete(existing)) {
+    return {
+      found: true,
+      complete: true,
+      healed: false,
+      healError: false,
+      evidence: existing,
+    };
+  }
+
+  if (process.env.VERITAS_DISABLE_ON_DEMAND_SYNC === "1" && !opts.connectionOverride) {
+    return {
+      found: Boolean(existing),
+      complete: false,
+      healed: false,
+      healError: false,
+      evidence: existing,
+    };
+  }
+
+  const key = `${opts.dbPath ?? "default"}:${programId}:${opts.marketAddress}`;
+  const cooldownUntil = globalScope.__veritasEvidenceHealCooldown?.get(key);
+  if (cooldownUntil && Date.now() < cooldownUntil) {
+    return {
+      found: Boolean(existing),
+      complete: false,
+      healed: false,
+      healError: false,
+      evidence: existing,
+    };
+  }
+
+  if (!globalScope.__veritasEvidenceHealInFlight) {
+    globalScope.__veritasEvidenceHealInFlight = new Map();
+  }
+  const inFlight = globalScope.__veritasEvidenceHealInFlight.get(key);
+  if (inFlight) return inFlight;
+
+  const task = (async (): Promise<EvidenceResponse> => {
+    try {
+      const rpcUrl = opts.rpcUrl?.trim() || process.env.SOLANA_RPC || DEFAULT_RPC;
+      const connection = opts.connectionOverride ?? new Connection(rpcUrl, "confirmed");
+      const cluster = opts.cluster?.trim() || inferClusterFromRpc(connection.rpcEndpoint);
+      const pid = new PublicKey(programId);
+      const marketPk = new PublicKey(opts.marketAddress);
+
+      // Fast path when only snapshot counters are missing on an existing row.
+      if (
+        existing &&
+        existing.resolveSignature &&
+        existing.prePushSignature &&
+        existing.postPushSignature
+      ) {
+        const snapshot = await fetchMarketSnapshot(
+          connection,
+          new PublicKey(existing.snapshotAddress)
+        );
+        const toReport = (
+          epoch: number,
+          round: number,
+          ts: number,
+          price: string
+        ) => ({
+          raw: Buffer.alloc(0),
+          configDigest: Buffer.alloc(0),
+          epoch,
+          round,
+          observationsTimestamp: ts,
+          observerCount: 0,
+          median: BigInt(price),
+        });
+        const counts = witnessCounts(
+          snapshot,
+          toReport(existing.preEpoch, existing.preRound, existing.preTimestamp, existing.prePrice),
+          toReport(
+            existing.postEpoch,
+            existing.postRound,
+            existing.postTimestamp,
+            existing.postPrice
+          )
+        );
+        if (!counts) {
+          recordEvidenceHealCooldown(key);
+          return {
+            found: true,
+            complete: false,
+            healed: false,
+            healError: false,
+            evidence: existing,
+          };
+        }
+        upsertSettlementEvidence(
+          {
+            ...existing,
+            preCounter: counts[0],
+            postCounter: counts[1],
+            missingCount: counts[1] - counts[0] - 1,
+          },
+          opts.dbPath
+        );
+        const refreshed = querySettlementEvidence(opts.marketAddress, programId, opts.dbPath);
+        return {
+          found: Boolean(refreshed),
+          complete: isEvidenceComplete(refreshed),
+          healed: true,
+          healError: false,
+          evidence: refreshed,
+        };
+      }
+
+      // Full heal path: market missing from settlement_evidence or missing push signatures.
+      const db = getServerDb(opts.dbPath);
+      const dbMarket = db
+        .prepare<[string, string], MarketDbRow>(
+          "SELECT * FROM markets WHERE address = ? AND program_id = ? LIMIT 1"
+        )
+        .get(opts.marketAddress, programId);
+
+      let resolvedMarket: {
+        address: PublicKey;
+        finishTs: number;
+        endTs: number;
+        ocr2State: PublicKey;
+        settledPublishTime: number;
+        settledPrice: bigint;
+      };
+      let snapshotAddress: string;
+      let priceDecimals = 8;
+      let winner: Side | null = null;
+
+      if (dbMarket) {
+        if (dbMarket.status !== "resolved") {
+          recordEvidenceHealCooldown(key);
+          return {
+            found: Boolean(existing),
+            complete: false,
+            healed: false,
+            healError: false,
+            evidence: existing,
+          };
+        }
+        const idBytes = Buffer.from(dbMarket.id_hex, "hex");
+        snapshotAddress =
+          existing?.snapshotAddress ||
+          findMarketPdas(pid, idBytes).snapshot.toBase58();
+        resolvedMarket = {
+          address: marketPk,
+          finishTs: dbMarket.finish_ts,
+          endTs: dbMarket.end_ts,
+          ocr2State: new PublicKey(dbMarket.ocr2_state),
+          settledPublishTime: dbMarket.settled_publish_time,
+          settledPrice: BigInt(dbMarket.settled_price),
+        };
+        priceDecimals = dbMarket.price_decimals;
+        winner = (dbMarket.winner as Side | null) ?? null;
+      } else {
+        const info = await connection.getAccountInfo(marketPk, "confirmed");
+        if (!info || !info.owner.equals(pid)) {
+          recordEvidenceHealCooldown(key);
+          return {
+            found: Boolean(existing),
+            complete: false,
+            healed: false,
+            healError: false,
+            evidence: existing,
+          };
+        }
+        const decoded = decodeMarket(Buffer.from(info.data));
+        if (decoded.status !== "resolved") {
+          recordEvidenceHealCooldown(key);
+          return {
+            found: Boolean(existing),
+            complete: false,
+            healed: false,
+            healError: false,
+            evidence: existing,
+          };
+        }
+        snapshotAddress =
+          existing?.snapshotAddress ||
+          findMarketPdas(pid, decoded.id).snapshot.toBase58();
+        resolvedMarket = {
+          address: marketPk,
+          finishTs: Number(decoded.finishTs),
+          endTs: Number(decoded.endTs),
+          ocr2State: decoded.ocr2State,
+          settledPublishTime: Number(decoded.settledPublishTime),
+          settledPrice: decoded.settledPrice,
+        };
+        priceDecimals = decoded.priceDecimals;
+        winner = decoded.winner;
+      }
+
+      const [ruling, snapshot] = await Promise.all([
+        fetchRuling(connection, pid, resolvedMarket),
+        fetchMarketSnapshot(connection, new PublicKey(snapshotAddress)),
+      ]);
+      if (!ruling) {
+        recordEvidenceHealCooldown(key);
+        return {
+          found: Boolean(existing),
+          complete: false,
+          healed: false,
+          healError: false,
+          evidence: existing,
+        };
+      }
+
+      const preset = feedByState(resolvedMarket.ocr2State);
+      const pushes = preset
+        ? await findPushSignatures(connection, new PublicKey(preset.feed), ruling)
+        : {};
+      const counts = witnessCounts(snapshot, ruling.pre, ruling.post);
+
+      const candidate: SettlementEvidenceDto = {
+        marketAddress: opts.marketAddress,
+        programId,
+        feedAddress: preset?.feed ?? null,
+        snapshotAddress,
+        resolveSignature: ruling.signature,
+        resolveTxUrl: explorerTx(ruling.signature, cluster),
+        settledPrice: resolvedMarket.settledPrice.toString(),
+        priceDecimals,
+        winner,
+        status: "resolved",
+        preEpoch: ruling.pre.epoch,
+        preRound: ruling.pre.round,
+        preCounter: counts ? counts[0] : null,
+        prePrice: ruling.pre.median.toString(),
+        preTimestamp: ruling.pre.observationsTimestamp,
+        prePushSignature: pushes.pre ?? null,
+        prePushTxUrl: pushes.pre ? explorerTx(pushes.pre, cluster) : null,
+        postEpoch: ruling.post.epoch,
+        postRound: ruling.post.round,
+        postCounter: counts ? counts[1] : null,
+        postPrice: ruling.post.median.toString(),
+        postTimestamp: ruling.post.observationsTimestamp,
+        postPushSignature: pushes.post ?? null,
+        postPushTxUrl: pushes.post ? explorerTx(pushes.post, cluster) : null,
+        missingCount: counts ? counts[1] - counts[0] - 1 : null,
+        createdAt: Math.floor(Date.now() / 1000),
+      };
+
+      upsertSettlementEvidence(candidate, opts.dbPath);
+      const refreshed = querySettlementEvidence(opts.marketAddress, programId, opts.dbPath);
+      const complete = isEvidenceComplete(refreshed);
+      if (!complete) {
+        recordEvidenceHealCooldown(key);
+      }
+
+      const didHeal = Boolean(
+        refreshed &&
+          (!existing ||
+            existing.preCounter !== refreshed.preCounter ||
+            existing.postCounter !== refreshed.postCounter ||
+            existing.prePushSignature !== refreshed.prePushSignature ||
+            existing.postPushSignature !== refreshed.postPushSignature ||
+            existing.missingCount !== refreshed.missingCount)
+      );
+
+      return {
+        found: Boolean(refreshed),
+        complete,
+        healed: didHeal,
+        healError: false,
+        evidence: refreshed,
+      };
+    } catch {
+      return {
+        found: Boolean(existing),
+        complete: false,
+        healed: false,
+        healError: true,
+        evidence: existing,
+      };
+    } finally {
+      globalScope.__veritasEvidenceHealInFlight?.delete(key);
+    }
+  })();
+
+  globalScope.__veritasEvidenceHealInFlight.set(key, task);
+  return task;
 }
 
 function claimableOfRow(

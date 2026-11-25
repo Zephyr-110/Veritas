@@ -260,11 +260,20 @@ function openDb(dbPath, { readonly = false, skipInit = false } = {}) {
     resolved,
     readonly ? { readonly: true, fileMustExist: true } : undefined
   );
-  applyPragmas(db, readonly);
-  if (!readonly && !skipInit) {
-    initSchema(db);
+  try {
+    applyPragmas(db, readonly);
+    if (!readonly && !skipInit) {
+      initSchema(db);
+    }
+    return db;
+  } catch (err) {
+    try {
+      if (db.open) db.close();
+    } catch {
+      // ignore close errors when opening a corrupted DB
+    }
+    throw err;
   }
-  return db;
 }
 
 function tryOpenDb(dbPath, opts = {}) {

@@ -927,6 +927,58 @@ html[lang="zh-CN"] .home-kicker:not(:has([lang])) {
   flex-direction: column;
   scroll-snap-align: start;
 }
+.home-fin-marquee {
+  position: relative;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, black 90%, transparent 100%);
+  mask-image: linear-gradient(90deg, black 90%, transparent 100%);
+}
+.home-fin-marquee::-webkit-scrollbar {
+  display: none;
+}
+.home-fin-track {
+  display: flex;
+  align-items: stretch;
+  width: max-content;
+}
+.home-fin-group {
+  display: flex;
+  align-items: stretch;
+  gap: 1rem;
+}
+.home-fin-dup {
+  display: none;
+}
+@keyframes fin-marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-50%, 0, 0); }
+}
+@media (min-width: 768px) {
+  .home-fin-marquee {
+    overflow: hidden;
+    padding-bottom: 0;
+    scroll-snap-type: none;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0%, black 2.5%, black 92%, transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0%, black 2.5%, black 92%, transparent 100%);
+  }
+  .home-fin-track {
+    will-change: transform;
+    animation: fin-marquee var(--fin-dur, 48s) linear infinite;
+  }
+  .home-fin-group {
+    padding-right: 1rem;
+  }
+  .home-fin-dup {
+    display: flex;
+  }
+  .home-fin-marquee:hover .home-fin-track,
+  .home-fin-marquee:focus-within .home-fin-track {
+    animation-play-state: paused;
+  }
+}
 .home-next-bar {
   margin-top: 0.85rem;
   height: 2px;
@@ -1090,6 +1142,21 @@ input[type="range"]:active::-moz-range-thumb {
   .sk::after, .nav-in, .panel-in, .rise-in, .enter-up, .enter-side,
   .row-in, .alert-pulse, .pulse-ring, .draw-line, .band-grid > div, .pop-num {
     animation: none;
+  }
+  .home-fin-track {
+    animation: none;
+    transform: none;
+  }
+  .home-fin-dup {
+    display: none;
+  }
+  .home-fin-marquee {
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+    scrollbar-width: none;
+  }
+  .home-fin-marquee::-webkit-scrollbar {
+    display: none;
   }
   .reveal { opacity: 1; transform: none; transition: none; }
   .line-inner { animation: none; transform: none; }

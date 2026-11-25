@@ -5,8 +5,10 @@ import { money, formatWhen, kindLabelKey, marketKind, questionTitle } from "@/li
 import { thresholdToHuman } from "@/lib/feeds";
 import { formatYesNo } from "@/lib/format";
 import type { MarketView } from "@/lib/markets";
+import type { FeedKey } from "@/lib/types";
 import { useNow } from "@/hooks/use-now";
 import { useLocale, useT } from "@/i18n/provider";
+import { AssetBadge } from "./asset-badge";
 import { LiveCountdown } from "./live";
 import { onSpot, StableText } from "./ui";
 
@@ -18,6 +20,7 @@ export function FeatureCard({
   liquidity,
   threshold,
   statusKey,
+  asset,
 }: {
   href?: string;
   title: string;
@@ -26,14 +29,18 @@ export function FeatureCard({
   liquidity: string;
   threshold?: string;
   statusKey?: string;
+  asset?: { feedKey?: FeedKey | null; symbol?: string };
 }) {
   const now = useNow(1000, expiry ?? 0);
   const t = useT();
   const live = expiry != null && now > 0 && expiry > now;
   const body = (
     <div className="stack-3 flex-1 p-5">
-      <div className="line-clamp-2 min-h-[2.5rem] text-sm font-medium leading-5 text-white">
-        {title || t("common.untitled")}
+      <div className={asset ? "flex items-start gap-2.5" : undefined}>
+        {asset ? <AssetBadge feedKey={asset.feedKey} symbol={asset.symbol} size="sm" className="mt-0.5" /> : null}
+        <div className="line-clamp-2 min-h-[2.5rem] min-w-0 flex-1 text-sm font-medium leading-5 text-white">
+          {title || t("common.untitled")}
+        </div>
       </div>
       {threshold ? <div className="num text-right text-xs text-zinc-400">{threshold}</div> : null}
       <div className="num text-right text-sm text-zinc-200">{formatYesNo(yesPrice)}</div>
@@ -86,6 +93,7 @@ export function MarketCard({ market, vault = market.vault }: { market: MarketVie
       liquidity={vault === null ? "—" : money(vault, market.decimals)}
       threshold={`${market.feedSymbol} ${market.settleAbove ? "≥" : "<"} ${thr}`}
       statusKey={kindLabelKey(kind, market)}
+      asset={{ feedKey: market.feedKey, symbol: market.feedSymbol }}
     />
   );
 }

@@ -128,6 +128,45 @@ describe("MarketCard", () => {
     wrap(<MarketCard market={makeMarket({ status: "resolved", winner: "no" })} />);
     expect(screen.getByText("NO redeems 1:1")).toBeInTheDocument();
   });
+
+  it("为 BTC/ETH/SOL/LINK 渲染自托管 logo，无 logo 的 feed 安全降级渲染", () => {
+    const { container, rerender } = wrap(
+      <MarketCard market={makeMarket({ feedKey: "btc", feedSymbol: "BTC/USD" })} />
+    );
+    expect(container.querySelector('[data-asset-logo="btc"] img')).toHaveAttribute(
+      "src",
+      "/tokens/btc.svg"
+    );
+
+    for (const [key, sym] of [
+      ["eth", "ETH/USD"],
+      ["sol", "SOL/USD"],
+      ["link", "LINK/USD"],
+    ] as const) {
+      rerender(
+        <LocaleProvider>
+          <MarketCard market={makeMarket({ feedKey: key, feedSymbol: sym })} />
+        </LocaleProvider>
+      );
+      expect(container.querySelector(`[data-asset-logo="${key}"] img`)).toHaveAttribute(
+        "src",
+        `/tokens/${key}.svg`
+      );
+    }
+
+    rerender(
+      <LocaleProvider>
+        <MarketCard
+          market={makeMarket({
+            title: "DOGE/USD at or above 0.25 in 15 min?",
+            feedKey: null,
+            feedSymbol: "DOGE/USD",
+          })}
+        />
+      </LocaleProvider>
+    );
+    expect(container.querySelector('[data-asset-logo="fallback"]')).toHaveTextContent("DO");
+  });
 });
 
 describe("LiveCountdown", () => {

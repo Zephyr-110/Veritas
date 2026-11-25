@@ -8,6 +8,7 @@ import { useMarketPhaseTime, useVisibleVaults } from "@/hooks/use-markets";
 import { useFeeds } from "@/hooks/use-feeds";
 import { feedByState, formatFeedPrice, thresholdToHuman } from "@/lib/feeds";
 import { useT } from "@/i18n/provider";
+import { AssetBadge } from "./asset-badge";
 import { TickingCountdown } from "./live";
 import { PriceAge } from "./price-age";
 import { Button, onSpot, StableText, StatusChip } from "./ui";
@@ -88,26 +89,36 @@ export function MarketTable({
             <Link href={href} className="absolute inset-0 z-10" aria-label={title} />
             <div className="market-row">
               <div className="c-name min-w-0">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="line-clamp-2 min-w-0 leading-snug text-[15px] font-semibold text-white">
-                    {title}
-                  </span>
-                  <span className="shrink-0 md:hidden">
-                    <StatusChip market={market} now={now} />
-                  </span>
-                </div>
-                <div className="mt-1 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 text-xs text-zinc-500">
-                  <span className="num font-medium text-zinc-300">{targetSpec}</span>
-                  <span className="md:hidden">{formatYesNo(market.yesPrice)}</span>
-                  {spotLine ? (
-                    <span className="hidden items-baseline gap-2 md:inline-flex">
-                      <span className="truncate">{spotLine}</span>
-                      <PriceAge
-                        publishTime={spot?.publishTime ?? null}
-                        className="min-w-[4.25rem] shrink-0 text-left text-[10px]"
-                      />
-                    </span>
-                  ) : null}
+                <div className="flex items-start gap-3">
+                  <AssetBadge
+                    feedKey={market.feedKey}
+                    symbol={market.feedSymbol}
+                    size="md"
+                    className="mt-0.5"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="line-clamp-2 min-w-0 leading-snug text-[15px] font-semibold text-white">
+                        {title}
+                      </span>
+                      <span className="shrink-0 md:hidden">
+                        <StatusChip market={market} now={now} />
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 text-xs text-zinc-500">
+                      <span className="num font-medium text-zinc-300">{targetSpec}</span>
+                      <span className="md:hidden">{formatYesNo(market.yesPrice)}</span>
+                      {spotLine ? (
+                        <span className="hidden items-baseline gap-2 md:inline-flex">
+                          <span className="truncate">{spotLine}</span>
+                          <PriceAge
+                            publishTime={spot?.publishTime ?? null}
+                            className="min-w-[4.25rem] shrink-0 text-left text-[10px]"
+                          />
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="c-yes text-right">

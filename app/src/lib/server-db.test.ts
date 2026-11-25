@@ -2,17 +2,33 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { Keypair } from "@solana/web3.js";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { Connection, Keypair } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { DEFAULT_PROGRAM_ID } from "@/lib/constants";
+import { DEFAULT_PROGRAM_ID, MARKET_SNAPSHOT_DISCRIMINATOR } from "@/lib/constants";
 import { FEEDS } from "@/lib/feeds";
+
+const fetchRulingSpy = vi.hoisted(() => vi.fn());
+const findPushSpy = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/ruling-evidence", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/ruling-evidence")>();
+  return {
+    ...actual,
+    fetchRuling: fetchRulingSpy,
+    findPushSignatures: findPushSpy,
+  };
+});
+
 import {
+  clearEvidenceHealStateForTests,
   closeServerDb,
   getServerDb,
+  healSettlementEvidenceOnDemand,
   queryMarketsPage,
   querySettlementEvidence,
   queryWalletPositionsPage,
+  upsertSettlementEvidence,
 } from "@/lib/server-db";
 import { GET as getMarketsApi } from "@/app/api/markets/route";
 import { GET as getEvidenceApi } from "@/app/api/evidence/[address]/route";
@@ -113,9 +129,13 @@ describe("server-db & API routes", () => {
     dbPath = tempDbPath("suite");
     process.env.VERITAS_DB_PATH = dbPath;
     process.env.VERITAS_DISABLE_ON_DEMAND_SYNC = "1";
+    clearEvidenceHealStateForTests();
+    fetchRulingSpy.mockReset();
+    findPushSpy.mockReset();
   });
 
   afterEach(() => {
+    clearEvidenceHealStateForTests();
     cleanupDb(dbPath);
     if (prevEnv === undefined) delete process.env.VERITAS_DB_PATH;
     else process.env.VERITAS_DB_PATH = prevEnv;
@@ -296,5 +316,230 @@ describe("server-db & API routes", () => {
     const posJson = await posRes.json();
     expect(posJson.items).toHaveLength(5);
     expect(posJson.hasMore).toBe(false);
+  });
+
+  it("self-heals partial settlement evidence with fill-only writeback, zero-RPC fast path, dedup, and honest fallback", async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const addresses = seedMarkets(dbPath, 20, nowSec);
+    const marketMissingCounters = addresses[12];
+    const marketMissingPushes = addresses[13];
+    const marketUnwitnessed = addresses[14];
+    const snapshotAddr = Keypair.generate().publicKey.toBase58();
+
+    const encodeSnapshot = (
+      entries: Array<{ epoch: number; round: number; counter: number; price: bigint; ts: bigint }>
+    ) => {
+      const buf = Buffer.alloc(12 + entries.length * 33 + 1);
+      Buffer.from(MARKET_SNAPSHOT_DISCRIMINATOR).copy(buf, 0);
+      buf.writeUInt32LE(entries.length, 8);
+      let off = 12;
+      for (const e of entries) {
+        buf.writeUInt32LE(e.epoch, off); off += 4;
+        buf.writeUInt8(e.round, off); off += 1;
+        buf.writeUInt32LE(e.counter, off); off += 4;
+        buf.writeBigUInt64LE(e.price & ((1n << 64n) - 1n), off);
+        buf.writeBigInt64LE(e.price >> 64n, off + 8);
+        off += 16;
+        buf.writeBigInt64LE(e.ts, off); off += 8;
+      }
+      buf.writeUInt8(255, off);
+      return buf;
+    };
+
+    // 1) Partial row: has push signatures, missing counters + missingCount
+    upsertSettlementEvidence(
+      {
+        marketAddress: marketMissingCounters,
+        programId: DEFAULT_PROGRAM_ID,
+        feedAddress: FEEDS[0].feed,
+        snapshotAddress: snapshotAddr,
+        resolveSignature: "original-resolve-sig",
+        resolveTxUrl: "https://solscan.io/tx/original-resolve-sig?cluster=devnet",
+        settledPrice: "9600000000000",
+        priceDecimals: 8,
+        winner: "yes",
+        status: "resolved",
+        preEpoch: 100,
+        preRound: 1,
+        preCounter: null,
+        prePrice: "9490000000000",
+        preTimestamp: 1_799_999_990,
+        prePushSignature: "orig-push-pre",
+        prePushTxUrl: "https://solscan.io/tx/orig-push-pre?cluster=devnet",
+        postEpoch: 100,
+        postRound: 2,
+        postCounter: null,
+        postPrice: "9600000000000",
+        postTimestamp: 1_799_999_993,
+        postPushSignature: "orig-push-post",
+        postPushTxUrl: "https://solscan.io/tx/orig-push-post?cluster=devnet",
+        missingCount: null,
+        createdAt: nowSec,
+      },
+      dbPath
+    );
+
+    const getAccountInfoMock = vi.fn(async () => ({
+      data: encodeSnapshot([
+        { epoch: 100, round: 1, counter: 500, price: 9_490_000_000_000n, ts: 1_799_999_990n },
+        { epoch: 100, round: 2, counter: 501, price: 9_600_000_000_000n, ts: 1_799_999_993n },
+      ]),
+    }));
+    const conn = {
+      rpcEndpoint: "https://api.devnet.solana.com",
+      getAccountInfo: getAccountInfoMock,
+    } as unknown as Connection;
+
+    const first = await healSettlementEvidenceOnDemand({
+      marketAddress: marketMissingCounters,
+      programId: DEFAULT_PROGRAM_ID,
+      dbPath,
+      connectionOverride: conn,
+    });
+    expect(first.found).toBe(true);
+    expect(first.complete).toBe(true);
+    expect(first.healed).toBe(true);
+    expect(first.evidence?.preCounter).toBe(500);
+    expect(first.evidence?.postCounter).toBe(501);
+    expect(first.evidence?.missingCount).toBe(0);
+    expect(first.evidence?.resolveSignature).toBe("original-resolve-sig");
+    expect(getAccountInfoMock).toHaveBeenCalledTimes(1);
+
+    // 2) Second read on complete row uses SQLite fast-path with ZERO RPC calls
+    getAccountInfoMock.mockClear();
+    const second = await healSettlementEvidenceOnDemand({
+      marketAddress: marketMissingCounters,
+      programId: DEFAULT_PROGRAM_ID,
+      dbPath,
+      connectionOverride: conn,
+    });
+    expect(second.complete).toBe(true);
+    expect(second.healed).toBe(false);
+    expect(getAccountInfoMock).not.toHaveBeenCalled();
+
+    // 3) Partial row missing push signatures + concurrent deduplication + fill-only preservation
+    upsertSettlementEvidence(
+      {
+        marketAddress: marketMissingPushes,
+        programId: DEFAULT_PROGRAM_ID,
+        feedAddress: FEEDS[0].feed,
+        snapshotAddress: snapshotAddr,
+        resolveSignature: "keep-existing-resolve",
+        resolveTxUrl: "https://solscan.io/tx/keep-existing-resolve?cluster=devnet",
+        settledPrice: "9600000000000",
+        priceDecimals: 8,
+        winner: "yes",
+        status: "resolved",
+        preEpoch: 101,
+        preRound: 3,
+        preCounter: null,
+        prePrice: "9490000000000",
+        preTimestamp: 1_799_999_990,
+        prePushSignature: null,
+        prePushTxUrl: null,
+        postEpoch: 101,
+        postRound: 4,
+        postCounter: null,
+        postPrice: "9600000000000",
+        postTimestamp: 1_799_999_993,
+        postPushSignature: "keep-existing-post-push",
+        postPushTxUrl: "https://solscan.io/tx/keep-existing-post-push?cluster=devnet",
+        missingCount: null,
+        createdAt: nowSec,
+      },
+      dbPath
+    );
+
+    const digest = Buffer.alloc(32, 2);
+    fetchRulingSpy.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 25));
+      return {
+        pre: { configDigest: digest, epoch: 101, round: 3, observationsTimestamp: 1_799_999_990, median: 9_490_000_000_000n, observerCount: 4, raw: Buffer.alloc(288) },
+        post: { configDigest: digest, epoch: 101, round: 4, observationsTimestamp: 1_799_999_993, median: 9_600_000_000_000n, observerCount: 4, raw: Buffer.alloc(288) },
+        signature: "should-not-overwrite-resolve",
+      };
+    });
+    findPushSpy.mockResolvedValue({ pre: "healed-push-pre", post: "should-not-overwrite-post" });
+    const conn2 = {
+      rpcEndpoint: "https://api.devnet.solana.com",
+      getAccountInfo: vi.fn(async () => ({
+        data: encodeSnapshot([
+          { epoch: 101, round: 3, counter: 600, price: 9_490_000_000_000n, ts: 1_799_999_990n },
+          { epoch: 101, round: 4, counter: 602, price: 9_600_000_000_000n, ts: 1_799_999_993n },
+        ]),
+      })),
+    } as unknown as Connection;
+
+    const [c1, c2] = await Promise.all([
+      healSettlementEvidenceOnDemand({
+        marketAddress: marketMissingPushes,
+        programId: DEFAULT_PROGRAM_ID,
+        dbPath,
+        connectionOverride: conn2,
+      }),
+      healSettlementEvidenceOnDemand({
+        marketAddress: marketMissingPushes,
+        programId: DEFAULT_PROGRAM_ID,
+        dbPath,
+        connectionOverride: conn2,
+      }),
+    ]);
+    expect(fetchRulingSpy).toHaveBeenCalledTimes(1);
+    expect(findPushSpy).toHaveBeenCalledTimes(1);
+    expect(c1.evidence?.resolveSignature).toBe("keep-existing-resolve");
+    expect(c1.evidence?.prePushSignature).toBe("healed-push-pre");
+    expect(c1.evidence?.postPushSignature).toBe("keep-existing-post-push");
+    expect(c1.evidence?.preCounter).toBe(600);
+    expect(c1.evidence?.postCounter).toBe(602);
+    expect(c1.evidence?.missingCount).toBe(1);
+    expect(c2.evidence).toEqual(c1.evidence);
+
+    // 4) Unwitnessed snapshot / RPC error degrades honestly without fabricating counters
+    upsertSettlementEvidence(
+      {
+        marketAddress: marketUnwitnessed,
+        programId: DEFAULT_PROGRAM_ID,
+        feedAddress: FEEDS[0].feed,
+        snapshotAddress: snapshotAddr,
+        resolveSignature: "unwitnessed-resolve",
+        resolveTxUrl: "https://solscan.io/tx/unwitnessed-resolve?cluster=devnet",
+        settledPrice: "9600000000000",
+        priceDecimals: 8,
+        winner: "yes",
+        status: "resolved",
+        preEpoch: 102,
+        preRound: 1,
+        preCounter: null,
+        prePrice: "9490000000000",
+        preTimestamp: 1_799_999_990,
+        prePushSignature: "unw-pre",
+        prePushTxUrl: "https://solscan.io/tx/unw-pre?cluster=devnet",
+        postEpoch: 102,
+        postRound: 2,
+        postCounter: null,
+        postPrice: "9600000000000",
+        postTimestamp: 1_799_999_993,
+        postPushSignature: "unw-post",
+        postPushTxUrl: "https://solscan.io/tx/unw-post?cluster=devnet",
+        missingCount: null,
+        createdAt: nowSec,
+      },
+      dbPath
+    );
+    const connEmpty = {
+      rpcEndpoint: "https://api.devnet.solana.com",
+      getAccountInfo: vi.fn(async () => null),
+    } as unknown as Connection;
+    const unw = await healSettlementEvidenceOnDemand({
+      marketAddress: marketUnwitnessed,
+      programId: DEFAULT_PROGRAM_ID,
+      dbPath,
+      connectionOverride: connEmpty,
+    });
+    expect(unw.found).toBe(true);
+    expect(unw.complete).toBe(false);
+    expect(unw.healed).toBe(false);
+    expect(unw.evidence?.preCounter).toBeNull();
+    expect(unw.evidence?.missingCount).toBeNull();
   });
 });

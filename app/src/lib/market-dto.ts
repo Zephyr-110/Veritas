@@ -92,8 +92,25 @@ export type SettlementEvidenceDto = {
 
 export type EvidenceResponse = {
   found: boolean;
+  complete?: boolean;
+  healed?: boolean;
+  healError?: boolean;
   evidence: SettlementEvidenceDto | null;
 };
+
+export function isEvidenceComplete(
+  ev: SettlementEvidenceDto | null | undefined
+): boolean {
+  if (!ev) return false;
+  return Boolean(
+    ev.resolveSignature &&
+      ev.preCounter != null &&
+      ev.postCounter != null &&
+      ev.missingCount != null &&
+      ev.prePushSignature &&
+      ev.postPushSignature
+  );
+}
 
 export type WalletPositionItemDto = {
   market: SerializedMarket;

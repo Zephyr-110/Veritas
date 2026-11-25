@@ -68,3 +68,128 @@ test("filters by creator and status, respects both finishTs layouts and continue
   await runMaintenance(connection, cfg, false, [rows[0], rows[1]].map(address => ({ address })));
   assert.deepEqual(calls, [["void_market", 0], ["void_market", 1], ["burn_account", 0], ["burn_account", 2], ["burn_account", 4]]);
 });
+
+test("runMaintenance degrades to chain scan without throwing when SQLite DB is corrupted or schema-drifted", async (t) => {
+  const Database = require("better-sqlite3");
+  const owner = Keypair.generate();
+  const programId = new PublicKey(idl.address);
+  const mint = Keypair.generate().publicKey;
+  const market = Keypair.generate().publicKey;
+  const now = 1800000000;
+  const cutoff = now - 30 * 86400;
+  const cfg = {
+    programId,
+    maxPerRun: 20,
+    walletPath: path.join(os.tmpdir(), `veritas-sa-wallet-${process.pid}-${Date.now()}.json`),
+  };
+  const dbPath = path.join(os.tmpdir(), `veritas-sa-corrupt-${process.pid}-${Date.now()}.db`);
+  const prevDbEnv = process.env.VERITAS_DB_PATH;
+  fs.writeFileSync(cfg.walletPath, JSON.stringify([...owner.secretKey]), { flag: "wx" });
+  process.env.VERITAS_DB_PATH = dbPath;
+  t.after(() => {
+    if (prevDbEnv === undefined) delete process.env.VERITAS_DB_PATH;
+    else process.env.VERITAS_DB_PATH = prevDbEnv;
+    for (const f of [cfg.walletPath, dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+      if (fs.existsSync(f)) fs.unlinkSync(f);
+    }
+  });
+  t.mock.method(Date, "now", () => now * 1000);
+
+  const account = () => {
+    const data = Buffer.alloc(409);
+    mint.toBuffer().copy(data, 130);
+    data[162] = 1;
+    data.writeBigUInt64LE(BigInt(cutoff - 10), 229);
+    return { pubkey: market, account: { data } };
+  };
+  let rpcScans = 0;
+  const connection = {
+    getProgramAccounts: async (_pid, { filters, dataSlice }) => {
+      rpcScans += 1;
+      const status = utils.bytes.bs58.decode(filters.find((f) => f.memcmp?.offset === 129).memcmp.bytes)[0];
+      if (status !== 1) return [];
+      const row = account();
+      return [{ pubkey: row.pubkey, account: { data: row.account.data.subarray(dataSlice.offset, dataSlice.offset + dataSlice.length) } }];
+    },
+    getAccountInfo: async () => ({ owner: TOKEN_2022_PROGRAM_ID, data: Buffer.alloc(82) }),
+  };
+
+  const burned = [];
+  t.mock.method(AnchorProvider.prototype, "sendAndConfirm", async (tx) => {
+    const ix = tx.instructions.at(-1);
+    burned.push(ix.keys[1].pubkey.toBase58());
+    return "offline-burn";
+  });
+
+  const warnings = [];
+  t.mock.method(console, "warn", (...args) => warnings.push(args.join(" ")));
+
+  // 1) Corrupted DB bytes
+  fs.writeFileSync(dbPath, "not-a-valid-sqlite-database-file");
+  await runMaintenance(connection, cfg, false, []);
+  assert.equal(burned.length, 1);
+  assert.equal(burned[0], market.toBase58());
+  assert.equal(rpcScans, 3);
+  assert.ok(warnings.some((w) => w.includes("db maintenance degraded to chain scan")));
+
+  // 2) Schema-drifted DB (valid SQLite file missing `markets` table)
+  fs.unlinkSync(dbPath);
+  const drifted = new Database(dbPath);
+  drifted.exec("CREATE TABLE unrelated (id INTEGER PRIMARY KEY);");
+  drifted.close();
+  warnings.length = 0;
+  burned.length = 0;
+  rpcScans = 0;
+  await runMaintenance(connection, cfg, false, []);
+  assert.equal(burned.length, 1);
+  assert.equal(rpcScans, 3);
+  assert.ok(warnings.some((w) => w.includes("db maintenance degraded to chain scan")));
+
+  // 3) Healthy DB uses SQLite index and skips on-chain getProgramAccounts scan
+  fs.unlinkSync(dbPath);
+  const dbLib = require("../db");
+  const healthyDb = dbLib.openDb(dbPath);
+  healthyDb.prepare(`
+    INSERT INTO markets (
+      address, program_id, id_hex, bump, creator, title, feed_key, feed_symbol,
+      ocr2_state, collateral_mint, token_program, decimals, yes_mint, no_mint,
+      opened_at, expiry, end_ts, finish_ts, duration_sec, duration_bucket,
+      status, winner, threshold, price_decimals, settle_above, settled_price,
+      settled_publish_time, fee_bps, l_zero, last_accrual_ts, cum_yes_per_share,
+      cum_no_per_share, reserve_yes, reserve_no, total_lp_shares, yes_pool,
+      no_pool, vault, yes_price, no_price, updated_at
+    ) VALUES (
+      ?, ?, '0102030405060708090a0b0c0d0e0f10', 254, ?, 'BTC/USD test', 'btc', 'BTC/USD',
+      ?, ?, ?, 6, ?, ?,
+      ?, ?, ?, ?, 900, '15m',
+      'resolved', 'yes', '9500000000000', 8, 1, '9600000000000',
+      ?, 30, '0', 0, '0',
+      '0', '0', '0', '0', '0',
+      '0', '0', 1, 0, ?
+    )
+  `).run(
+    market.toBase58(),
+    programId.toBase58(),
+    owner.publicKey.toBase58(),
+    new PublicKey(dbLib.FEEDS[0].state).toBase58(),
+    mint.toBase58(),
+    TOKEN_2022_PROGRAM_ID.toBase58(),
+    Keypair.generate().publicKey.toBase58(),
+    Keypair.generate().publicKey.toBase58(),
+    cutoff - 1000,
+    cutoff - 100,
+    cutoff - 100,
+    cutoff - 10,
+    cutoff - 90,
+    now
+  );
+  healthyDb.close();
+  warnings.length = 0;
+  burned.length = 0;
+  rpcScans = 0;
+  await runMaintenance(connection, cfg, false, []);
+  assert.equal(burned.length, 1);
+  assert.equal(burned[0], market.toBase58());
+  assert.equal(rpcScans, 0);
+  assert.equal(warnings.length, 0);
+});

@@ -254,4 +254,126 @@ describe("RulingEvidence component", () => {
     expect(fetchMarketSnapshot).not.toHaveBeenCalled();
     expect(findPushSignatures).not.toHaveBeenCalled();
   });
+
+  it("renders honest degraded DB row (unwitnessed counters) without redundant client RPC calls", async () => {
+    const market = makeResolvedMarket();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          found: true,
+          complete: false,
+          healed: false,
+          healError: false,
+          evidence: {
+            marketAddress: market.address.toBase58(),
+            programId: "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER",
+            feedAddress: FEEDS[0].feed,
+            snapshotAddress: market.pdas.snapshot.toBase58(),
+            resolveSignature: "db-resolve-unw",
+            resolveTxUrl: "https://solscan.io/tx/db-resolve-unw?cluster=devnet",
+            settledPrice: "6340222800000",
+            priceDecimals: 8,
+            winner: "yes",
+            status: "resolved",
+            preEpoch: 7201555,
+            preRound: 2,
+            preCounter: null,
+            prePrice: "6338055208989",
+            preTimestamp: 1795447821,
+            prePushSignature: "db-push-pre",
+            prePushTxUrl: "https://solscan.io/tx/db-push-pre?cluster=devnet",
+            postEpoch: 7201555,
+            postRound: 3,
+            postCounter: null,
+            postPrice: "6340222800000",
+            postTimestamp: 1795447824,
+            postPushSignature: "db-push-post",
+            postPushTxUrl: "https://solscan.io/tx/db-push-post?cluster=devnet",
+            missingCount: null,
+            createdAt: 1795447838,
+          },
+        }),
+      })
+    );
+
+    renderWithQuery(<RulingEvidence market={market} />);
+
+    await waitFor(() => expect(screen.getByText("No witnessed counters")).toBeInTheDocument());
+    expect(screen.queryByText(/Missing reports/i)).toBeNull();
+    expect(fetchRuling).not.toHaveBeenCalled();
+  });
+
+  it("falls back to client-side chain lookup when server healing fails", async () => {
+    const market = makeResolvedMarket();
+    const digest = Buffer.alloc(32, 1);
+    const makeReport = (epoch: number, round: number, ts: number, median: bigint) => ({
+      configDigest: digest,
+      epoch,
+      round,
+      observationsTimestamp: ts,
+      median,
+      raw: Buffer.alloc(288),
+    });
+    const pre = makeReport(7201555, 2, 1795447821, 6338055208989n);
+    const post = makeReport(7201555, 3, 1795447824, 6340222800000n);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          found: true,
+          complete: false,
+          healed: false,
+          healError: true,
+          evidence: {
+            marketAddress: market.address.toBase58(),
+            programId: "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER",
+            feedAddress: FEEDS[0].feed,
+            snapshotAddress: market.pdas.snapshot.toBase58(),
+            resolveSignature: "partial-sig",
+            resolveTxUrl: null,
+            settledPrice: "6340222800000",
+            priceDecimals: 8,
+            winner: "yes",
+            status: "resolved",
+            preEpoch: 7201555,
+            preRound: 2,
+            preCounter: null,
+            prePrice: "6338055208989",
+            preTimestamp: 1795447821,
+            prePushSignature: null,
+            prePushTxUrl: null,
+            postEpoch: 7201555,
+            postRound: 3,
+            postCounter: null,
+            postPrice: "6340222800000",
+            postTimestamp: 1795447824,
+            postPushSignature: null,
+            postPushTxUrl: null,
+            missingCount: null,
+            createdAt: 1795447838,
+          },
+        }),
+      })
+    );
+    fetchRuling.mockResolvedValue({ pre, post, signature: "client-resolve-sig" });
+    findPushSignatures.mockResolvedValue({ pre: "client-pre", post: "client-post" });
+    fetchMarketSnapshot.mockResolvedValue({
+      bump: 1,
+      entries: [
+        { epoch: 7201555, round: 2, counter: 41922063, price: pre.median, ts: BigInt(pre.observationsTimestamp) },
+        { epoch: 7201555, round: 3, counter: 41922064, price: post.median, ts: BigInt(post.observationsTimestamp) },
+      ],
+    });
+
+    renderWithQuery(<RulingEvidence market={market} />);
+
+    await waitFor(() => expect(screen.getByText("Missing reports: 0")).toBeInTheDocument());
+    expect(fetchRuling).toHaveBeenCalledTimes(1);
+    expect(fetchMarketSnapshot).toHaveBeenCalledTimes(1);
+    expect(findPushSignatures).toHaveBeenCalledTimes(1);
+  });
 });

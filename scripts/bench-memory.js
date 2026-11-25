@@ -304,7 +304,7 @@ async function benchmarkDataset(marketCount) {
       await measurePageTraffic(baseUrl, child.pid, "home", [
         { tag: "html", path: "/" },
         { tag: "live", path: `/api/markets?programId=${dbLib.DEFAULT_PROGRAM_ID}&section=live&duration=all&page=1&pageSize=20`, expectCount: 20 },
-        { tag: "ended6", path: `/api/markets?programId=${dbLib.DEFAULT_PROGRAM_ID}&section=ended&duration=all&page=1&pageSize=6`, expectCount: 6 },
+        { tag: "ended12", path: `/api/markets?programId=${dbLib.DEFAULT_PROGRAM_ID}&section=ended&duration=all&page=1&pageSize=12`, expectCount: 12 },
       ])
     );
     pages.push(

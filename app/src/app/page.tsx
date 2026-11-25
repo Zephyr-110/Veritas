@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { useMarketPhaseTime, useMarketsPage } from "@/hooks/use-markets";
 import { listSection, marketKind, questionTitle } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
@@ -31,7 +31,7 @@ export default function HomePage() {
     enterSandbox,
   } = useGuestSession();
   const liveQuery = useMarketsPage({ section: "live", duration: "all", page: 1, pageSize: 20 });
-  const endedQuery = useMarketsPage({ section: "ended", duration: "all", page: 1, pageSize: 6 });
+  const endedQuery = useMarketsPage({ section: "ended", duration: "all", page: 1, pageSize: 12 });
   const now = useMarketPhaseTime(liveQuery.markets);
   const t = useT();
   const locale = useLocale();
@@ -53,7 +53,7 @@ export default function HomePage() {
         ? endedQuery.markets
             .filter((market) => listSection(marketKind(market, now)) === "ended")
             .sort((a, b) => b.expiry - a.expiry)
-            .slice(0, 6)
+            .slice(0, 12)
         : [],
     [endedQuery.markets, mountedNow, now]
   );
@@ -364,13 +364,37 @@ export default function HomePage() {
               <MarketTableSkeleton rows={3} />
             ) : preview.length ? (
               <div className="fade-in">
-                <div className="home-fin-strip">
-                  {preview.map((market) => (
-                    <div key={market.address.toBase58()} className="home-fin-item">
-                      <MarketCard market={market} vault={market.vault} />
+                {preview.length >= 2 ? (
+                  <div className="home-fin-marquee">
+                    <div
+                      className="home-fin-track"
+                      style={{ "--fin-dur": `${Math.max(24, preview.length * 6)}s` } as CSSProperties}
+                    >
+                      <div className="home-fin-group">
+                        {preview.map((market) => (
+                          <div key={market.address.toBase58()} className="home-fin-item">
+                            <MarketCard market={market} vault={market.vault} />
+                          </div>
+                        ))}
+                      </div>
+                      <div className="home-fin-group home-fin-dup" aria-hidden="true">
+                        {preview.map((market) => (
+                          <div key={`dup-${market.address.toBase58()}`} className="home-fin-item">
+                            <MarketCard market={market} vault={market.vault} />
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ) : (
+                  <div className="home-fin-strip">
+                    {preview.map((market) => (
+                      <div key={market.address.toBase58()} className="home-fin-item">
+                        <MarketCard market={market} vault={market.vault} />
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {endedQuery.total > 6 ? (
                   <div className="mt-3 text-right">
                     <Link href="/markets" className="link-accent text-[15px]">

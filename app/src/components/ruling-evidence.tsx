@@ -118,12 +118,26 @@ export function RulingEvidence({ market }: { market: MarketView }) {
   ];
 
   const dbEvidence = useQuery({
-    queryKey: ["ruling-db", settings.programId, market.address.toBase58(), market.finishTs],
+    queryKey: [
+      "ruling-db",
+      settings.programId,
+      settings.cluster,
+      connection.rpcEndpoint,
+      market.address.toBase58(),
+      market.finishTs,
+    ],
     queryFn: async (): Promise<EvidenceResponse> => {
       try {
-        const params = new URLSearchParams({ programId: settings.programId });
+        const params = new URLSearchParams({
+          programId: settings.programId,
+          cluster: settings.cluster,
+        });
+        if (/^https?:\/\//i.test(connection.rpcEndpoint)) {
+          params.set("rpcUrl", connection.rpcEndpoint);
+        }
         const res = await fetch(
-          `/api/evidence/${market.address.toBase58()}?${params.toString()}`
+          `/api/evidence/${market.address.toBase58()}?${params.toString()}`,
+          { cache: "no-store" }
         );
         if (!res.ok) return { found: false, evidence: null };
         return (await res.json()) as EvidenceResponse;
@@ -134,7 +148,9 @@ export function RulingEvidence({ market }: { market: MarketView }) {
     staleTime: Infinity,
   });
 
-  const needsFallback = dbEvidence.isFetched && !dbEvidence.data?.found;
+  const dbRow = dbEvidence.data?.found ? dbEvidence.data.evidence : null;
+  const canRenderDbRow = Boolean(dbRow && !dbEvidence.data?.healError);
+  const needsFallback = dbEvidence.isFetched && !canRenderDbRow;
 
   const resolve = useQuery({
     queryKey: key,
@@ -155,13 +171,8 @@ export function RulingEvidence({ market }: { market: MarketView }) {
     queryFn: ({ signal }) => findPushSignatures(connection, new PublicKey(feed!), ruling!, signal),
   });
 
-  if (dbEvidence.data?.found && dbEvidence.data.evidence) {
-    return (
-      <CachedRulingEvidence
-        evidence={dbEvidence.data.evidence}
-        cluster={settings.cluster}
-      />
-    );
+  if (canRenderDbRow && dbRow) {
+    return <CachedRulingEvidence evidence={dbRow} cluster={settings.cluster} />;
   }
 
   const counts = ruling ? witnessCounts(snapshot.data ?? null, ruling.pre, ruling.post) : null;

@@ -346,4 +346,21 @@ describe("MarketsPage duration filter chips", () => {
     await userEvent.click(resetBtn);
     expect(screen.getByRole("link", { name: /in 15 min\?/ })).toBeInTheDocument();
   });
+
+  it("renders token logos for BTC/ETH/SOL/LINK and safe fallback for a no-logo feed", async () => {
+    marketState.markets = [
+      makeMarket(1, { title: "BTC/USD at or above opening price in 15 min?", feedKey: "btc", feedSymbol: "BTC/USD" }),
+      makeMarket(2, { title: "ETH/USD at or above opening price in 15 min?", feedKey: "eth", feedSymbol: "ETH/USD" }),
+      makeMarket(3, { title: "SOL/USD at or above opening price in 15 min?", feedKey: "sol", feedSymbol: "SOL/USD" }),
+      makeMarket(4, { title: "LINK/USD at or above opening price in 15 min?", feedKey: "link", feedSymbol: "LINK/USD" }),
+      makeMarket(5, { title: "AVAX/USD at or above opening price in 15 min?", feedKey: null, feedSymbol: "AVAX/USD" }),
+    ];
+
+    const { container } = renderMarkets();
+    expect(container.querySelector('[data-asset-logo="btc"] img')).toHaveAttribute("src", "/tokens/btc.svg");
+    expect(container.querySelector('[data-asset-logo="eth"] img')).toHaveAttribute("src", "/tokens/eth.svg");
+    expect(container.querySelector('[data-asset-logo="sol"] img')).toHaveAttribute("src", "/tokens/sol.svg");
+    expect(container.querySelector('[data-asset-logo="link"] img')).toHaveAttribute("src", "/tokens/link.svg");
+    expect(container.querySelector('[data-asset-logo="fallback"]')).toHaveTextContent("AV");
+  });
 });

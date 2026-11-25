@@ -380,21 +380,36 @@ async function runMaintenance(connection, cfg, dryRun, expired) {
   }
   let reclaimable = null;
   if (dbLib && process.env.VERITAS_DISABLE_DB_MAINTENANCE !== "1") {
-    const db = dbLib.tryOpenDb(undefined, { readonly: true });
-    if (db) {
+    const dbPath = dbLib.resolveDbPath();
+    if (fs.existsSync(dbPath)) {
+      let db = null;
       try {
+        db = dbLib.openDb(dbPath, { readonly: true });
         if (dbLib.hasIndexedMarkets(db, cfg.programId.toBase58())) {
           const cutoff = Math.floor(Date.now() / 1000) - CLAIM_WINDOW_SEC;
           reclaimable = dbLib
-            .getReclaimableMarkets(db, cfg.programId.toBase58(), owner.toBase58(), cutoff, cfg.maxPerRun * 2)
+            .getReclaimableMarkets(
+              db,
+              cfg.programId.toBase58(),
+              owner.toBase58(),
+              cutoff,
+              cfg.maxPerRun * 2
+            )
             .map((row) => ({
               address: new PublicKey(row.address),
               collateralMint: new PublicKey(row.collateral_mint),
               finishTs: Number(row.finish_ts),
             }));
         }
+      } catch (err) {
+        reclaimable = null;
+        console.warn(`[settle-all] db maintenance degraded to chain scan: ${err?.message || err}`);
       } finally {
-        if (db.open) db.close();
+        try {
+          if (db?.open) db.close();
+        } catch {
+          // ignore close errors on degraded db handle
+        }
       }
     }
   }
