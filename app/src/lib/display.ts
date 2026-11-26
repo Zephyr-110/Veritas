@@ -243,3 +243,16 @@ export function formatExpiredAgo(expiry: number, now: number): string {
 export function isMarketVoided(market: { status: MarketView["status"] }): boolean {
   return isVoidedStatus(market.status);
 }
+
+/** Resolves displayed YES price: payout 1/0 when resolved, null when voided, else live AMM quote. */
+export function displayYesPrice(
+  market: Pick<MarketView, "status" | "winner" | "yesPrice">
+): number | null {
+  if (market.status === "resolved") {
+    return market.winner === "yes" ? 1 : 0;
+  }
+  if (isVoidedStatus(market.status)) {
+    return null;
+  }
+  return market.yesPrice;
+}

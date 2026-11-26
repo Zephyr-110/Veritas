@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { formatExpiredAgo, formatWhen, marketKind, money, questionTitle } from "@/lib/display";
+import { displayYesPrice, formatExpiredAgo, formatWhen, marketKind, money, questionTitle } from "@/lib/display";
 import { formatCents, formatYesNo } from "@/lib/format";
 import { isQuoteStale } from "@/lib/chainlink";
 import type { MarketView } from "@/lib/markets";
@@ -57,15 +57,7 @@ export function MarketTable({
         const vault = useIndexedVault ? market.vault : vaultFor(market);
         const kind = marketKind(market, now);
         const live = kind === "live";
-        const isResolved = market.status === "resolved";
-        const isVoided = market.status === "staleBurn" || market.status === "windowBurn";
-        const displayYesPrice = isResolved
-          ? market.winner === "yes"
-            ? 1
-            : 0
-          : isVoided
-            ? null
-            : market.yesPrice;
+        const yesPrice = displayYesPrice(market);
         const unsettled = kind === "awaiting" || kind === "voidable";
         const expiredLabel =
           unsettled && effectiveNow > 0 ? formatExpiredAgo(market.expiry, effectiveNow) : null;
@@ -123,8 +115,8 @@ export function MarketTable({
                     </div>
                     <div className="mt-1 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 text-xs text-zinc-500">
                       <span className="num font-medium text-zinc-300">{targetSpec}</span>
-                      {displayYesPrice != null ? (
-                        <span className="lg:hidden">{formatYesNo(displayYesPrice)}</span>
+                      {yesPrice != null ? (
+                        <span className="lg:hidden">{formatYesNo(yesPrice)}</span>
                       ) : null}
                       {live ? (
                         <span className="lg:hidden">
@@ -162,15 +154,15 @@ export function MarketTable({
                 </div>
               </div>
               <div className="c-yes text-right">
-                {displayYesPrice == null ? (
+                {yesPrice == null ? (
                   <div className="num text-[17px] font-semibold text-zinc-500">—</div>
                 ) : (
                   <>
                     <div className="num text-[17px] font-semibold text-zinc-50">
-                      {formatCents(displayYesPrice)}
+                      {formatCents(yesPrice)}
                     </div>
                     <div className="mt-0.5 hidden text-[11px] text-zinc-500 lg:block">
-                      {formatYesNo(displayYesPrice)}
+                      {formatYesNo(yesPrice)}
                     </div>
                   </>
                 )}

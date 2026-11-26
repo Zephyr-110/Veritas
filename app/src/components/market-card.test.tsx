@@ -129,6 +129,47 @@ describe("MarketCard", () => {
     expect(screen.getByText("NO redeems 1:1")).toBeInTheDocument();
   });
 
+  it("进行中市场卡片保持显示实时 AMM 报价", () => {
+    wrap(<MarketCard market={makeMarket({ status: "open", yesPrice: 0.65 })} />);
+    expect(screen.getByText("YES 65.0% · NO 35.0%")).toBeInTheDocument();
+  });
+
+  it("已裁决市场卡片按胜负显示 100/0 兑付百分比而非储备报价", () => {
+    const { rerender } = wrap(
+      <MarketCard market={makeMarket({ status: "resolved", winner: "yes", yesPrice: 0.5 })} />
+    );
+    expect(screen.getByText("YES 100.0% · NO 0.0%")).toBeInTheDocument();
+    expect(screen.queryByText(/50\.0%/)).toBeNull();
+
+    rerender(
+      <LocaleProvider>
+        <MarketCard market={makeMarket({ status: "resolved", winner: "no", yesPrice: 0.5 })} />
+      </LocaleProvider>
+    );
+    expect(screen.getByText("YES 0.0% · NO 100.0%")).toBeInTheDocument();
+    expect(screen.queryByText(/50\.0%/)).toBeNull();
+  });
+
+  it("作废市场卡片显示破折号而非 50/50 报价", () => {
+    const { rerender } = wrap(
+      <MarketCard
+        market={makeMarket({ status: "staleBurn", winner: null, yesPrice: 0.5, expiry: 1_700_000_000 })}
+      />
+    );
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByText(/YES 50\.0%/)).toBeNull();
+
+    rerender(
+      <LocaleProvider>
+        <MarketCard
+          market={makeMarket({ status: "windowBurn", winner: null, yesPrice: 0.5, expiry: 1_700_000_000 })}
+        />
+      </LocaleProvider>
+    );
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByText(/YES 50\.0%/)).toBeNull();
+  });
+
   it("为 BTC/ETH/SOL/LINK 渲染自托管 logo，无 logo 的 feed 安全降级渲染", () => {
     const { container, rerender } = wrap(
       <MarketCard market={makeMarket({ feedKey: "btc", feedSymbol: "BTC/USD" })} />

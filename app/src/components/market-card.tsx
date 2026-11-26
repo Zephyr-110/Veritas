@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { money, formatWhen, kindLabelKey, marketKind, questionTitle } from "@/lib/display";
+import { displayYesPrice, money, formatWhen, kindLabelKey, marketKind, questionTitle } from "@/lib/display";
 import { thresholdToHuman } from "@/lib/feeds";
 import { formatYesNo } from "@/lib/format";
 import type { MarketView } from "@/lib/markets";
@@ -24,7 +24,7 @@ export function FeatureCard({
 }: {
   href?: string;
   title: string;
-  yesPrice?: number;
+  yesPrice?: number | null;
   expiry?: number;
   liquidity: string;
   threshold?: string;
@@ -43,7 +43,11 @@ export function FeatureCard({
         </div>
       </div>
       {threshold ? <div className="num text-right text-xs text-zinc-400">{threshold}</div> : null}
-      <div className="num text-right text-sm text-zinc-200">{formatYesNo(yesPrice)}</div>
+      {yesPrice == null ? (
+        <div className="num text-right text-sm text-zinc-500">{"\u2014"}</div>
+      ) : (
+        <div className="num text-right text-sm text-zinc-200">{formatYesNo(yesPrice)}</div>
+      )}
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-xs text-zinc-500">
           <StableText k="markets.colExpiry" />
@@ -88,7 +92,7 @@ export function MarketCard({ market, vault = market.vault }: { market: MarketVie
     <FeatureCard
       href={"/markets/" + market.address.toBase58()}
       title={market.title ? questionTitle(market) : ""}
-      yesPrice={market.yesPrice}
+      yesPrice={displayYesPrice(market)}
       expiry={market.expiry}
       liquidity={vault === null ? "—" : money(vault, market.decimals)}
       threshold={`${market.feedSymbol} ${market.settleAbove ? "≥" : "<"} ${thr}`}

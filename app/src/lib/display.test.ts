@@ -4,6 +4,7 @@ import { RESOLVE_WINDOW } from "@/lib/constants";
 import {
   chancePct,
   clusterLabel,
+  displayYesPrice,
   formatExpiredAgo,
   formatWhen,
   hasBet,
@@ -258,5 +259,13 @@ describe("display", () => {
     expect(marketDurationBucket({ title: "SOL/USD 1 天后能站上开盘价吗？" })).toBe("24h");
     expect(marketDurationBucket({ title: "LINK/USD above 20 in 1 hour?" })).toBeNull();
     expect(marketDurationBucket({ title: "BTC/USD >= 73,479 @ 2026-01-01" })).toBeNull();
+  });
+
+  it("displayYesPrice 按状态返回胜负兑付价、作废 null 或实时报价", () => {
+    expect(displayYesPrice({ status: "open", winner: null, yesPrice: 0.63 })).toBe(0.63);
+    expect(displayYesPrice({ status: "resolved", winner: "yes", yesPrice: 0.5 })).toBe(1);
+    expect(displayYesPrice({ status: "resolved", winner: "no", yesPrice: 0.5 })).toBe(0);
+    expect(displayYesPrice({ status: "staleBurn", winner: null, yesPrice: 0.5 })).toBeNull();
+    expect(displayYesPrice({ status: "windowBurn", winner: null, yesPrice: 0.5 })).toBeNull();
   });
 });
