@@ -24,6 +24,7 @@ const {
   batchSyncOpenMarkets,
   buildCreateMarketIxs,
   buildUserBetOnIxs,
+  createRpcConnection,
   decodeChainlinkFeed,
   defaultTitleForAsset,
   encodePrediction,
@@ -110,6 +111,9 @@ function getDailyConfig() {
     seedUsdt: Math.max(1.01, envNum("DAILY_SEED_USDT", 150)),
     betUsdt: Math.max(0, envNum("DAILY_BET_USDT", 2)),
     settleMaxPerTick: Math.max(1, Math.round(envNum("SANDBOX_SETTLE_MAX_PER_TICK", 4))),
+    settleMaxSlots: Math.max(1, Math.round(envNum("SANDBOX_SETTLE_MAX_SLOTS", 4))),
+    settleMaxTotalProcs: Math.max(1, Math.round(envNum("SANDBOX_SETTLE_MAX_TOTAL_PROCS", 12))),
+    settleStaleMaxAgeSec: Math.max(60, Math.round(envNum("SANDBOX_SETTLE_STALE_MAX_AGE_SEC", 600))),
     recycleFunds: envBool("SANDBOX_RECYCLE_FUNDS", true),
     minSolLamports: Math.max(0, Math.round(envNum("SANDBOX_MIN_SOL_LAMPORTS", 30_000_000))),
     activeFile: envStr(["SANDBOX_ACTIVE_FILE"], ""),
@@ -255,7 +259,7 @@ async function runDailyTick({ forceOpen = false } = {}) {
   const { idl } = loadIdl(cfg.programId);
   const settleScriptPath = resolveSettleScript();
   const payer = loadKeypair(cfg.walletPath);
-  const connection = new Connection(cfg.rpcUrl, "confirmed");
+  const connection = createRpcConnection(cfg.rpcUrl);
   const provider = new AnchorProvider(connection, new Wallet(payer), { commitment: "confirmed" });
   const program = new Program(idl, provider);
 
@@ -268,7 +272,14 @@ async function runDailyTick({ forceOpen = false } = {}) {
   const watchDue = selectWatchEntries(state.markets, nowSec);
   scheduleWatches(cfg, settleScriptPath, watchDue, nowSec);
   const watchedAddrs = new Set(watchDue.map((e) => e.address));
-  scheduleExpiredSettlements(cfg, settleScriptPath, state.markets, nowSec, watchedAddrs);
+  const settledDue = await scheduleExpiredSettlements(
+    cfg,
+    settleScriptPath,
+    state.markets,
+    nowSec,
+    watchedAddrs
+  );
+  if (settledDue.length > 0) saveState(cfg.statePath, state);
 
   // 2. Check whether today's fixed-time 24h slot should open
   const slot = computeDailySlot(

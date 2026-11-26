@@ -67,6 +67,10 @@ const RAW_REPORT_HEADER_LEN = 1 + CONTEXT_LEN + REPORT_LEN;
 const MAX_SIGNATURE_PAGES = 20;
 const SIGNATURES_PER_PAGE = 500;
 const TX_BATCH_SIZE = 8;
+const SELF_SETTLE_SLOT_PREFIX = "settle-slot-";
+const DEFAULT_SELF_SETTLE_SLOTS = 4;
+const DEFAULT_HARD_TIMEOUT_MS = 300_000;
+const NORMAL_RPC_TIMEOUT_MS = 15_000;
 
 function usage(exitCode = 0) {
   const out = exitCode === 0 ? console.log : console.error;
@@ -76,6 +80,7 @@ function usage(exitCode = 0) {
 Options:
   --dry-run           Locate straddling OCR2 reports without sending a transaction
   --watch <feed>      Watch the expiry window for a strictly adjacent pair
+  --self-settle       Acquire a bounded self-settle slot (settle-slot-0..N) before running
   --keypair <path>    Path to Solana JSON keypair file
   --rpc <url>         Solana RPC endpoint override
   -h, --help          Show this help message
@@ -89,13 +94,15 @@ Environment variables:
 }
 
 function parseArgs(argv) {
-  const opts = { market: null, dryRun: false, keypair: null, rpc: null };
+  const opts = { market: null, dryRun: false, selfSettle: false, keypair: null, rpc: null };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "-h" || arg === "--help") {
       usage(0);
     } else if (arg === "--dry-run") {
       opts.dryRun = true;
+    } else if (arg === "--self-settle") {
+      opts.selfSettle = true;
     } else if (arg === "--watch") {
       opts.feed = new PublicKey(argv[++i]);
     } else if (arg === "--keypair") {
@@ -843,6 +850,58 @@ async function runWatch(connection, program, payer, marketPk, market, opts, coor
   });
 }
 
+function envPositiveInt(name, fallback) {
+  const raw = process.env[name];
+  if (!raw || !raw.trim()) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
+function resolveHardTimeoutMs() {
+  return envPositiveInt("SETTLE_HARD_TIMEOUT_MS", DEFAULT_HARD_TIMEOUT_MS);
+}
+
+function resolveSelfSettleSlots() {
+  return Math.max(1, envPositiveInt("SETTLE_SLOT_COUNT", DEFAULT_SELF_SETTLE_SLOTS));
+}
+
+function resolveNormalRpcTimeoutMs() {
+  return envPositiveInt("SETTLE_RPC_TIMEOUT_MS", NORMAL_RPC_TIMEOUT_MS);
+}
+
+function fetchWithTimeout(timeoutMs) {
+  return (url, init) => {
+    const t = AbortSignal.timeout(timeoutMs);
+    const signal =
+      init?.signal && typeof AbortSignal.any === "function"
+        ? AbortSignal.any([init.signal, t])
+        : t;
+    return fetch(url, { ...init, signal });
+  };
+}
+
+function armHardTimeout({
+  isWatch,
+  timeoutMs = resolveHardTimeoutMs(),
+  log = console.error,
+  onTimeout = () => process.exit(1),
+} = {}) {
+  if (isWatch) return () => {};
+  const timer = setTimeout(() => {
+    log(`[settle] hard timeout exceeded (${timeoutMs}ms), exiting`);
+    onTimeout();
+  }, timeoutMs);
+  return () => clearTimeout(timer);
+}
+
+async function acquireSelfSettleSlot(slotCount = resolveSelfSettleSlots(), lockFn = tryLock) {
+  for (let i = 0; i < slotCount; i += 1) {
+    const rel = await lockFn(`${SELF_SETTLE_SLOT_PREFIX}${i}`);
+    if (rel) return rel;
+  }
+  return null;
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (!opts.market) usage(1);
@@ -854,18 +913,28 @@ async function main() {
     throw new Error(`Invalid market pubkey: ${opts.market}`);
   }
 
-  const release = opts.dryRun ? () => {} : await tryLock(marketPubkey.toBase58());
-  if (!release) return console.log(`[settle] ${marketPubkey} already in flight`);
-  let releaseSlot;
+  const disarmTimeout = armHardTimeout({ isWatch: Boolean(opts.feed) });
   try {
-    if (opts.feed) {
-      releaseSlot = await tryLock("expiry-slot-0") || await tryLock("expiry-slot-1");
-      if (!releaseSlot) return console.log("[wake] busy; global sweep will retry");
+    const release = opts.dryRun ? () => {} : await tryLock(marketPubkey.toBase58());
+    if (!release) return console.log(`[settle] ${marketPubkey} already in flight`);
+    let releaseSlot;
+    try {
+      if (opts.feed) {
+        releaseSlot = await tryLock("expiry-slot-0") || await tryLock("expiry-slot-1");
+        if (!releaseSlot) return console.log("[wake] busy; global sweep will retry");
+      } else if (opts.selfSettle && !opts.dryRun) {
+        releaseSlot = await acquireSelfSettleSlot();
+        if (!releaseSlot) {
+          return console.log(`[settle] ${marketPubkey} self-settle slots busy; will retry next tick`);
+        }
+      }
+      await settle(opts, marketPubkey);
+    } finally {
+      releaseSlot?.();
+      release();
     }
-    await settle(opts, marketPubkey);
   } finally {
-    releaseSlot?.();
-    release();
+    disarmTimeout();
   }
 }
 
@@ -975,10 +1044,19 @@ async function settle(opts, marketPubkey) {
   const { payer, path: walletPath } = loadKeypair(opts.keypair, opts.dryRun);
   const idl = loadIdl(programId);
 
-  const connection = new Connection(rpcUrl, opts.feed ? {
-    commitment: "confirmed", disableRetryOnRateLimit: true,
-    fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(4000) }),
-  } : "confirmed");
+  const connection = new Connection(
+    rpcUrl,
+    opts.feed
+      ? {
+          commitment: "confirmed",
+          disableRetryOnRateLimit: true,
+          fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(4000) }),
+        }
+      : {
+          commitment: "confirmed",
+          fetch: fetchWithTimeout(resolveNormalRpcTimeoutMs()),
+        }
+  );
   const provider = new AnchorProvider(connection, new Wallet(payer), { commitment: "confirmed" });
   const program = new Program(idl, provider);
 
@@ -1087,4 +1165,20 @@ if (require.main === module) main().catch((err) => {
   process.exit(1);
 });
 
-module.exports = { parseOcr2Transmit, areReportsAdjacent, pickStraddlingPair, shouldRecordSnapshot, recordExpirySnapshots, createSnapshotCoordinator, runWatch };
+module.exports = {
+  parseOcr2Transmit,
+  areReportsAdjacent,
+  pickStraddlingPair,
+  shouldRecordSnapshot,
+  recordExpirySnapshots,
+  createSnapshotCoordinator,
+  runWatch,
+  parseArgs,
+  armHardTimeout,
+  acquireSelfSettleSlot,
+  fetchWithTimeout,
+  DEFAULT_HARD_TIMEOUT_MS,
+  NORMAL_RPC_TIMEOUT_MS,
+  SELF_SETTLE_SLOT_PREFIX,
+  DEFAULT_SELF_SETTLE_SLOTS,
+};

@@ -6,7 +6,13 @@ import { decodeMarket, decodeMarketSnapshot } from "./codec";
 import { feedByState } from "./feeds";
 import { PROGRAM_ID_DEFAULT } from "./constants";
 import { findMarketSnapshot } from "./pdas";
-import { decodeResolveReports, fetchRuling, findPushSignatures, witnessCounts } from "./ruling-evidence";
+import {
+  MAX_SIGNATURE_PAGES,
+  decodeResolveReports,
+  fetchRuling,
+  findPushSignatures,
+  witnessCounts,
+} from "./ruling-evidence";
 import { redemptionRows } from "./history";
 import { toUi } from "./format";
 
@@ -28,6 +34,74 @@ describe("ruling evidence", () => {
     expect(witnessCounts({ entries, bump: 1 }, pre, post)).toEqual([500, 501]);
     entries[1].price++;
     expect(witnessCounts({ entries, bump: 1 }, pre, post)).toBeNull();
+  });
+
+  it("caps signature pagination at MAX_SIGNATURE_PAGES in fetchRuling and findPushSignatures", async () => {
+    expect(MAX_SIGNATURE_PAGES).toBe(20);
+    const finishTs = 1_800_000_000;
+    const addr = new PublicKey("5fQX6eDjLWmfp2FMf2zrRmPTARPvLRLc3Xo8izo7rNFr");
+    const ocr2State = new PublicKey("HCKJKQ8xFfqm5BxTA6LaUCWYXNShYXF4eAwC7NhBYXkj");
+    const feed = new PublicKey("6PxBx93S8x3tno1TsFZwT5VqP8drrRCbCXygEXYNkFJe");
+    const program = new PublicKey(PROGRAM_ID_DEFAULT);
+
+    let rulingCalls = 0;
+    const rulingConn = {
+      getSignaturesForAddress: async () => {
+        rulingCalls += 1;
+        return Array.from({ length: 100 }, (_, i) => ({
+          signature: `r-${rulingCalls}-${i}`,
+          err: null,
+          blockTime: finishTs + 100,
+        }));
+      },
+    } as unknown as Connection;
+
+    const ruling = await fetchRuling(rulingConn, program, {
+      address: addr,
+      ocr2State,
+      finishTs,
+      endTs: finishTs - 5,
+      settledPublishTime: finishTs - 2,
+      settledPrice: 9_500_000_000_000n,
+    });
+    expect(ruling).toBeNull();
+    expect(rulingCalls).toBe(MAX_SIGNATURE_PAGES);
+
+    let pushCalls = 0;
+    const pushConn = {
+      getSignaturesForAddress: async () => {
+        pushCalls += 1;
+        return Array.from({ length: 250 }, (_, i) => ({
+          signature: `p-${pushCalls}-${i}`,
+          err: null,
+          blockTime: finishTs + 200,
+        }));
+      },
+    } as unknown as Connection;
+
+    const pushes = await findPushSignatures(pushConn, feed, {
+      signature: "resolve-sig",
+      pre: {
+        raw: Buffer.alloc(200),
+        configDigest: Buffer.alloc(32),
+        epoch: 1,
+        round: 1,
+        observationsTimestamp: finishTs - 10,
+        observerCount: 4,
+        median: 9_400_000_000_000n,
+      },
+      post: {
+        raw: Buffer.alloc(200),
+        configDigest: Buffer.alloc(32),
+        epoch: 1,
+        round: 2,
+        observationsTimestamp: finishTs - 2,
+        observerCount: 4,
+        median: 9_500_000_000_000n,
+      },
+    });
+    expect(pushes).toEqual({});
+    expect(pushCalls).toBe(MAX_SIGNATURE_PAGES);
   });
 });
 

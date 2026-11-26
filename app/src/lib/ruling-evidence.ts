@@ -7,6 +7,7 @@ import { extractOcr2Instructions, fetchTxBatch, TX_BATCH_SIZE } from "./resolve"
 import { instructionGroups } from "./transaction-history";
 
 const RESOLVE = Buffer.from([155, 23, 80, 173, 46, 74, 23, 239]);
+export const MAX_SIGNATURE_PAGES = 20;
 
 export function decodeResolveReports(data: Buffer) {
   // Anchor encodes each signed transmit as a Borsh Vec<u8>.
@@ -44,7 +45,7 @@ async function* candidateTransactions(connection: Connection, candidates: { sign
 
 export async function fetchRuling(connection: Connection, program: PublicKey, market: ResolvedMarket, signal?: AbortSignal) {
   let before: string | undefined;
-  for (;;) {
+  for (let pageNum = 0; pageNum < MAX_SIGNATURE_PAGES; pageNum += 1) {
     signal?.throwIfAborted();
     const page = await connection.getSignaturesForAddress(market.address, { before, limit: 100 }, "confirmed");
     const candidates = page.filter(s => !s.err && (s.blockTime == null || Math.abs(s.blockTime - market.finishTs) <= 30))
@@ -63,6 +64,7 @@ export async function fetchRuling(connection: Connection, program: PublicKey, ma
     if (!last || page.length < 100 || (last.blockTime != null && last.blockTime < market.finishTs - 30)) return null;
     before = last.signature;
   }
+  return null;
 }
 
 export async function findPushSignatures(connection: Connection, feed: PublicKey,
@@ -72,7 +74,7 @@ export async function findPushSignatures(connection: Connection, feed: PublicKey
   let before = ruling.signature;
   const from = ruling.pre.observationsTimestamp - 60;
   const until = ruling.post.observationsTimestamp + 60;
-  for (;;) {
+  for (let pageNum = 0; pageNum < MAX_SIGNATURE_PAGES; pageNum += 1) {
     signal?.throwIfAborted();
     const page = await connection.getSignaturesForAddress(feed, { before, limit: 250 }, "confirmed");
     const candidates = page.filter(s => !s.err && (s.blockTime == null || (s.blockTime >= from && s.blockTime <= until)))
@@ -96,4 +98,5 @@ export async function findPushSignatures(connection: Connection, feed: PublicKey
     if (!last || page.length < 250 || (last.blockTime != null && last.blockTime < from)) return result;
     before = last.signature;
   }
+  return result;
 }

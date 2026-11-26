@@ -9,6 +9,7 @@ const { AnchorProvider, Program, Wallet, utils } = require("@coral-xyz/anchor");
 const { ComputeBudgetProgram, Connection, PublicKey } = require("@solana/web3.js");
 
 const {
+  createRpcConnection,
   loadIdl,
   loadKeypair,
   fetchMintMeta,
@@ -454,7 +455,7 @@ async function runSweep(cfg, flags) {
     throw new Error(`Operator keypair file not found: ${cfg.walletPath}`);
   }
 
-  const connection = new Connection(cfg.rpcUrl, "confirmed");
+  const connection = createRpcConnection(cfg.rpcUrl);
   const rawAccounts = await connection.getProgramAccounts(cfg.programId, {
     commitment: "confirmed",
     filters: marketFilters(0),

@@ -130,6 +130,27 @@ const EVIDENCE_HEAL_COOLDOWN_MS = 5 * 60 * 1000;
 const EVIDENCE_HEAL_COOLDOWN_MAX = 500;
 const WALLET_FORCE_SYNC_COOLDOWN_SEC = 10;
 const WALLET_FORCE_SYNC_MAX = 1000;
+const SERVER_RPC_TIMEOUT_MS = 15_000;
+
+function createServerRpcConnection(
+  rpcUrl: string,
+  timeoutMs = SERVER_RPC_TIMEOUT_MS
+): Connection {
+  return new Connection(rpcUrl, {
+    commitment: "confirmed",
+    fetch: (url, init) => {
+      const timeoutSignal = AbortSignal.timeout(timeoutMs);
+      const anyFn = (AbortSignal as unknown as {
+        any?: (signals: AbortSignal[]) => AbortSignal;
+      }).any;
+      const signal =
+        init?.signal && typeof anyFn === "function"
+          ? anyFn([init.signal, timeoutSignal])
+          : timeoutSignal;
+      return fetch(url, { ...init, signal });
+    },
+  });
+}
 
 export function resolveServerDbPath(explicitPath?: string): string {
   const chosen = explicitPath?.trim() || process.env.VERITAS_DB_PATH?.trim();
@@ -591,7 +612,7 @@ export async function healSettlementEvidenceOnDemand(opts: {
   const task = (async (): Promise<EvidenceResponse> => {
     try {
       const rpcUrl = resolveServerRpcUrl();
-      const connection = opts.connectionOverride ?? new Connection(rpcUrl, "confirmed");
+      const connection = opts.connectionOverride ?? createServerRpcConnection(rpcUrl);
       const cluster = opts.cluster?.trim() || inferClusterFromRpc(connection.rpcEndpoint);
       const pid = new PublicKey(programId);
       const marketPk = new PublicKey(opts.marketAddress);
@@ -932,7 +953,7 @@ export async function syncWalletPositionsOnDemand(opts: {
 
   const task = (async () => {
     try {
-      const connection = opts.connectionOverride ?? new Connection(resolveServerRpcUrl(), "confirmed");
+      const connection = opts.connectionOverride ?? createServerRpcConnection(resolveServerRpcUrl());
       const pid = new PublicKey(programId);
       const walletPk = new PublicKey(opts.wallet);
 

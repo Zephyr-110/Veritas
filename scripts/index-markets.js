@@ -16,6 +16,8 @@ const REPORT_LEN = 61;
 const SIGNATURE_LEN = 65;
 const RAW_REPORT_HEADER_LEN = 1 + CONTEXT_LEN + REPORT_LEN;
 const TX_BATCH_SIZE = 8;
+const MAX_SIGNATURE_PAGES = 20;
+const RPC_FETCH_TIMEOUT_MS = 15_000;
 
 function inferCluster(rpcUrl = "") {
   const lower = String(rpcUrl).toLowerCase();
@@ -192,7 +194,7 @@ async function fetchRulingForMarket(connection, programId, marketRow) {
   const settledPrice = BigInt(marketRow.settled_price);
   let before;
 
-  for (;;) {
+  for (let pageNum = 0; pageNum < MAX_SIGNATURE_PAGES; pageNum += 1) {
     const page = await connection.getSignaturesForAddress(
       marketPk,
       { before, limit: 100 },
@@ -248,6 +250,7 @@ async function fetchRulingForMarket(connection, programId, marketRow) {
     }
     before = last.signature;
   }
+  return null;
 }
 
 async function findPushSignaturesForRuling(connection, feedPk, ruling) {
@@ -256,7 +259,7 @@ async function findPushSignaturesForRuling(connection, feedPk, ruling) {
   const from = ruling.pre.observationsTimestamp - 60;
   const until = ruling.post.observationsTimestamp + 60;
 
-  for (;;) {
+  for (let pageNum = 0; pageNum < MAX_SIGNATURE_PAGES; pageNum += 1) {
     const page = await connection.getSignaturesForAddress(
       feedPk,
       { before, limit: 250 },
@@ -300,6 +303,7 @@ async function findPushSignaturesForRuling(connection, feedPk, ruling) {
     }
     before = last.signature;
   }
+  return result;
 }
 
 function buildEvidenceRecord({
@@ -828,7 +832,17 @@ function parseCliArgs(argv) {
 
 async function main() {
   const opts = parseCliArgs(process.argv.slice(2));
-  const connection = new Connection(opts.rpcUrl, "confirmed");
+  const connection = new Connection(opts.rpcUrl, {
+    commitment: "confirmed",
+    fetch: (url, init) => {
+      const t = AbortSignal.timeout(RPC_FETCH_TIMEOUT_MS);
+      const signal =
+        init?.signal && typeof AbortSignal.any === "function"
+          ? AbortSignal.any([init.signal, t])
+          : t;
+      return fetch(url, { ...init, signal });
+    },
+  });
   const programId = new PublicKey(opts.programId);
 
   if (opts.mode === "rebuild") {
@@ -865,6 +879,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  MAX_SIGNATURE_PAGES,
   buildEvidenceRecord,
   computeEvidenceFromChain,
   decodeResolveReports,

@@ -89,6 +89,11 @@ const DEFAULT_PROGRAM_ID = "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER";
 const DEFAULT_COLLATERAL_MINT = "CtiAxpKmXtK2bupa59GN6GPYXQiPPYUfSqnY1pgMD7QG";
 const DEFAULT_ASSETS = "btc,eth,sol,link";
 const RESOLVE_WINDOW_SEC = 172_800;
+const DEFAULT_SETTLE_SLOTS = 4;
+const DEFAULT_SETTLE_MAX_TOTAL_PROCS = 12;
+const DEFAULT_SETTLE_STALE_MAX_AGE_SEC = 600;
+const DEFAULT_RPC_FETCH_TIMEOUT_MS = 15_000;
+const SELF_SETTLE_SLOT_PREFIX = "settle-slot-";
 
 const ASSET_CATALOG = {
   btc: {
@@ -196,6 +201,25 @@ function envBool(name, fallback) {
   return !/^(0|false|no|off)$/i.test(raw.trim());
 }
 
+function createRpcConnection(
+  rpcUrl,
+  timeoutMs = envNum("RPC_FETCH_TIMEOUT_MS", DEFAULT_RPC_FETCH_TIMEOUT_MS)
+) {
+  const effectiveTimeout =
+    Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_RPC_FETCH_TIMEOUT_MS;
+  return new Connection(rpcUrl, {
+    commitment: "confirmed",
+    fetch: (url, init) => {
+      const t = AbortSignal.timeout(effectiveTimeout);
+      const signal =
+        init?.signal && typeof AbortSignal.any === "function"
+          ? AbortSignal.any([init.signal, t])
+          : t;
+      return fetch(url, { ...init, signal });
+    },
+  });
+}
+
 function parseAssets(rawList) {
   const keys = String(rawList || DEFAULT_ASSETS)
     .split(",")
@@ -255,6 +279,15 @@ function getConfig() {
     betUsdt: Math.max(0.01, envNum("SANDBOX_BET_USDT", 2)),
     titleOverride,
     settleMaxPerTick: Math.max(1, Math.round(envNum("SANDBOX_SETTLE_MAX_PER_TICK", 4))),
+    settleMaxSlots: Math.max(1, Math.round(envNum("SANDBOX_SETTLE_MAX_SLOTS", DEFAULT_SETTLE_SLOTS))),
+    settleMaxTotalProcs: Math.max(
+      1,
+      Math.round(envNum("SANDBOX_SETTLE_MAX_TOTAL_PROCS", DEFAULT_SETTLE_MAX_TOTAL_PROCS))
+    ),
+    settleStaleMaxAgeSec: Math.max(
+      60,
+      Math.round(envNum("SANDBOX_SETTLE_STALE_MAX_AGE_SEC", DEFAULT_SETTLE_STALE_MAX_AGE_SEC))
+    ),
     recycleFunds: envBool("SANDBOX_RECYCLE_FUNDS", true),
     dailyMaxMarkets: Math.max(0, Math.round(envNum("SANDBOX_DAILY_MAX_MARKETS", 0))),
     minSolLamports: Math.max(0, Math.round(envNum("SANDBOX_MIN_SOL_LAMPORTS", 30_000_000))),
@@ -751,6 +784,12 @@ function selectWatchEntries(entries, nowSec = Date.now() / 1000) {
     .slice(0, 2);
 }
 
+function settleRetryCooldownSec(ageSec) {
+  if (ageSec < 600) return 0;
+  if (ageSec < 3600) return 300;
+  return 900;
+}
+
 function selectExpiredSettleEntries(
   entries,
   nowSec = Math.floor(Date.now() / 1000),
@@ -765,10 +804,193 @@ function selectExpiredSettleEntries(
       const pastWatchWindow = targetEndTs <= nowSec - WATCH_AFTER_SEC;
       const pastMinAge = targetEndTs <= nowSec - 4;
       const inResolveWindow = nowSec <= Number(e.expiry || targetEndTs) + RESOLVE_WINDOW_SEC;
-      return inResolveWindow && (pastWatchWindow || pastMinAge);
+      if (!inResolveWindow || !(pastWatchWindow || pastMinAge)) return false;
+      const ageSec = Math.max(0, nowSec - targetEndTs);
+      const cooldown = settleRetryCooldownSec(ageSec);
+      const lastAttempt = Number(e.lastSettleAttemptAt || 0);
+      if (cooldown > 0 && lastAttempt > 0 && nowSec - lastAttempt < cooldown) return false;
+      return true;
     })
     .sort((a, b) => entryTargetEndTs(b) - entryTargetEndTs(a))
     .slice(0, maxPerTick);
+}
+
+const NODE_VALUE_FLAGS = new Set([
+  "-r",
+  "--require",
+  "--import",
+  "--loader",
+  "--experimental-loader",
+  "-e",
+  "--eval",
+  "-p",
+  "--print",
+  "-C",
+  "--conditions",
+  "--env-file",
+  "--env-file-if-exists",
+  "--max-old-space-size",
+  "--title",
+  "--redirect-warnings",
+  "--diagnostic-dir",
+  "--heapsnapshot-signal",
+]);
+
+function classifySettleProcess(argvTokens) {
+  if (!Array.isArray(argvTokens) || argvTokens.length < 2) return null;
+  const binName = path.basename(String(argvTokens[0] || "")).toLowerCase();
+  if (!/^node(\d+)?(\.exe)?$/.test(binName)) return null;
+
+  for (const tok of argvTokens) {
+    const normalized = String(tok || "").replace(/\\/g, "/");
+    if (/(?:^|\/)settle-all\.js$/.test(normalized) || normalized.includes("/node_modules/")) {
+      return null;
+    }
+  }
+
+  let scriptArg = null;
+  let scriptIndex = -1;
+  for (let i = 1; i < argvTokens.length; i += 1) {
+    const tok = String(argvTokens[i] || "");
+    if (tok === "--") break;
+    if (tok.startsWith("-")) {
+      if (!tok.includes("=") && NODE_VALUE_FLAGS.has(tok)) {
+        i += 1;
+      }
+      continue;
+    }
+    scriptArg = tok;
+    scriptIndex = i;
+    break;
+  }
+
+  if (!scriptArg) return null;
+  const normalizedScript = scriptArg.replace(/\\/g, "/");
+  if (!/(?:^|\/)settle\.js$/.test(normalizedScript)) return null;
+
+  const scriptArgs = argvTokens.slice(scriptIndex + 1);
+  const isWatch = scriptArgs.includes("--watch");
+  const isSelfSettle = scriptArgs.includes("--self-settle");
+  return {
+    isSettle: true,
+    isWatch,
+    isOrdinary: !isWatch,
+    isSelfSettle,
+    scriptArg,
+  };
+}
+
+function listSettleProcesses({ platform = process.platform, myPid = process.pid } = {}) {
+  if (platform !== "linux" || !fs.existsSync("/proc/uptime")) return [];
+  let uptimeSec;
+  try {
+    uptimeSec = Number(fs.readFileSync("/proc/uptime", "utf8").trim().split(/\s+/)[0]);
+  } catch {
+    return [];
+  }
+  if (!Number.isFinite(uptimeSec) || uptimeSec <= 0) return [];
+
+  let procEntries;
+  try {
+    procEntries = fs.readdirSync("/proc");
+  } catch {
+    return [];
+  }
+
+  const out = [];
+  for (const name of procEntries) {
+    if (!/^\d+$/.test(name)) continue;
+    const pid = Number(name);
+    if (!Number.isInteger(pid) || pid <= 0 || pid === myPid) continue;
+    try {
+      const rawCmd = fs.readFileSync(`/proc/${name}/cmdline`);
+      const argv = rawCmd.toString("utf8").split("\0").filter(Boolean);
+      const classified = classifySettleProcess(argv);
+      if (!classified) continue;
+
+      const statRaw = fs.readFileSync(`/proc/${name}/stat`, "utf8");
+      const rparen = statRaw.lastIndexOf(")");
+      if (rparen < 0) continue;
+      const fields = statRaw.slice(rparen + 2).trim().split(/\s+/);
+      const startTicks = Number(fields[19]);
+      if (!Number.isFinite(startTicks) || startTicks < 0) continue;
+      const elapsedSec = Math.max(0, uptimeSec - startTicks / 100);
+      const uid = fs.statSync(`/proc/${name}`).uid;
+      out.push({ pid, uid, elapsedSec, argv, ...classified });
+    } catch {
+      // Ignore processes that vanished or cannot be inspected
+    }
+  }
+  return out;
+}
+
+function reapStaleSettleProcesses({
+  maxAgeSec = DEFAULT_SETTLE_STALE_MAX_AGE_SEC,
+  myUid = typeof process.getuid === "function" ? process.getuid() : null,
+  listProcesses = listSettleProcesses,
+  killProcess = (pid, sig) => process.kill(pid, sig),
+} = {}) {
+  const procs = listProcesses();
+  const killedPids = [];
+  const killedSet = new Set();
+
+  for (const proc of procs) {
+    if (!proc || !proc.isSettle || !proc.isOrdinary || proc.isWatch) continue;
+    if (!(proc.elapsedSec > maxAgeSec)) continue;
+    if (myUid != null && proc.uid !== myUid) continue;
+    try {
+      killProcess(proc.pid, "SIGTERM");
+      killedPids.push(proc.pid);
+      killedSet.add(proc.pid);
+      console.log(
+        `[self-settle] reaped stale settle.js pid=${proc.pid} age=${Math.round(proc.elapsedSec)}s script=${proc.scriptArg}`
+      );
+    } catch (err) {
+      if (err && err.code !== "ESRCH") {
+        console.warn(`[self-settle] failed to reap pid=${proc.pid}: ${err.message}`);
+      }
+    }
+  }
+
+  return {
+    killedPids,
+    remainingProcs: procs.filter((p) => !killedSet.has(p.pid)),
+  };
+}
+
+async function releaseLockAndWait(releaseFn) {
+  if (typeof releaseFn !== "function") return;
+  const ret = releaseFn();
+  if (ret && typeof ret.then === "function") {
+    await ret;
+    return;
+  }
+  if (ret && typeof ret.once === "function") {
+    await new Promise((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(done, 50);
+      timer.unref?.();
+      ret.once("close", done);
+    });
+  }
+}
+
+async function probeFreeSettleSlots(slotCount = DEFAULT_SETTLE_SLOTS, lockFn = tryLock) {
+  let free = 0;
+  for (let i = 0; i < slotCount; i += 1) {
+    const rel = await lockFn(`${SELF_SETTLE_SLOT_PREFIX}${i}`);
+    if (rel) {
+      free += 1;
+      await releaseLockAndWait(rel);
+    }
+  }
+  return free;
 }
 
 function scheduleWatches(cfg, settleScriptPath, entries, nowSec = Date.now() / 1000) {
@@ -797,25 +1019,53 @@ function scheduleWatches(cfg, settleScriptPath, entries, nowSec = Date.now() / 1
   return due;
 }
 
-function scheduleExpiredSettlements(
+async function scheduleExpiredSettlements(
   cfg,
   settleScriptPath,
   entries,
   nowSec = Math.floor(Date.now() / 1000),
-  excludedAddresses = new Set()
+  excludedAddresses = new Set(),
+  deps = {}
 ) {
-  const due = selectExpiredSettleEntries(
-    entries,
-    nowSec,
-    cfg.settleMaxPerTick ?? 4,
-    excludedAddresses
-  );
+  const {
+    listProcesses = listSettleProcesses,
+    killProcess = (pid, sig) => process.kill(pid, sig),
+    tryLockFn = tryLock,
+    spawnFn = spawn,
+    myUid = typeof process.getuid === "function" ? process.getuid() : null,
+  } = deps;
+
+  const { remainingProcs } = reapStaleSettleProcesses({
+    maxAgeSec: cfg.settleStaleMaxAgeSec ?? DEFAULT_SETTLE_STALE_MAX_AGE_SEC,
+    myUid,
+    listProcesses,
+    killProcess,
+  });
+
+  const totalRunning = remainingProcs.length;
+  const maxTotal = cfg.settleMaxTotalProcs ?? DEFAULT_SETTLE_MAX_TOTAL_PROCS;
+  if (totalRunning >= maxTotal) {
+    console.log(
+      `[self-settle] total settle.js guardrail reached (${totalRunning}/${maxTotal}); skipping spawns`
+    );
+    return [];
+  }
+
+  const maxSlots = cfg.settleMaxSlots ?? DEFAULT_SETTLE_SLOTS;
+  const freeSlots = await probeFreeSettleSlots(maxSlots, tryLockFn);
+  if (freeSlots <= 0) {
+    console.log(`[self-settle] all ${maxSlots} settle slots busy; deferring to next tick`);
+    return [];
+  }
+
+  const budget = Math.min(cfg.settleMaxPerTick ?? 4, freeSlots, maxTotal - totalRunning);
+  const due = selectExpiredSettleEntries(entries, nowSec, budget, excludedAddresses);
   for (const entry of due) {
     const ageSec = Math.max(0, Math.round(nowSec - entryTargetEndTs(entry)));
     console.log(`[self-settle] waking ${entry.address} (expired ${ageSec}s ago)`);
-    const child = spawn(
+    const child = spawnFn(
       process.execPath,
-      [settleScriptPath, entry.address, "--keypair", cfg.walletPath, "--rpc", cfg.rpcUrl],
+      [settleScriptPath, entry.address, "--self-settle", "--keypair", cfg.walletPath, "--rpc", cfg.rpcUrl],
       {
         env: {
           ...process.env,
@@ -830,6 +1080,7 @@ function scheduleExpiredSettlements(
     );
     child.on("error", (err) => console.warn(`[self-settle] ${entry.address}: ${err.message}`));
     child.unref();
+    entry.lastSettleAttemptAt = nowSec;
   }
   return due;
 }
@@ -1151,7 +1402,7 @@ async function runTick() {
   const { idl } = loadIdl(cfg.programId);
   const settleScriptPath = resolveSettleScript();
   const payer = loadKeypair(cfg.walletPath);
-  const connection = new Connection(cfg.rpcUrl, "confirmed");
+  const connection = createRpcConnection(cfg.rpcUrl);
   const provider = new AnchorProvider(connection, new Wallet(payer), { commitment: "confirmed" });
   const program = new Program(idl, provider);
 
@@ -1163,7 +1414,14 @@ async function runTick() {
   saveState(cfg.statePath, state);
   const watchDue = scheduleWatches(cfg, settleScriptPath, state.markets, nowSec);
   const watchedAddrs = new Set(watchDue.map((e) => e.address));
-  scheduleExpiredSettlements(cfg, settleScriptPath, state.markets, nowSec, watchedAddrs);
+  const settledDue = await scheduleExpiredSettlements(
+    cfg,
+    settleScriptPath,
+    state.markets,
+    nowSec,
+    watchedAddrs
+  );
+  if (settledDue.length > 0) saveState(cfg.statePath, state);
 
   // 2. Open missing staggered markets FIRST (guarantees zero gap even if settlement RPC stalls)
   const missingSlots = cfg.assets
@@ -1379,4 +1637,14 @@ module.exports = {
   isActiveWindowOpen,
   persistCreatedMarketToDb,
   runIncrementalSyncSafe,
+  createRpcConnection,
+  settleRetryCooldownSec,
+  classifySettleProcess,
+  listSettleProcesses,
+  reapStaleSettleProcesses,
+  probeFreeSettleSlots,
+  DEFAULT_SETTLE_SLOTS,
+  DEFAULT_SETTLE_MAX_TOTAL_PROCS,
+  DEFAULT_SETTLE_STALE_MAX_AGE_SEC,
+  SELF_SETTLE_SLOT_PREFIX,
 };
