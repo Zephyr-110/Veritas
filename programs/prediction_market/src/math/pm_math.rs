@@ -447,6 +447,11 @@ const NEWTON_SAFE_BOUND: I80F48 = I80F48::lit("3.0");
 /// Extremes: 20 BS iterations (full precision fallback).
 /// dy/du = L_eff * Phi(u).
 fn find_x_from_y(y_target: I80F48, l_eff: I80F48) -> Result<I80F48> {
+    let (_, y_max) = xy_from_u_fast(Z_SEARCH_MAX, l_eff);
+    if y_target < ZERO || y_target > y_max {
+        return err!(PmAmmError::InvalidPrice);
+    }
+
     let mut lo = Z_SEARCH_MIN;
     let mut hi = Z_SEARCH_MAX;
     for _ in 0..6 {
@@ -487,6 +492,11 @@ fn find_x_from_y(y_target: I80F48, l_eff: I80F48) -> Result<I80F48> {
 /// Center: 6 BS + 3 Newton = 9 iterations. Extremes: 20 BS.
 /// dx/du = L_eff * (Phi(u) - 1).
 fn find_y_from_x(x_target: I80F48, l_eff: I80F48) -> Result<I80F48> {
+    let (x_max, _) = xy_from_u_fast(Z_SEARCH_MIN, l_eff);
+    if x_target < ZERO || x_target > x_max {
+        return err!(PmAmmError::InvalidPrice);
+    }
+
     let mut lo = Z_SEARCH_MIN;
     let mut hi = Z_SEARCH_MAX;
     for _ in 0..6 {
@@ -543,12 +553,12 @@ pub fn compute_swap_output(
     let (output, x_new, y_new) = match (side_in, side_out) {
         (SwapSide::Usdc, SwapSide::Yes) => {
             let yn = y + delta_in;
-            let xn = find_x_from_y(yn, l_eff)?;
+            let xn = find_x_from_y(yn, l_eff)?.min(x);
             (delta_in + (x - xn), xn, yn)
         }
         (SwapSide::Usdc, SwapSide::No) => {
             let xn = x + delta_in;
-            let yn = find_y_from_x(xn, l_eff)?;
+            let yn = find_y_from_x(xn, l_eff)?.min(y);
             (delta_in + (y - yn), xn, yn)
         }
         (SwapSide::Yes, SwapSide::Usdc) => {
@@ -560,6 +570,7 @@ pub fn compute_swap_output(
                 .max(z_clamp_lo)
                 .min(z_clamp_hi);
             let (xn, yn) = xy_from_u_fast(new_z, l_eff);
+            let yn = yn.min(y);
             (y - yn, xn, yn)
         }
         (SwapSide::No, SwapSide::Usdc) => {
@@ -569,16 +580,17 @@ pub fn compute_swap_output(
                 .max(z_clamp_lo)
                 .min(z_clamp_hi);
             let (xn, yn) = xy_from_u_fast(new_z, l_eff);
+            let xn = xn.min(x);
             (x - xn, xn, yn)
         }
         (SwapSide::Yes, SwapSide::No) => {
             let xn = x + delta_in;
-            let yn = find_y_from_x(xn, l_eff)?;
+            let yn = find_y_from_x(xn, l_eff)?.min(y);
             (y - yn, xn, yn)
         }
         (SwapSide::No, SwapSide::Yes) => {
             let yn = y + delta_in;
-            let xn = find_x_from_y(yn, l_eff)?;
+            let xn = find_x_from_y(yn, l_eff)?.min(x);
             (x - xn, xn, yn)
         }
         _ => return err!(PmAmmError::MathOverflow),
@@ -1586,5 +1598,57 @@ mod tests {
                 "mul_q48({af}, {bf}) lsb_diff={lsb_diff} > 2 (got={got}, expected={expected})"
             );
         }
+    }
+
+    #[test]
+    fn test_swap_rejects_reserves_past_z_search_bound() {
+        let l_eff = f(100.0);
+        let (x, y) = reserves_from_price(f(0.5), l_eff).unwrap();
+        let (_, y_max) = xy_from_u_fast(Z_SEARCH_MAX, l_eff);
+        let (x_max, _) = xy_from_u_fast(Z_SEARCH_MIN, l_eff);
+
+        let delta_over_y = (y_max - y) + f(1.0);
+        let delta_over_x = (x_max - x) + f(1.0);
+
+        assert!(
+            compute_swap_output(x, y, l_eff, delta_over_y, SwapSide::No, SwapSide::Yes).is_err(),
+            "No -> Yes past Z_SEARCH_MAX must fail"
+        );
+        assert!(
+            compute_swap_output(x, y, l_eff, delta_over_y, SwapSide::Usdc, SwapSide::Yes).is_err(),
+            "Usdc -> Yes past Z_SEARCH_MAX must fail"
+        );
+        assert!(
+            compute_swap_output(x, y, l_eff, delta_over_x, SwapSide::Yes, SwapSide::No).is_err(),
+            "Yes -> No past Z_SEARCH_MIN must fail"
+        );
+        assert!(
+            compute_swap_output(x, y, l_eff, delta_over_x, SwapSide::Usdc, SwapSide::No).is_err(),
+            "Usdc -> No past Z_SEARCH_MIN must fail"
+        );
+    }
+
+    #[test]
+    fn test_swap_below_curve_never_returns_negative_or_inflates_reserves() {
+        let l_eff = f(100.0);
+
+        // Simulate high-price post-clamped-accrual state: y was rescaled at u = 3.72
+        // while x remained lower at u = 5.0 (below curve).
+        let (x_hi, _) = xy_from_u_fast(f(5.0), l_eff);
+        let (_, y_clamped) = xy_from_u_fast(f(3.72), l_eff);
+        let res_no_yes =
+            compute_swap_output(x_hi, y_clamped, l_eff, f(0.1), SwapSide::No, SwapSide::Yes)
+                .unwrap();
+        assert!(res_no_yes.output >= ZERO, "output must be non-negative");
+        assert!(res_no_yes.x_new <= x_hi, "x_new must not inflate past x");
+
+        // Symmetric low-price post-clamped-accrual state: x rescaled at u = -3.72, y at u = -5.0.
+        let (_, y_lo) = xy_from_u_fast(f(-5.0), l_eff);
+        let (x_clamped, _) = xy_from_u_fast(f(-3.72), l_eff);
+        let res_yes_no =
+            compute_swap_output(x_clamped, y_lo, l_eff, f(0.1), SwapSide::Yes, SwapSide::No)
+                .unwrap();
+        assert!(res_yes_no.output >= ZERO, "output must be non-negative");
+        assert!(res_yes_no.y_new <= y_lo, "y_new must not inflate past y");
     }
 }

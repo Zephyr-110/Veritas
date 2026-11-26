@@ -1058,3 +1058,76 @@ fn e_repeated_skewed_add_liquidity_deficit_bricks_last_lp_exit() {
     env.withdraw(&keys, &lp, u64::MAX);
     env.withdraw(&keys, &house, u64::MAX);
 }
+
+#[test]
+fn e_extreme_bet_past_z_bound_rejected_and_clamped_accrual_swap_safe() {
+    // 1. Oversized bets near expiry that would push reserves past Z_SEARCH_MAX must fail cleanly.
+    let mut env = Env::new(START);
+    let keys = env.create_market(SEED, LIFE, true);
+    let whale = env.fund_user(50_000_000);
+    env.warp(keys.expiry as i64 - 10);
+    assert_logs_contain(
+        env.bet_raw(&keys, &whale, 20_000_000, MarketOutcome::Yes),
+        "InvalidPrice",
+    );
+    env.ledger(&keys, "over_z_yes_rejected").assert_backing();
+
+    let mut env = Env::new(START);
+    let keys = env.create_market(SEED, LIFE, true);
+    let whale = env.fund_user(50_000_000);
+    env.warp(keys.expiry as i64 - 10);
+    assert_logs_contain(
+        env.bet_raw(&keys, &whale, 20_000_000, MarketOutcome::No),
+        "InvalidPrice",
+    );
+    env.ledger(&keys, "over_z_no_rejected").assert_backing();
+
+    // 2. Push P > 0.9999, warp so compute_accrual clamps price to 0.9999 (reserves below curve),
+    //    then confirm small trades/swaps never panic and backing + full LP exit hold.
+    let mut env = Env::new(START);
+    let keys = env.create_market(1_000_001, LIFE, true);
+    let house = env.house_actor();
+    let whale = env.fund_user(20_000_000);
+    let trader = env.fund_user(1_000_000);
+    loop {
+        let m = env.read_market(&keys);
+        let l_eff = prediction_market::math::l_effective(
+            m.l_zero_fixed(),
+            m.end_ts - env.clock,
+        )
+        .unwrap();
+        let p: f64 = prediction_market::math::price_from_reserves(
+            m.reserve_yes_fixed(),
+            m.reserve_no_fixed(),
+            l_eff,
+        )
+        .unwrap()
+        .to_num();
+        if p > 0.9999 {
+            break;
+        }
+        env.bet(&keys, &whale, 500_000, MarketOutcome::Yes);
+    }
+
+    env.warp(START + 60);
+    env.ensure_ata(trader.pk(), keys.yes_mint);
+    env.ensure_ata(trader.pk(), keys.no_mint);
+    env.ensure_ata(whale.pk(), keys.no_mint);
+
+    for res in [
+        env.bet_raw(&keys, &trader, 5_000, MarketOutcome::Yes),
+        env.swap_raw(&keys, &whale, 1_000, MarketOutcome::No),
+    ] {
+        if let Err(err) = res {
+            let logs = err.meta.logs.join("\n");
+            assert!(!logs.contains("panicked"), "unexpected panic:\n{logs}");
+            assert!(
+                logs.contains("Error Code:"),
+                "expected clean Anchor error, got:\n{logs}"
+            );
+        }
+    }
+
+    env.ledger(&keys, "clamped_accrual_swap_safe").assert_backing();
+    env.withdraw(&keys, &house, u64::MAX);
+}
