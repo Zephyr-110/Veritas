@@ -10,7 +10,11 @@ pub struct TakeSnapshot<'info> {
     #[account(mut)]
     pub caller: Signer<'info>,
 
-    #[account(constraint = market.status == MarketStatus::Open @ ErrorCode::MarketNotOpen)]
+    #[account(
+        constraint = market.status == MarketStatus::Open @ ErrorCode::MarketNotOpen,
+        seeds = [b"market", market.id.as_ref()],
+        bump = market.bump,
+    )]
     pub market: Account<'info, Market>,
 
     #[account(
@@ -43,7 +47,7 @@ pub const FEED_ANSWER_OFFSET: usize = 216;
 pub fn take_snapshot(ctx: Context<TakeSnapshot>) -> Result<()> {
     let state_data = ctx.accounts.ocr2_state.try_borrow_data()?;
     let feed_data = ctx.accounts.feed.try_borrow_data()?;
-    let market = &mut ctx.accounts.market;
+    let market = &ctx.accounts.market;
     let snapshot = &mut ctx.accounts.snapshot;
     require!(
         snapshot.entries.len() < 16,
@@ -73,19 +77,19 @@ pub fn take_snapshot(ctx: Context<TakeSnapshot>) -> Result<()> {
     let counter = u32::from_le_bytes(
         feed_data[FEED_COUNTER_OFFSET..FEED_COUNTER_OFFSET + 4]
             .try_into()
-            .unwrap(),
+            .map_err(|_| error!(ErrorCode::InvalidOracleInput))?,
     );
 
     let ts = i64::from_le_bytes(
         feed_data[FEED_TS_OFFSET..FEED_TS_OFFSET + 8]
             .try_into()
-            .unwrap(),
+            .map_err(|_| error!(ErrorCode::InvalidOracleInput))?,
     );
 
     let price = i128::from_le_bytes(
         feed_data[FEED_ANSWER_OFFSET..FEED_ANSWER_OFFSET + 16]
             .try_into()
-            .unwrap(),
+            .map_err(|_| error!(ErrorCode::InvalidOracleInput))?,
     );
 
     let snap = Snapshot {
