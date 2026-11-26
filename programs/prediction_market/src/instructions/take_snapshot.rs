@@ -67,11 +67,16 @@ pub fn take_snapshot(ctx: Context<TakeSnapshot>) -> Result<()> {
         ErrorCode::BadFeedAccount
     );
 
+    require!(
+        state_data.len() >= STATE_EPOCH_OFFSET + 4
+            && feed_data.len() >= FEED_ANSWER_OFFSET + 16,
+        ErrorCode::InvalidOracleInput
+    );
     let round = state_data[STATE_ROUND_OFFSET];
     let epoch = u32::from_le_bytes(
         state_data[STATE_EPOCH_OFFSET..STATE_EPOCH_OFFSET + 4]
             .try_into()
-            .unwrap(),
+            .map_err(|_| error!(ErrorCode::InvalidOracleInput))?,
     );
 
     let counter = u32::from_le_bytes(
