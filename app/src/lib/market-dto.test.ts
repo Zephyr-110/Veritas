@@ -7,6 +7,9 @@ import { FEEDS } from "@/lib/feeds";
 import {
   deserializeMarket,
   deserializePositionItem,
+  isAdjacentEvidence,
+  isEvidenceComplete,
+  type SettlementEvidenceDto,
   type SerializedMarket,
   type WalletPositionItemDto,
 } from "@/lib/market-dto";
@@ -102,5 +105,74 @@ describe("market-dto", () => {
     expect(res.position.pendingYes).toBe(12_000n);
     expect(res.position.pendingNo).toBe(8_000n);
     expect(res.position.collateral).toBe(25_000_000n);
+  });
+});
+
+function makeEvidence(overrides: Partial<SettlementEvidenceDto> = {}): SettlementEvidenceDto {
+  return {
+    marketAddress: "8CwqNLvqk6tx1cuA735phsNB3ghZZaZ9VUmahfEfq3sZ",
+    programId: DEFAULT_PROGRAM_ID,
+    feedAddress: FEEDS[0].feed,
+    snapshotAddress: Keypair.generate().publicKey.toBase58(),
+    resolveSignature: "resolve-sig-1",
+    resolveTxUrl: null,
+    settledPrice: "9600000000000",
+    priceDecimals: 8,
+    winner: "yes",
+    status: "resolved",
+    preEpoch: 7201555,
+    preRound: 3,
+    preCounter: null,
+    prePrice: "9590000000000",
+    preTimestamp: 1_799_999_990,
+    prePushSignature: "push-pre-1",
+    prePushTxUrl: null,
+    postEpoch: 7201555,
+    postRound: 4,
+    postCounter: null,
+    postPrice: "9600000000000",
+    postTimestamp: 1_799_999_993,
+    postPushSignature: "push-post-1",
+    postPushTxUrl: null,
+    missingCount: null,
+    createdAt: 1_799_999_995,
+    ...overrides,
+  };
+}
+
+describe("isEvidenceComplete & isAdjacentEvidence", () => {
+  it("marks counters-present resolved evidence as complete", () => {
+    const ev = makeEvidence({
+      preRound: 1,
+      postRound: 3,
+      preCounter: 10,
+      postCounter: 12,
+      missingCount: 1,
+    });
+    expect(isAdjacentEvidence(ev)).toBe(false);
+    expect(isEvidenceComplete(ev)).toBe(true);
+  });
+
+  it("marks Layer 1 adjacent resolved evidence (same epoch & rollover) complete without snapshot counters", () => {
+    const sameEpoch = makeEvidence({ preEpoch: 100, preRound: 3, postEpoch: 100, postRound: 4 });
+    expect(isAdjacentEvidence(sameEpoch)).toBe(true);
+    expect(isEvidenceComplete(sameEpoch)).toBe(true);
+
+    const rollover = makeEvidence({ preEpoch: 100, preRound: 6, postEpoch: 101, postRound: 1 });
+    expect(isAdjacentEvidence(rollover)).toBe(true);
+    expect(isEvidenceComplete(rollover)).toBe(true);
+  });
+
+  it("returns false for non-adjacent rounds without counters, non-resolved status, or missing push signatures", () => {
+    expect(
+      isEvidenceComplete(makeEvidence({ preEpoch: 100, preRound: 2, postEpoch: 100, postRound: 4 }))
+    ).toBe(false);
+    expect(
+      isEvidenceComplete(makeEvidence({ preEpoch: 100, preRound: 5, postEpoch: 101, postRound: 1 }))
+    ).toBe(false);
+    expect(isEvidenceComplete(makeEvidence({ status: "staleBurn" }))).toBe(false);
+    expect(isEvidenceComplete(makeEvidence({ prePushSignature: null }))).toBe(false);
+    expect(isEvidenceComplete(makeEvidence({ postPushSignature: null }))).toBe(false);
+    expect(isEvidenceComplete(null)).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Veritas",
-    "description": "Event contracts on Solana, settled by Chainlink."
+    "description": "No-dispute prediction markets on Solana: time-decaying pm-AMM and on-chain Chainlink OCR2 settlement."
   },
   "brand": {
     "name": "Veritas"
@@ -107,8 +107,6 @@
     "whyMore": "Deep dive →",
     "live": "Live this round",
     "emptyLive": "No markets this round.",
-    "next": "Next round",
-    "nextBody": "Rounds open every 15 minutes. The question is set by the price at the open.",
     "finished": "Finished",
     "emptyFinished": "No finished markets yet.",
     "viewAllFinished": "View all finished markets",
@@ -703,6 +701,7 @@
     "resolve": "Resolve transaction",
     "gap": "Missing reports: {count}",
     "noWitness": "No witnessed counters",
+    "adjacentVerified": "Adjacent rounds verified on-chain — no snapshot fallback needed.",
     "witnessUnavailable": "Could not read the snapshot counters.",
     "proof": "Snapshot counters establish whether any reports are missing. Oracle signatures authenticate the report contents.",
     "loading": "Reading on-chain evidence…",

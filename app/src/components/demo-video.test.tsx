@@ -57,7 +57,7 @@ describe("DemoVideo 组件", () => {
         <DemoVideo url="https://youtu.be/dQw4w9WgXcQ" />
       </LocaleProvider>
     );
-    const iframe = screen.getByTitle("Veritas Demo Video") as HTMLIFrameElement;
+    const iframe = screen.getByTitle("Veritas hackathon demo walkthrough video") as HTMLIFrameElement;
     expect(iframe).toBeInTheDocument();
     expect(iframe.src).toBe("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ");
   });

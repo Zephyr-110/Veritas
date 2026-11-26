@@ -1,6 +1,7 @@
 "use client";
 
 import { DEMO_VIDEO_URL } from "@/lib/constants";
+import { useT } from "@/i18n/provider";
 import { Reveal, StableText, onSpot } from "./ui";
 
 type VideoEmbed =
@@ -62,6 +63,7 @@ export function parseVideoEmbed(rawUrl: string): VideoEmbed | null {
 }
 
 export function DemoVideo({ url = DEMO_VIDEO_URL }: { url?: string }) {
+  const t = useT();
   const embed = parseVideoEmbed(url);
   if (!embed) return null;
 
@@ -90,7 +92,7 @@ export function DemoVideo({ url = DEMO_VIDEO_URL }: { url?: string }) {
             ) : (
               <iframe
                 src={embed.src}
-                title="Veritas Demo Video"
+                title={t("home.demoVideoIframeTitle")}
                 className="h-full w-full border-0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen

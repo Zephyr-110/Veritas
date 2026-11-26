@@ -1036,7 +1036,6 @@ fn e_warped_multi_lp_walk_full_exit_and_claim() {
 }
 
 #[test]
-#[ignore = "known contract bug in add_liquidity.rs: floored transfer vs un-floored reserve_yes/no causes book > phys deficit and can revert last LP full exit"]
 fn e_repeated_skewed_add_liquidity_deficit_bricks_last_lp_exit() {
     let mut env = Env::new(START);
     let keys = env.create_market(SEED, LIFE, true);

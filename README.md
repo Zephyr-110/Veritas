@@ -24,6 +24,8 @@ No off-chain matching engine, no admin resolver, and no trusted relayer — the 
 | **Chainlink Store Program** | [`HEvSKofvBgfaexv23kMabbYqxasxU3mQ4ibBMEmJWHny`](https://explorer.solana.com/address/HEvSKofvBgfaexv23kMabbYqxasxU3mQ4ibBMEmJWHny?cluster=devnet) |
 | **Tech Stack** | Rust 1.89 · Anchor · Solana · Chainlink OCR2 · Next.js 15 · Vitest · LiteSVM |
 
+**Why Solana.** A market's full lifecycle here — create, seed, expiry snapshot, settle — has to cost almost nothing, because the seed floor is a little over 1 USDT. Expiry snapshots land inside a ±10-second window around expiry, and a complete on-chain settlement (secp256k1 verification of the signed Chainlink OCR2 report) consumes ≈120k compute units; the whole lifecycle costs a fraction of a cent in fees. At EVM gas prices the fees alone would consume a substantial share of a 1 USDT pool, and sub-second slots are what make a ±10-second snapshot window practical.
+
 ---
 
 ## Core Design
@@ -199,6 +201,13 @@ The client IDL under `app/src/idl/` is generated via `npm run gen-idl` (from `ap
 
 - [`.github/workflows/contract-tests.yml`](.github/workflows/contract-tests.yml) — Builds the SBF binary (`release.anza.xyz/stable`) and executes the full Cargo + LiteSVM test net (`--lib`, `spec_scenarios`, `econ_settlement`, `ocr2_settle`).
 - [`.github/workflows/frontend-tests.yml`](.github/workflows/frontend-tests.yml) — Runs on Node 24 with `npm run typecheck`, `npm run lint`, `npm run test:coverage` with enforced coverage gates, plus the 6 `node --test` script suites.
+
+---
+
+## Known Limitations
+
+- **Oracle configuration rotation.** Settlement pins the Chainlink OCR2 configuration digest bound at market creation. If a feed's configuration rotates between creation and expiry, reports signed under the new configuration cannot settle the market; the market then voids at the 48-hour floor and collateral refunds at 0.5. By design, configuration drift can only ever produce a void, never a wrong winner.
+- **Collateral scope.** Markets accept standard SPL Token mints only; Token-2022 mints are rejected at creation so transfer-tax and hook extensions stay out of the vault accounting. The seed floor (strictly more than 1,000,000 smallest units) assumes a 6-decimal stablecoin; the contract does not enforce mint decimals or a minimum market duration.
 
 ---
 

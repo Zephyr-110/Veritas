@@ -6,8 +6,14 @@ import { PublicKey } from "@solana/web3.js";
 import { useQuery } from "@tanstack/react-query";
 import { useT } from "@/i18n/provider";
 import { feedByState } from "@/lib/feeds";
+import { areReportsAdjacent } from "@/lib/chainlink";
 import { explorerAccount, explorerTx, toUi } from "@/lib/format";
-import type { EvidenceResponse, SettlementEvidenceDto } from "@/lib/market-dto";
+import {
+  DEFAULT_OCR2_R_MAX,
+  isAdjacentEvidence,
+  type EvidenceResponse,
+  type SettlementEvidenceDto,
+} from "@/lib/market-dto";
 import { fetchMarketSnapshot, type MarketView } from "@/lib/markets";
 import { fetchRuling, findPushSignatures, witnessCounts } from "@/lib/ruling-evidence";
 import { useSettings } from "./providers";
@@ -56,6 +62,7 @@ function CachedRulingEvidence({
     },
   ];
   const hasCounters = evidence.preCounter != null && evidence.postCounter != null;
+  const isAdjacent = isAdjacentEvidence(evidence);
 
   return (
     <Card className="stack-2">
@@ -94,6 +101,8 @@ function CachedRulingEvidence({
           <Source href={witnessLink}>
             {t("evidence.gap", { count: evidence.missingCount })}
           </Source>
+        ) : isAdjacent ? (
+          t("evidence.adjacentVerified")
         ) : (
           t("evidence.noWitness")
         )}
@@ -172,6 +181,11 @@ export function RulingEvidence({ market }: { market: MarketView }) {
   }
 
   const counts = ruling ? witnessCounts(snapshot.data ?? null, ruling.pre, ruling.post) : null;
+  const isAdjacent = Boolean(
+    ruling &&
+      market.status === "resolved" &&
+      areReportsAdjacent(ruling.pre, ruling.post, DEFAULT_OCR2_R_MAX)
+  );
   const rulingLink = ruling && explorerTx(ruling.signature, settings.cluster);
   const witnessLink = explorerAccount(market.pdas.snapshot.toBase58(), settings.cluster);
   const incomplete =
@@ -209,14 +223,12 @@ export function RulingEvidence({ market }: { market: MarketView }) {
               <Source href={witnessLink}>
                 {t("evidence.gap", { count: counts[1] - counts[0] - 1 })}
               </Source>
+            ) : snapshot.isPending ? (
+              t("evidence.loading")
+            ) : isAdjacent ? (
+              t("evidence.adjacentVerified")
             ) : (
-              t(
-                snapshot.isPending
-                  ? "evidence.loading"
-                  : snapshot.isError
-                    ? "evidence.witnessUnavailable"
-                    : "evidence.noWitness"
-              )
+              t(snapshot.isError ? "evidence.witnessUnavailable" : "evidence.noWitness")
             )}
           </p>
           <footer className="text-xs text-zinc-400">

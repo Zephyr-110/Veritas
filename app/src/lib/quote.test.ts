@@ -82,16 +82,34 @@ describe("quote", () => {
   });
 
   describe("quoteWithdrawLiquidity", () => {
-    it("returns pending on empty lp supply (nothing to withdraw)", () => {
-      expect(quoteWithdrawLiquidity(100n, 100n, 0n, 10n, 2n, 3n)).toEqual({
-        yesOut: 2n,
-        noOut: 3n,
+    it("returns zero when lpSupply, lpAmount, or userLpShares <= 0", () => {
+      expect(quoteWithdrawLiquidity(100n, 100n, 0n, 10n, 2n, 3n, 10n)).toEqual({
+        yesOut: 0n,
+        noOut: 0n,
+      });
+      expect(quoteWithdrawLiquidity(100n, 100n, 50n, 0n, 2n, 3n, 10n)).toEqual({
+        yesOut: 0n,
+        noOut: 0n,
+      });
+      expect(quoteWithdrawLiquidity(100n, 100n, 50n, 10n, 2n, 3n, 0n)).toEqual({
+        yesOut: 0n,
+        noOut: 0n,
       });
     });
-    it("pro-rata + pending", () => {
-      const q = quoteWithdrawLiquidity(200n, 300n, 50n, 10n, 5n, 7n);
-      expect(q.yesOut).toBe(45n); // 200*10/50 + 5
-      expect(q.noOut).toBe(67n); // 300*10/50 + 7
+    it("scales pending pro-rata for partial withdraw and caps over-withdraw at userLpShares", () => {
+      // Partial withdraw: 10 / 40 of user's LP shares -> 25% of pendingYes (20 -> 5) and pendingNo (40 -> 10)
+      const partial = quoteWithdrawLiquidity(200n, 300n, 50n, 10n, 20n, 40n, 40n);
+      expect(partial.yesOut).toBe(45n); // 200*10/50 + 20*10/40 = 40 + 5
+      expect(partial.noOut).toBe(70n); // 300*10/50 + 40*10/40 = 60 + 10
+
+      // Full withdraw: 40 / 40 -> 100% pending
+      const full = quoteWithdrawLiquidity(200n, 300n, 50n, 40n, 20n, 40n, 40n);
+      expect(full.yesOut).toBe(180n); // 160 + 20
+      expect(full.noOut).toBe(280n); // 240 + 40
+
+      // Over-withdraw clamped to userLpShares (40)
+      const clamped = quoteWithdrawLiquidity(200n, 300n, 50n, 60n, 20n, 40n, 40n);
+      expect(clamped).toEqual(full);
     });
   });
 

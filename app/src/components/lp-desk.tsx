@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { COLLATERAL_SYMBOL } from "@/lib/constants";
 import { money } from "@/lib/display";
-import { formatFixed, fromUi } from "@/lib/format";
+import { formatFixed, fromUi, toUi } from "@/lib/format";
 import { quoteAddLiquidity, quoteWithdrawLiquidity } from "@/lib/quote";
 import { ixAddLiquidity, ixGetLiquidity } from "@/lib/instructions";
 import { isFinalizedStatus, marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
@@ -52,7 +52,8 @@ export function LpDesk({
     market.totalLpShares,
     parsed.value,
     position.pendingYes,
-    position.pendingNo
+    position.pendingNo,
+    position.lpShares
   );
 
   const disabledReasonKey: { key: string; vars?: Record<string, string | number> } | null = isSandbox
@@ -160,6 +161,17 @@ export function LpDesk({
           onChange={(e) => setAmount(e.target.value)}
           className="font-mono tabular-nums"
         />
+        {!sim && activeTab === "withdraw" ? (
+          <div className="cluster-2">
+            <button
+              type="button"
+              className="border border-[var(--hair)] px-3 py-1 text-xs text-zinc-400 transition hover:border-[var(--line)] hover:text-white active:scale-95"
+              onClick={() => setAmount(toUi(position.lpShares, market.decimals, market.decimals))}
+            >
+              <StableText k="common.max" align="center" />
+            </button>
+          </div>
+        ) : null}
         <div className="flex flex-wrap items-center gap-2">
           <Chip tone="yes">
             {t("common.yes")}

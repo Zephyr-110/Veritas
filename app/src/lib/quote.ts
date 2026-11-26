@@ -287,12 +287,18 @@ export function quoteWithdrawLiquidity(
   lpSupply: bigint,
   lpAmount: bigint,
   pendingYes = 0n,
-  pendingNo = 0n
+  pendingNo = 0n,
+  userLpShares = lpAmount
 ): { yesOut: bigint; noOut: bigint } {
-  if (lpSupply <= 0n || lpAmount <= 0n) return { yesOut: pendingYes, noOut: pendingNo };
+  if (lpSupply <= 0n || lpAmount <= 0n || userLpShares <= 0n) {
+    return { yesOut: 0n, noOut: 0n };
+  }
+  const effectiveShares = lpAmount > userLpShares ? userLpShares : lpAmount;
+  const pendingYesOut = (pendingYes * effectiveShares) / userLpShares;
+  const pendingNoOut = (pendingNo * effectiveShares) / userLpShares;
   return {
-    yesOut: (yesReserve * lpAmount) / lpSupply + pendingYes,
-    noOut: (noReserve * lpAmount) / lpSupply + pendingNo,
+    yesOut: (yesReserve * effectiveShares) / lpSupply + pendingYesOut,
+    noOut: (noReserve * effectiveShares) / lpSupply + pendingNoOut,
   };
 }
 

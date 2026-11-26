@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import { areReportsAdjacent } from "./chainlink";
 import type { DurationFilter } from "./display";
 import { bytesFromHex } from "./format";
 import { findMarketPdas } from "./pdas";
@@ -98,18 +99,31 @@ export type EvidenceResponse = {
   evidence: SettlementEvidenceDto | null;
 };
 
+export const DEFAULT_OCR2_R_MAX = 6;
+
+export function isAdjacentEvidence(
+  ev: Pick<SettlementEvidenceDto, "status" | "preEpoch" | "preRound" | "postEpoch" | "postRound">,
+  rMax = DEFAULT_OCR2_R_MAX
+): boolean {
+  return (
+    ev.status === "resolved" &&
+    areReportsAdjacent(
+      { epoch: ev.preEpoch, round: ev.preRound },
+      { epoch: ev.postEpoch, round: ev.postRound },
+      rMax
+    )
+  );
+}
+
 export function isEvidenceComplete(
-  ev: SettlementEvidenceDto | null | undefined
+  ev: SettlementEvidenceDto | null | undefined,
+  rMax = DEFAULT_OCR2_R_MAX
 ): boolean {
   if (!ev) return false;
-  return Boolean(
-    ev.resolveSignature &&
-      ev.preCounter != null &&
-      ev.postCounter != null &&
-      ev.missingCount != null &&
-      ev.prePushSignature &&
-      ev.postPushSignature
-  );
+  if (!ev.resolveSignature || !ev.prePushSignature || !ev.postPushSignature) return false;
+  const hasCounters =
+    ev.preCounter != null && ev.postCounter != null && ev.missingCount != null;
+  return hasCounters || isAdjacentEvidence(ev, rMax);
 }
 
 export type WalletPositionItemDto = {

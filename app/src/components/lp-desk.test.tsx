@@ -218,7 +218,7 @@ describe("LpDesk 报价展示与指令提交", () => {
     expect(ixGetLiquidity).not.toHaveBeenCalled();
   });
 
-  it("Withdraw 模式：显示含 pending 的预计产出并调用 ixGetLiquidity", async () => {
+  it("Withdraw 模式：按撤资份额比例折算 pending，支持 Max 填满并调用 ixGetLiquidity", async () => {
     const market = makeMarket({
       reserveYes: 200_000_000n,
       reserveNo: 300_000_000n,
@@ -240,8 +240,12 @@ describe("LpDesk 报价展示与指令提交", () => {
       market.totalLpShares,
       3_000_000n,
       position.pendingYes,
-      position.pendingNo
+      position.pendingNo,
+      position.lpShares
     );
+    // Partial withdraw 3 / 10 -> working (12 + 18) + 30% pending (0.15 + 0.075)
+    expect(q.yesOut).toBe(12_150_000n);
+    expect(q.noOut).toBe(18_075_000n);
     const pops = Array.from(container.querySelectorAll(".pop-num")).map((el) => el.textContent);
     expect(pops).toEqual([money(q.yesOut, market.decimals), money(q.noOut, market.decimals)]);
 
@@ -249,6 +253,21 @@ describe("LpDesk 报价展示与指令提交", () => {
     await waitFor(() => expect(ixGetLiquidity).toHaveBeenCalledTimes(1));
     expect(ixGetLiquidity).toHaveBeenCalledWith({}, market, wallet.publicKey, 3_000_000n);
     expect(ixAddLiquidity).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Max" }));
+    const input = screen.getByRole("textbox", { name: "Withdraw" }) as HTMLInputElement;
+    expect(input.value).toBe("10");
+    const full = quoteWithdrawLiquidity(
+      market.reserveYes,
+      market.reserveNo,
+      market.totalLpShares,
+      position.lpShares,
+      position.pendingYes,
+      position.pendingNo,
+      position.lpShares
+    );
+    const maxPops = Array.from(container.querySelectorAll(".pop-num")).map((el) => el.textContent);
+    expect(maxPops).toEqual([money(full.yesOut, market.decimals), money(full.noOut, market.decimals)]);
   });
 
   it("已终局市场（withdrawOnly）：隐藏存入选项卡，成功撤出后显示去下方结算台 1:1 兑付指引", async () => {

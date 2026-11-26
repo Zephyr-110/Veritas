@@ -175,7 +175,7 @@ describe("RulingEvidence component", () => {
     expect(screen.getAllByRole("link", { name: "Transmission" })).toHaveLength(2);
   });
 
-  it("omits counters and avoids fabricating missing-report count when snapshot has no witness pair", async () => {
+  it("omits counters and falls back to honest degraded label when snapshot has no witness pair and rounds are not adjacent", async () => {
     const digest = Buffer.alloc(32, 1);
     const makeReport = (epoch: number, round: number, ts: number, median: bigint) => ({
       configDigest: digest,
@@ -186,8 +186,8 @@ describe("RulingEvidence component", () => {
       raw: Buffer.alloc(288),
     });
     fetchRuling.mockResolvedValue({
-      pre: makeReport(7201493, 5, 1795446714, 6298262652904n),
-      post: makeReport(7201493, 6, 1795446717, 6298637809946n),
+      pre: makeReport(7201493, 2, 1795446714, 6298262652904n),
+      post: makeReport(7201493, 5, 1795446717, 6298637809946n),
       signature: "resolve-sig-2",
     });
     findPushSignatures.mockResolvedValue({ pre: "push-pre-2", post: "push-post-2" });
@@ -197,9 +197,37 @@ describe("RulingEvidence component", () => {
 
     await waitFor(() => expect(screen.getByText("No witnessed counters")).toBeInTheDocument());
     await waitFor(() => expect(screen.getAllByRole("link", { name: "Transmission" })).toHaveLength(2));
+    expect(screen.getByText(/7201493\/2/).closest("a")).toBeNull();
     expect(screen.getByText(/7201493\/5/).closest("a")).toBeNull();
-    expect(screen.getByText(/7201493\/6/).closest("a")).toBeNull();
     expect(screen.queryByText(/Missing reports/i)).toBeNull();
+  });
+
+  it("shows positive adjacent-round verification when resolved client fallback has cross-epoch adjacent rounds and no snapshot counters", async () => {
+    const digest = Buffer.alloc(32, 1);
+    const makeReport = (epoch: number, round: number, ts: number, median: bigint) => ({
+      configDigest: digest,
+      epoch,
+      round,
+      observationsTimestamp: ts,
+      median,
+      raw: Buffer.alloc(288),
+    });
+    fetchRuling.mockResolvedValue({
+      pre: makeReport(7201493, 6, 1795446714, 6298262652904n),
+      post: makeReport(7201494, 1, 1795446717, 6298637809946n),
+      signature: "resolve-sig-rollover",
+    });
+    findPushSignatures.mockResolvedValue({ pre: "push-pre-roll", post: "push-post-roll" });
+    fetchMarketSnapshot.mockResolvedValue(null);
+
+    renderWithQuery(<RulingEvidence market={makeResolvedMarket()} />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Adjacent rounds verified on-chain — no snapshot fallback needed.")
+      ).toBeInTheDocument()
+    );
+    expect(screen.queryByText("No witnessed counters")).toBeNull();
   });
 
   it("serves cached settlement evidence from SQLite API without calling on-chain RPC queries", async () => {
@@ -255,7 +283,62 @@ describe("RulingEvidence component", () => {
     expect(findPushSignatures).not.toHaveBeenCalled();
   });
 
-  it("renders honest degraded DB row (unwitnessed counters) without redundant client RPC calls", async () => {
+  it("renders positive adjacent-round verification for cached DB row without snapshot counters", async () => {
+    const market = makeResolvedMarket();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          found: true,
+          complete: true,
+          healed: false,
+          healError: false,
+          evidence: {
+            marketAddress: "8CwqNLvqk6tx1cuA735phsNB3ghZZaZ9VUmahfEfq3sZ",
+            programId: "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER",
+            feedAddress: FEEDS[0].feed,
+            snapshotAddress: market.pdas.snapshot.toBase58(),
+            resolveSignature: "db-resolve-adjacent",
+            resolveTxUrl: "https://solscan.io/tx/db-resolve-adjacent?cluster=devnet",
+            settledPrice: "6340222800000",
+            priceDecimals: 8,
+            winner: "yes",
+            status: "resolved",
+            preEpoch: 7201555,
+            preRound: 3,
+            preCounter: null,
+            prePrice: "6338055208989",
+            preTimestamp: 1795447821,
+            prePushSignature: "db-push-pre",
+            prePushTxUrl: "https://solscan.io/tx/db-push-pre?cluster=devnet",
+            postEpoch: 7201555,
+            postRound: 4,
+            postCounter: null,
+            postPrice: "6340222800000",
+            postTimestamp: 1795447824,
+            postPushSignature: "db-push-post",
+            postPushTxUrl: "https://solscan.io/tx/db-push-post?cluster=devnet",
+            missingCount: null,
+            createdAt: 1795447838,
+          },
+        }),
+      })
+    );
+
+    renderWithQuery(<RulingEvidence market={market} />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Adjacent rounds verified on-chain — no snapshot fallback needed.")
+      ).toBeInTheDocument()
+    );
+    expect(screen.queryByText("No witnessed counters")).toBeNull();
+    expect(screen.queryByText(/Missing reports/i)).toBeNull();
+    expect(fetchRuling).not.toHaveBeenCalled();
+  });
+
+  it("renders honest degraded DB row (unwitnessed counters and non-adjacent rounds) without redundant client RPC calls", async () => {
     const market = makeResolvedMarket();
     vi.stubGlobal(
       "fetch",
@@ -285,7 +368,7 @@ describe("RulingEvidence component", () => {
             prePushSignature: "db-push-pre",
             prePushTxUrl: "https://solscan.io/tx/db-push-pre?cluster=devnet",
             postEpoch: 7201555,
-            postRound: 3,
+            postRound: 4,
             postCounter: null,
             postPrice: "6340222800000",
             postTimestamp: 1795447824,

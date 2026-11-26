@@ -367,7 +367,7 @@ describe("server-db & API routes", () => {
         prePushSignature: "orig-push-pre",
         prePushTxUrl: "https://solscan.io/tx/orig-push-pre?cluster=devnet",
         postEpoch: 100,
-        postRound: 2,
+        postRound: 3,
         postCounter: null,
         postPrice: "9600000000000",
         postTimestamp: 1_799_999_993,
@@ -382,7 +382,7 @@ describe("server-db & API routes", () => {
     const getAccountInfoMock = vi.fn(async () => ({
       data: encodeSnapshot([
         { epoch: 100, round: 1, counter: 500, price: 9_490_000_000_000n, ts: 1_799_999_990n },
-        { epoch: 100, round: 2, counter: 501, price: 9_600_000_000_000n, ts: 1_799_999_993n },
+        { epoch: 100, round: 3, counter: 502, price: 9_600_000_000_000n, ts: 1_799_999_993n },
       ]),
     }));
     const conn = {
@@ -400,8 +400,8 @@ describe("server-db & API routes", () => {
     expect(first.complete).toBe(true);
     expect(first.healed).toBe(true);
     expect(first.evidence?.preCounter).toBe(500);
-    expect(first.evidence?.postCounter).toBe(501);
-    expect(first.evidence?.missingCount).toBe(0);
+    expect(first.evidence?.postCounter).toBe(502);
+    expect(first.evidence?.missingCount).toBe(1);
     expect(first.evidence?.resolveSignature).toBe("original-resolve-sig");
     expect(getAccountInfoMock).toHaveBeenCalledTimes(1);
 
@@ -494,7 +494,7 @@ describe("server-db & API routes", () => {
     expect(c1.evidence?.missingCount).toBe(1);
     expect(c2.evidence).toEqual(c1.evidence);
 
-    // 4) Unwitnessed snapshot / RPC error degrades honestly without fabricating counters
+    // 4) Non-adjacent unwitnessed snapshot / RPC error degrades honestly without fabricating counters
     upsertSettlementEvidence(
       {
         marketAddress: marketUnwitnessed,
@@ -515,7 +515,7 @@ describe("server-db & API routes", () => {
         prePushSignature: "unw-pre",
         prePushTxUrl: "https://solscan.io/tx/unw-pre?cluster=devnet",
         postEpoch: 102,
-        postRound: 2,
+        postRound: 3,
         postCounter: null,
         postPrice: "9600000000000",
         postTimestamp: 1_799_999_993,
@@ -541,5 +541,53 @@ describe("server-db & API routes", () => {
     expect(unw.healed).toBe(false);
     expect(unw.evidence?.preCounter).toBeNull();
     expect(unw.evidence?.missingCount).toBeNull();
+
+    // 5) Layer 1 adjacent resolved market without snapshot counters is complete with ZERO RPC calls
+    const marketAdjacent = addresses[15];
+    upsertSettlementEvidence(
+      {
+        marketAddress: marketAdjacent,
+        programId: DEFAULT_PROGRAM_ID,
+        feedAddress: FEEDS[0].feed,
+        snapshotAddress: snapshotAddr,
+        resolveSignature: "adjacent-resolve",
+        resolveTxUrl: "https://solscan.io/tx/adjacent-resolve?cluster=devnet",
+        settledPrice: "9600000000000",
+        priceDecimals: 8,
+        winner: "yes",
+        status: "resolved",
+        preEpoch: 102,
+        preRound: 3,
+        preCounter: null,
+        prePrice: "9490000000000",
+        preTimestamp: 1_799_999_990,
+        prePushSignature: "adj-pre",
+        prePushTxUrl: "https://solscan.io/tx/adj-pre?cluster=devnet",
+        postEpoch: 102,
+        postRound: 4,
+        postCounter: null,
+        postPrice: "9600000000000",
+        postTimestamp: 1_799_999_993,
+        postPushSignature: "adj-post",
+        postPushTxUrl: "https://solscan.io/tx/adj-post?cluster=devnet",
+        missingCount: null,
+        createdAt: nowSec,
+      },
+      dbPath
+    );
+    const getAccSpy = vi.fn(async () => null);
+    const adj = await healSettlementEvidenceOnDemand({
+      marketAddress: marketAdjacent,
+      programId: DEFAULT_PROGRAM_ID,
+      dbPath,
+      connectionOverride: {
+        rpcEndpoint: "https://api.devnet.solana.com",
+        getAccountInfo: getAccSpy,
+      } as unknown as Connection,
+    });
+    expect(adj.found).toBe(true);
+    expect(adj.complete).toBe(true);
+    expect(adj.healed).toBe(false);
+    expect(getAccSpy).not.toHaveBeenCalled();
   });
 });

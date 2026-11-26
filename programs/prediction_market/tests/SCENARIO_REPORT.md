@@ -1,11 +1,11 @@
 # Spec test report
 
-Last green run (2026-11-21):
+Last green run (2026-11-26):
 
 | Target | Result |
 | :--- | :--- |
 | `prediction_market` lib | 69 passed |
-| `econ_settlement` | 30 passed, 1 ignored |
+| `econ_settlement` | 31 passed |
 | `spec_scenarios` | 55 passed |
 | `ocr2_settle` | 34 passed |
 
@@ -29,4 +29,4 @@ See `README.md` in this directory for invariants and caps.
 - Original "Burn" is `StaleBurn` (later print > expiry + 10s) and `WindowBurn` (void after T+48h).
 - `burn_account` also closes the snapshot PDA.
 - After `CLAIM_WINDOW` the creator sweeps leftover vault; that is the README spec, not an untested hole.
-- Known contract bug reproducer (`#[ignore]`): `e_repeated_skewed_add_liquidity_deficit_bricks_last_lp_exit` in `econ_settlement.rs` reproduces how floored physical token transfers vs un-floored `I80F48` reserve updates in `add_liquidity.rs` accumulate `book + pending > phys` deficit across repeated skewed LP deposits.
+- `add_liquidity` rounding regression: `e_repeated_skewed_add_liquidity_deficit_bricks_last_lp_exit` in `econ_settlement.rs` is now active in the regression suite (no longer `#[ignore]`) because repository code includes the `checked_ceil` fix (`bd24f67`). Note: the currently deployed Devnet program does not yet include this fix; whether to upgrade before the judging freeze is left to the author's decision.

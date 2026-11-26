@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Veritas",
-    "description": "Solana 事件合约，Chainlink 结算。"
+    "description": "Solana 上的无争议期预测市场：时间衰减 pm-AMM 与链上 Chainlink OCR2 结算。"
   },
   "brand": {
     "name": "Veritas"
@@ -107,8 +107,6 @@
     "whyMore": "查看原理解析 →",
     "live": "本轮进行中",
     "emptyLive": "本轮暂无市场。",
-    "next": "下一轮",
-    "nextBody": "每 15 分钟开新一轮，题目由开盘那一刻的价格决定。",
     "finished": "已结束",
     "emptyFinished": "暂无已结束市场。",
     "viewAllFinished": "查看全部已结束市场",
@@ -703,6 +701,7 @@
     "resolve": "裁决交易",
     "gap": "中间缺失：{count} 笔",
     "noWitness": "无计数",
+    "adjacentVerified": "链上邻轮连续已验证——无需快照兜底。",
     "witnessUnavailable": "暂时无法读取快照计数。",
     "proof": "快照计数用于核对中间有无缺失。预言机签名验证报告内容。",
     "loading": "正在读取链上证据…",

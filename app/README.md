@@ -77,7 +77,7 @@ npm run test:watch         # Watch mode for local development
 | :--- | :--- |
 | **Chainlink OCR2 Goldens** | Real captured devnet `State`, `Transmissions`, and `transmit` payloads (`chainlink.test.ts`), two-pass straddling report discovery, `r_max` epoch rollover, and `MarketSnapshot` certification (`resolve.test.ts`). |
 | **Codecs & Fixed-Point Math** | Borsh account decoders (`Market`, `LpPosition`, `MarketSnapshot`), variable-length `Option<MarketOutcome>` layout shift trap, and 5,000-sample `I80F48` rational precision checks (`codec.test.ts`). |
-| **Instructions & PDAs** | PDA determinism (`pdas.test.ts`), all 11 instruction builders including Token-2022 ATA derivation and `hasSnapshot` handling (`instructions.test.ts`), and RPC account aggregation (`markets.test.ts`). |
+| **Instructions & PDAs** | PDA determinism (`pdas.test.ts`), all 11 instruction builders including Token-2022 ATA derivation and `hasSnapshot` handling (`instructions.test.ts`), and RPC account aggregation (`markets.test.ts`). The on-chain program intentionally restricts market collateral to standard SPL Token mints; the client instruction builder's Token-2022 ATA derivation compatibility operates at a separate layer and does not conflict. |
 | **Domain Helpers & i18n** | pm-AMM quoting & slippage (`quote.test.ts`), 36 Anchor error mappings (`errors.test.ts`), time-window boundary flips (`markets.test.ts`), display formatting (`display.test.ts`, `format.test.ts`, `feeds.test.ts`), candle windows (`chart.test.ts`), and EN/ZH key parity (`store.test.ts`). |
 | **UI & Desk Components** | `TradeDesk`, `LpDesk`, `SettleDesk`, `MarketCard`, and core `ui` primitives (`*.test.tsx`). |
 

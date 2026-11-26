@@ -3,17 +3,15 @@
 import Link from "next/link";
 import { useMemo, type CSSProperties } from "react";
 import { useMarketPhaseTime, useMarketsPage } from "@/hooks/use-markets";
-import { listSection, marketKind, questionTitle } from "@/lib/display";
+import { listSection, marketKind } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
 import { ORACLE_CENSUS_URL } from "@/lib/constants";
-import type { MarketView } from "@/lib/markets";
 import { DemoVideo } from "@/components/demo-video";
 import { PricePanel } from "@/components/price-tape";
 import { MarketTable } from "@/components/market-table";
 import { MarketCard } from "@/components/market-card";
 import { MarketTableSkeleton } from "@/components/skeletons";
 import { Button, DataFreshness, Reveal, StableText, onSpot } from "@/components/ui";
-import { TickingCountdown } from "@/components/live";
 import { useGuestSession } from "@/components/guest-session";
 import { useLocale, useT } from "@/i18n/provider";
 import { tPair } from "@/i18n/store";
@@ -45,7 +43,6 @@ export default function HomePage() {
         : [],
     [liveQuery.markets, mountedNow, now]
   );
-  const nextMarket = null as MarketView | null;
   const preview = useMemo(
     () =>
       mountedNow
@@ -63,7 +60,6 @@ export default function HomePage() {
   const reload = async () => {
     await Promise.all([liveQuery.reload(), endedQuery.reload()]);
   };
-  const merged = !liveQuery.loading && !liveQuery.error && live.length === 0;
 
   const feesLead = tPair("home.howFeesLead", undefined, locale);
   const feesHelp = tPair("home.howHelp", undefined, locale);
@@ -196,27 +192,6 @@ export default function HomePage() {
                     </Button>
                   </Link>
                 </div>
-                {nextMarket ? (
-                  <div className="mt-5 border-t border-[var(--hair)] pt-5">
-                    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                      <span className="home-kicker">
-                        <StableText k="home.next" />
-                      </span>
-                      <Link
-                        href={`/markets/${nextMarket.address.toBase58()}`}
-                        className="link-accent text-[15px] text-white"
-                      >
-                        {questionTitle(nextMarket)}
-                      </Link>
-                      {mountedNow ? (
-                        <TickingCountdown expiry={nextMarket.expiry} className="text-[18px] text-white" />
-                      ) : null}
-                    </div>
-                    <p className="mt-3 text-[13px] text-zinc-500">
-                      <StableText k="home.nextBody" block />
-                    </p>
-                  </div>
-                ) : null}
               </div>
             )}
           </div>
@@ -323,34 +298,6 @@ export default function HomePage() {
       </Reveal>
 
       <DemoVideo />
-
-      {merged || !nextMarket ? null : (
-        <Reveal>
-          <section className="home-section">
-            <h2 className="home-kicker">
-              <StableText k="home.next" />
-            </h2>
-            <div className="home-next mt-5">
-              <Link
-                href={`/markets/${nextMarket.address.toBase58()}`}
-                className="link-accent block text-[17px] font-medium text-white"
-              >
-                {questionTitle(nextMarket)}
-              </Link>
-              <div className="mt-2">
-                {mountedNow ? (
-                  <TickingCountdown expiry={nextMarket.expiry} className="text-[22px] text-white" />
-                ) : (
-                  <span className="num font-mono tabular-nums text-[22px] text-white">--:--:--</span>
-                )}
-              </div>
-              <p className="mt-4 text-[15px] text-zinc-500">
-                <StableText k="home.nextBody" block />
-              </p>
-            </div>
-          </section>
-        </Reveal>
-      )}
 
       <Reveal>
         <section className="home-section">
