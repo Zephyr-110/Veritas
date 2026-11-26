@@ -431,10 +431,12 @@ describe("MarketsPage duration filter chips", () => {
     // History tab shows only resolved/ended market
     await userEvent.click(screen.getByRole("button", { name: "History" }));
     expect(screen.getByRole("link", { name: /SOL\/USD/ })).toBeInTheDocument();
+    expect(screen.getByText("100.0¢")).toBeInTheDocument();
+    expect(screen.getAllByText("YES 100.0% · NO 0.0%").length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByRole("link", { name: /ETH\/USD/ })).toBeNull();
   });
 
-  it("shows empty Unsettled copy cleanly and hides stale spot prices (>30s) in MarketTable", async () => {
+  it("hides stale spot prices (>30s) in MarketTable, and shows empty Unsettled, settled NO=0.0¢/voided=—, and matching sidebar copy", async () => {
     const liveM = makeMarket(20, {
       title: "BTC/USD at or above opening price in 15 min?",
       expiry: NOW + 600,
@@ -451,12 +453,46 @@ describe("MarketsPage duration filter chips", () => {
       receivedAt: Date.now() - 45_000,
     };
 
-    const { container } = renderMarkets();
+    const { container, unmount } = renderMarkets();
     expect(container.querySelector('[data-quote-stale="true"]')).not.toBeNull();
     expect(screen.getByText("Quote stale — reconnecting")).toBeInTheDocument();
     expect(screen.queryByText(/99,123\.45/)).toBeNull();
+    unmount();
 
+    const noWinner = makeMarket(21, {
+      title: "ETH/USD at or above opening price in 15 min?",
+      ocr2State: new PublicKey(FEEDS[1].state),
+      feedKey: "eth",
+      feedSymbol: "ETH/USD",
+      status: "resolved",
+      winner: "no",
+      yesPrice: 0.5,
+      expiry: NOW - 300,
+      endTs: NOW - 300,
+      finishTs: NOW - 290,
+    });
+    const voided = makeMarket(22, {
+      title: "SOL/USD at or above opening price in 15 min?",
+      ocr2State: new PublicKey(FEEDS[2].state),
+      feedKey: "sol",
+      feedSymbol: "SOL/USD",
+      status: "staleBurn",
+      winner: null,
+      yesPrice: 0.5,
+      expiry: NOW - 600,
+      endTs: NOW - 600,
+      finishTs: NOW - 580,
+    });
+    marketState.markets = [noWinner, voided];
+
+    renderMarkets();
     await userEvent.click(screen.getByRole("button", { name: "Unsettled" }));
     expect(screen.getByText("No unsettled markets right now.")).toBeInTheDocument();
+    expect(screen.getByText("No live market this round.")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "History" }));
+    expect(screen.getByText("0.0¢")).toBeInTheDocument();
+    expect(screen.getAllByText("YES 0.0% · NO 100.0%").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("50.0¢")).toBeNull();
   });
 });

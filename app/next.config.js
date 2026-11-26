@@ -43,6 +43,15 @@ const nextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      {
+        source: "/docs",
+        destination: "/help",
+        permanent: true,
+      },
+    ];
+  },
   webpack: (config, { webpack }) => {
     config.resolve.fallback = {
       ...config.resolve.fallback,

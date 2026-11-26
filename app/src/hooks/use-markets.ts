@@ -21,6 +21,11 @@ import { useProgram } from "./use-program";
 
 const EMPTY_MARKETS: MarketView[] = [];
 const EMPTY_POSITIONS: Array<{ market: MarketView; position: UserPosition }> = [];
+let txRefreshEpoch = 0;
+
+export function markTxRefresh() {
+  txRefreshEpoch += 1;
+}
 const EMPTY_SUMMARY: WalletPositionsSummaryDto = {
   totalMarkets: 0,
   sumYes: 0,
@@ -241,6 +246,7 @@ export function useWalletPositionsPage({
 }) {
   const queryClient = useQueryClient();
   const forceRefreshRef = useRef(false);
+  const lastSeenEpochRef = useRef(txRefreshEpoch);
   const key = useMemo(
     () => ["positions", "page", programId, wallet, pageSize] as const,
     [programId, wallet, pageSize]
@@ -250,8 +256,12 @@ export function useWalletPositionsPage({
     queryKey: key,
     initialPageParam: 1,
     queryFn: async ({ pageParam }): Promise<DeserializedPositionsPage> => {
-      const refresh = forceRefreshRef.current && pageParam === 1;
-      if (refresh) forceRefreshRef.current = false;
+      const hasTxRefresh = lastSeenEpochRef.current < txRefreshEpoch;
+      const refresh = pageParam === 1 && (forceRefreshRef.current || hasTxRefresh);
+      if (refresh) {
+        forceRefreshRef.current = false;
+        lastSeenEpochRef.current = txRefreshEpoch;
+      }
       const params = new URLSearchParams({
         wallet,
         programId,

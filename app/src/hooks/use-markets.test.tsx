@@ -9,6 +9,7 @@ import { FEEDS } from "@/lib/feeds";
 import type { SerializedMarket, WalletPositionItemDto } from "@/lib/market-dto";
 import type { MarketView } from "@/lib/markets";
 import {
+  markTxRefresh,
   useMarketsInfinite,
   useMarketsPage,
   useVisibleVaults,
@@ -219,6 +220,15 @@ describe("use-markets hooks", () => {
       await result.current.reload(true);
     });
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("refresh=1"))).toBe(true);
+
+    fetchMock.mockClear();
+    await act(async () => {
+      markTxRefresh();
+      await client.invalidateQueries({ queryKey: ["positions"], refetchType: "all" });
+    });
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes("refresh=1"))).toBe(true)
+    );
     client.clear();
   });
 });

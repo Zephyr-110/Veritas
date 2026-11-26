@@ -75,7 +75,10 @@ export function StableText({
         ? "justify-items-end text-right"
         : "justify-items-start text-left";
   return (
-    <span className={cx(block ? "grid" : "inline-grid", "items-baseline", alignCls, className)}>
+    <span
+      data-stable="true"
+      className={cx(block ? "grid" : "inline-grid", "items-baseline", alignCls, className)}
+    >
       <span
         lang={reserveLang}
         aria-hidden="true"

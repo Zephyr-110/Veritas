@@ -113,6 +113,8 @@ export function PriceChartCard({
     const last = candles[candles.length - 1];
     const lastColor = last.close >= thresholdValue ? "var(--yes)" : "var(--no)";
     const ticks = [0, 1, 2, 3].map((i) => t0 + ((t1 - t0) * (i + 0.5)) / 4);
+    const tagText = `${t("chart.thresholdTag")} ${thresholdLabel}`;
+    const pillW = Math.ceil([...tagText].reduce((w, ch) => w + (ch.charCodeAt(0) > 255 ? 11 : 6.4), 14));
     return (
       <svg viewBox={`0 0 ${W} ${H}`} className="block h-auto w-full" role="img">
         <rect x={padL} y={padT} width={plotW} height={Math.max(0, thrY - padT)} fill="var(--yes)" opacity={0.045} />
@@ -157,19 +159,29 @@ export function PriceChartCard({
           strokeDasharray="6 4"
           opacity={0.48}
         />
-        <text
-          x={padL + 2}
-          y={14}
-          fontSize={10.5}
-          fill="var(--ink-strong)"
-          textAnchor="start"
-          stroke="var(--bg)"
-          strokeWidth={3}
-          paintOrder="stroke"
-          className="num"
-        >
-          {t("chart.thresholdTag")} {thresholdLabel}
-        </text>
+        <g data-threshold-pill="true">
+          <rect
+            x={padL}
+            y={2}
+            width={pillW}
+            height={18}
+            rx={3}
+            fill="var(--card-bg)"
+            stroke="var(--line)"
+            strokeWidth={1}
+          />
+          <text
+            x={padL + 7}
+            y={14.5}
+            fontSize={10.5}
+            fontWeight={500}
+            fill="var(--ink-strong)"
+            textAnchor="start"
+            className="num"
+          >
+            {tagText}
+          </text>
+        </g>
         <text x={padL + plotW + 8} y={y(hi - (hi - lo) * 0.02) + 3} fontSize={10} fill="var(--ink-3)" className="num">
           {fmtPrice(hi)}
         </text>

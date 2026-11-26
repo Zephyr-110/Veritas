@@ -57,6 +57,15 @@ export function MarketTable({
         const vault = useIndexedVault ? market.vault : vaultFor(market);
         const kind = marketKind(market, now);
         const live = kind === "live";
+        const isResolved = market.status === "resolved";
+        const isVoided = market.status === "staleBurn" || market.status === "windowBurn";
+        const displayYesPrice = isResolved
+          ? market.winner === "yes"
+            ? 1
+            : 0
+          : isVoided
+            ? null
+            : market.yesPrice;
         const unsettled = kind === "awaiting" || kind === "voidable";
         const expiredLabel =
           unsettled && effectiveNow > 0 ? formatExpiredAgo(market.expiry, effectiveNow) : null;
@@ -114,7 +123,9 @@ export function MarketTable({
                     </div>
                     <div className="mt-1 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 text-xs text-zinc-500">
                       <span className="num font-medium text-zinc-300">{targetSpec}</span>
-                      <span className="lg:hidden">{formatYesNo(market.yesPrice)}</span>
+                      {displayYesPrice != null ? (
+                        <span className="lg:hidden">{formatYesNo(displayYesPrice)}</span>
+                      ) : null}
                       {live ? (
                         <span className="lg:hidden">
                           <TickingCountdown expiry={market.expiry} className="text-xs text-zinc-300" />
@@ -151,10 +162,18 @@ export function MarketTable({
                 </div>
               </div>
               <div className="c-yes text-right">
-                <div className="num text-[17px] font-semibold text-zinc-50">{formatCents(market.yesPrice)}</div>
-                <div className="mt-0.5 hidden text-[11px] text-zinc-500 lg:block">
-                  {formatYesNo(market.yesPrice)}
-                </div>
+                {displayYesPrice == null ? (
+                  <div className="num text-[17px] font-semibold text-zinc-500">—</div>
+                ) : (
+                  <>
+                    <div className="num text-[17px] font-semibold text-zinc-50">
+                      {formatCents(displayYesPrice)}
+                    </div>
+                    <div className="mt-0.5 hidden text-[11px] text-zinc-500 lg:block">
+                      {formatYesNo(displayYesPrice)}
+                    </div>
+                  </>
+                )}
               </div>
               <div className="c-ends text-right">
                 {live ? (

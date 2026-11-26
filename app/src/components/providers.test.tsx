@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import type { ReactNode } from "react";
 import { act, render, screen, cleanup } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
+import { markTxRefresh } from "@/hooks/use-markets";
 
 vi.mock("@solana/wallet-adapter-react", () => ({
   ConnectionProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -54,5 +55,37 @@ describe("Providers refresh invalidation", () => {
     expect(spy).toHaveBeenCalledWith({ queryKey: ["positions"], refetchType: "all" });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["redemptions"], refetchType: "all" });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["sandbox-balance"], refetchType: "all" });
+    expect(typeof markTxRefresh).toBe("function");
+  });
+
+  it("schedules follow-up position & balance invalidations after confirmation to cover Devnet RPC lag", async () => {
+    vi.useFakeTimers();
+    const spy = vi
+      .spyOn(QueryClient.prototype, "invalidateQueries")
+      .mockResolvedValue(undefined);
+
+    render(
+      <Providers>
+        <Probe />
+      </Providers>
+    );
+
+    const btn = screen.getByRole("button", { name: "nonce:0" });
+    await act(async () => {
+      btn.click();
+    });
+
+    const initialCalls = spy.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(spy.mock.calls.length).toBeGreaterThan(initialCalls);
+
+    const midCalls = spy.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(spy.mock.calls.length).toBeGreaterThan(midCalls);
+    vi.useRealTimers();
   });
 });

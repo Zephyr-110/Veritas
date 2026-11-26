@@ -1237,3 +1237,9 @@ input[type="range"]:active::-moz-range-thumb {
   .reveal { opacity: 1; transform: none; transition: none; }
   .line-inner { animation: none; opacity: 1; transform: none; }
 }
+
+/* Pre-hydration frame-0 locale visibility aligned with layout head script */
+html[data-locale="zh"] [data-stable="true"] > [lang="en"] { visibility: hidden !important; }
+html[data-locale="zh"] [data-stable="true"] > [lang="zh-CN"] { visibility: visible !important; }
+html[data-locale="en"] [data-stable="true"] > [lang="zh-CN"] { visibility: hidden !important; }
+html[data-locale="en"] [data-stable="true"] > [lang="en"] { visibility: visible !important; }

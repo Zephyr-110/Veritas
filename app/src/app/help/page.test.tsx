@@ -38,6 +38,14 @@ describe("HelpPage low-threshold Solana fee breakdown", () => {
     const toggle = screen.getByRole("button", { name: /01 · Low threshold/i });
     fireEvent.click(toggle);
 
+    expect(
+      screen.getByText(
+        "Short-duration markets on crypto prices. Anyone can open one, anyone can trade. Settlement is decided jointly by the last signed report before expiry and the first one after it, with the ruling price taken from the first report after expiry — no intermediary decides the outcome."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/When a balance runs low, it is topped up to 0\.04 SOL and 30 test USDT \(enough to place orders and redeem\)\./)
+    ).toBeInTheDocument();
     expect(screen.getByText(/1,000,001 micro-units/)).toBeInTheDocument();
     expect(
       screen.getByText(

@@ -334,9 +334,14 @@ export default function MePage() {
                   value={summary.sumNo.toFixed(2)}
                 />
                 <Stat
-                  labelKey="me.sumPending"
+                  labelKey="me.sumMakerPending"
                   value={summary.sumPending.toFixed(4)}
-                  accent
+                  accent={summary.sumPending > 0}
+                />
+                <Stat
+                  labelKey="me.sumRedeemable"
+                  value={`${claimTotal.toFixed(2)} ${COLLATERAL_SYMBOL}`}
+                  accent={claimTotal > 0}
                 />
               </div>
               {claimCount > 0 || lpUnclaimed ? (

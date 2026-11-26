@@ -77,11 +77,11 @@ export async function findPushSignatures(connection: Connection, feed: PublicKey
   for (let pageNum = 0; pageNum < MAX_SIGNATURE_PAGES; pageNum += 1) {
     signal?.throwIfAborted();
     const page = await connection.getSignaturesForAddress(feed, { before, limit: 250 }, "confirmed");
-    const candidates = page.filter(s => !s.err && (s.blockTime == null || (s.blockTime >= from && s.blockTime <= until)))
+    const candidates = page.filter(s => s.blockTime == null || (s.blockTime >= from && s.blockTime <= until))
       .sort((a, b) => Math.abs((a.blockTime ?? until) - ruling.post.observationsTimestamp)
         - Math.abs((b.blockTime ?? until) - ruling.post.observationsTimestamp));
     for await (const { signature, tx } of candidateTransactions(connection, candidates, signal)) {
-      if (!tx.meta || tx.meta.err) continue;
+      if (!tx.meta) continue;
       for (const raw of extractOcr2Instructions(tx)) {
         const pushed = parseOcr2Transmit(raw, ruling.pre.configDigest);
         if (!pushed) continue;

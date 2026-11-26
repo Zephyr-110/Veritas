@@ -292,6 +292,11 @@ describe("MePage Claim 跳转分流", () => {
       `/markets/${loserViewMarket.address.toBase58()}`
     );
     expect(screen.getByText(/in 2 finalized markets —/)).toBeInTheDocument();
+    expect(screen.getByText("Maker pending")).toBeInTheDocument();
+    expect(screen.getByText("Redeemable")).toBeInTheDocument();
+    expect(screen.getAllByText("0.0000").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("6.00 USDT")).toBeInTheDocument();
+    expect(screen.queryByText("Pending total")).toBeNull();
   });
 
   it("未领取横幅在 count=1 时显示单数文案", async () => {

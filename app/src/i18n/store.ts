@@ -56,6 +56,23 @@ function isLocale(value: string | null | undefined): value is Locale {
 function applyDocumentLang(locale: Locale) {
   if (typeof document === "undefined") return;
   document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
+  document.documentElement.dataset.locale = locale;
+}
+
+export function resolveInitialLocale(): Locale {
+  if (typeof window === "undefined") return "en";
+  const query = new URLSearchParams(window.location.search).get("lang");
+  if (isLocale(query)) return query;
+  let stored: string | null = null;
+  try {
+    stored = window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    stored = null;
+  }
+  if (isLocale(stored)) return stored;
+  const navLang = typeof navigator !== "undefined" ? navigator.language || "" : "";
+  if (/^zh\b/i.test(navLang)) return "zh";
+  return "en";
 }
 
 function interpolate(template: string, key: string, localeName: Locale, vars?: Vars): string {
@@ -102,14 +119,8 @@ export function setLocale(next: Locale) {
 
 export function hydrateLocale() {
   if (typeof window === "undefined") return;
-  let stored: string | null = null;
-  try {
-    stored = window.localStorage.getItem(STORAGE_KEY);
-  } catch {
-    stored = null;
-  }
   const query = new URLSearchParams(window.location.search).get("lang");
-  current = isLocale(query) ? query : isLocale(stored) ? stored : "en";
+  current = resolveInitialLocale();
   if (isLocale(query)) {
     try {
       window.localStorage.setItem(STORAGE_KEY, query);

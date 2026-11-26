@@ -28,7 +28,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "try{var t=localStorage.getItem('veritas-theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t;document.documentElement.style.colorScheme=t}}catch(e){}",
+              "try{var t=localStorage.getItem('veritas-theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t;document.documentElement.style.colorScheme=t}}catch(e){}" +
+              "try{var q=new URLSearchParams(location.search).get('lang');var s=localStorage.getItem('veritas.locale');var l=(q==='en'||q==='zh')?q:(s==='en'||s==='zh')?s:(/^zh\\b/i.test(navigator.language||'')?'zh':'en');document.documentElement.lang=l==='zh'?'zh-CN':'en';document.documentElement.dataset.locale=l}catch(e){}",
           }}
         />
       </head>

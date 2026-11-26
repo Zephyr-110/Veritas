@@ -4,6 +4,7 @@ import {
   tPair,
   setLocale,
   getLocale,
+  resolveInitialLocale,
   hasKey,
   subscribe,
 } from "@/i18n/store";
@@ -62,5 +63,39 @@ describe("i18n", () => {
 
   it("throws on missing translation key", () => {
     expect(() => t("definitely.not.a.real.key")).toThrow();
+  });
+
+  it("resolveInitialLocale prefers ?lang=, then localStorage, then navigator.language, else en", () => {
+    const origNav = globalThis.navigator;
+    const origWin = globalThis.window;
+    const store = new Map<string, string>();
+    const mockWin = {
+      location: { search: "" },
+      localStorage: {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => { store.set(k, v); },
+      },
+    } as unknown as Window & typeof globalThis;
+    Object.defineProperty(globalThis, "window", { value: mockWin, configurable: true });
+
+    Object.defineProperty(globalThis, "navigator", { value: { language: "zh-CN" }, configurable: true });
+    expect(resolveInitialLocale()).toBe("zh");
+
+    store.set("veritas.locale", "en");
+    expect(resolveInitialLocale()).toBe("en");
+
+    store.set("veritas.locale", "zh");
+    expect(resolveInitialLocale()).toBe("zh");
+
+    mockWin.location.search = "?lang=en";
+    expect(resolveInitialLocale()).toBe("en");
+
+    Object.defineProperty(globalThis, "navigator", { value: { language: "fr-FR" }, configurable: true });
+    store.clear();
+    mockWin.location.search = "";
+    expect(resolveInitialLocale()).toBe("en");
+
+    Object.defineProperty(globalThis, "navigator", { value: origNav, configurable: true });
+    Object.defineProperty(globalThis, "window", { value: origWin, configurable: true });
   });
 });

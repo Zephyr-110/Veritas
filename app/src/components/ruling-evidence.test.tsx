@@ -143,6 +143,9 @@ describe("RulingEvidence component", () => {
     renderWithQuery(<RulingEvidence market={makeResolvedMarket()} />);
 
     await waitFor(() => expect(screen.getByText("Missing reports: 0")).toBeInTheDocument());
+    expect(
+      screen.getByText("The ruling price is the price of the first report after expiry.")
+    ).toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByRole("link", { name: "Transmission" })).toHaveLength(2));
     const preId = screen.getByText(/7201555\/2/);
     const postId = screen.getByText(/7201555\/3/);
@@ -273,6 +276,9 @@ describe("RulingEvidence component", () => {
     renderWithQuery(<RulingEvidence market={market} />);
 
     await waitFor(() => expect(screen.getByText("Missing reports: 0")).toBeInTheDocument());
+    expect(
+      screen.getByText("The ruling price is the price of the first report after expiry.")
+    ).toBeInTheDocument();
     expect(screen.getByText("63402.228").tagName).toBe("STRONG");
     expect(screen.getByRole("link", { name: "Resolve transaction" })).toHaveAttribute(
       "href",
@@ -455,6 +461,9 @@ describe("RulingEvidence component", () => {
     renderWithQuery(<RulingEvidence market={market} />);
 
     await waitFor(() => expect(screen.getByText("Missing reports: 0")).toBeInTheDocument());
+    expect(
+      screen.getByText("The ruling price is the price of the first report after expiry.")
+    ).toBeInTheDocument();
     expect(fetchRuling).toHaveBeenCalledTimes(1);
     expect(fetchMarketSnapshot).toHaveBeenCalledTimes(1);
     expect(findPushSignatures).toHaveBeenCalledTimes(1);

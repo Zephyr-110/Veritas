@@ -28,6 +28,7 @@ import type { AppSettings, ClusterName, ToastItem, ToastKind } from "@/lib/types
 import { LocaleProvider, useT } from "@/i18n/provider";
 import { localizeError, parseTxError } from "@/lib/errors";
 import { hasKey } from "@/i18n/store";
+import { markTxRefresh } from "@/hooks/use-markets";
 import { GuestSessionProvider } from "./guest-session";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
@@ -133,6 +134,7 @@ function SettingsInner({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const t = useT();
   const toastTimersRef = useRef<Map<number, number>>(new Map());
+  const refreshTimersRef = useRef<number[]>([]);
   const nextToastIdRef = useRef(1);
 
   useEffect(() => {
@@ -141,9 +143,12 @@ function SettingsInner({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const timers = toastTimersRef.current;
+    const refreshTimers = refreshTimersRef;
     return () => {
       timers.forEach((timerId) => window.clearTimeout(timerId));
       timers.clear();
+      refreshTimers.current.forEach((timerId) => window.clearTimeout(timerId));
+      refreshTimers.current = [];
     };
   }, []);
 
@@ -233,14 +238,26 @@ function SettingsInner({ children }: { children: ReactNode }) {
   );
 
   const bump = useCallback(() => {
+    refreshTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+    refreshTimersRef.current = [];
+    const invalidatePostTx = (includeLists: boolean) => {
+      markTxRefresh();
+      void queryClient.invalidateQueries({ queryKey: ["market"], refetchType: "all" });
+      void queryClient.invalidateQueries({ queryKey: ["position"], refetchType: "all" });
+      void queryClient.invalidateQueries({ queryKey: ["positions"], refetchType: "all" });
+      void queryClient.invalidateQueries({ queryKey: ["redemptions"], refetchType: "all" });
+      void queryClient.invalidateQueries({ queryKey: ["sandbox-balance"], refetchType: "all" });
+      if (includeLists) {
+        void queryClient.invalidateQueries({ queryKey: ["markets"], refetchType: "all" });
+        void queryClient.invalidateQueries({ queryKey: ["visible-vaults"] });
+      }
+    };
     setNonce((n) => n + 1);
-    void queryClient.invalidateQueries({ queryKey: ["markets"], refetchType: "all" });
-    void queryClient.invalidateQueries({ queryKey: ["market"], refetchType: "all" });
-    void queryClient.invalidateQueries({ queryKey: ["position"], refetchType: "all" });
-    void queryClient.invalidateQueries({ queryKey: ["visible-vaults"] });
-    void queryClient.invalidateQueries({ queryKey: ["positions"], refetchType: "all" });
-    void queryClient.invalidateQueries({ queryKey: ["redemptions"], refetchType: "all" });
-    void queryClient.invalidateQueries({ queryKey: ["sandbox-balance"], refetchType: "all" });
+    invalidatePostTx(true);
+    for (const delayMs of [1500, 4000]) {
+      const id = window.setTimeout(() => invalidatePostTx(false), delayMs);
+      refreshTimersRef.current.push(id);
+    }
   }, [queryClient]);
   const wallets = useMemo(() => [], []);
 

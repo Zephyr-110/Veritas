@@ -1,7 +1,18 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { getLocale, hydrateLocale, setLocale, subscribe, t, type Locale, type Vars } from "./store";
+
+const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 type I18nContextValue = {
   locale: Locale;
@@ -14,7 +25,7 @@ const I18nContext = createContext<I18nContextValue | null>(null);
 export function LocaleProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>("en");
 
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     hydrateLocale();
     setLocaleState(getLocale());
     return subscribe(() => setLocaleState(getLocale()));

@@ -103,6 +103,61 @@ describe("ruling evidence", () => {
     expect(pushes).toEqual({});
     expect(pushCalls).toBe(MAX_SIGNATURE_PAGES);
   });
+
+  it("matches signed OCR2 push payload even inside a failed transaction (err != null)", async () => {
+    const preRaw = raw("e7190799_r6");
+    const postRaw = raw("e7190800_r1");
+    const disc = Buffer.from([155, 23, 80, 173, 46, 74, 23, 239]);
+    const length = Buffer.from([32, 1, 0, 0]);
+    const ix = Buffer.concat([disc, length, preRaw, length, postRaw]);
+    const decoded = decodeResolveReports(ix)!;
+    const feed = new PublicKey("6PxBx93S8x3tno1TsFZwT5VqP8drrRCbCXygEXYNkFJe");
+    const ocr2Program = new PublicKey("cjg3oHmg9uuPsP8D6g29NWvhySJkdYdAo9D25PRbKXJ");
+
+    const buildTx = (signature: string, payload: Buffer, failed: boolean) => ({
+      transaction: {
+        signatures: [signature],
+        message: {
+          getAccountKeys: () => ({
+            get: (idx: number) => (idx === 0 ? ocr2Program : undefined),
+          }),
+          compiledInstructions: [{ programIdIndex: 0, data: payload }],
+        },
+      },
+      meta: { err: failed ? { InstructionError: [0, "Custom"] } : null },
+    });
+
+    const conn = {
+      getSignaturesForAddress: async () => [
+        {
+          signature: "failed-pre-push-sig",
+          err: { InstructionError: [0, "Custom"] },
+          blockTime: decoded.pre.observationsTimestamp + 1,
+        },
+        {
+          signature: "ok-post-push-sig",
+          err: null,
+          blockTime: decoded.post.observationsTimestamp + 1,
+        },
+      ],
+      getTransactions: async (sigs: string[]) =>
+        sigs.map((s) =>
+          s === "failed-pre-push-sig"
+            ? buildTx("failed-pre-push-sig", preRaw, true)
+            : buildTx("ok-post-push-sig", postRaw, false)
+        ),
+    } as unknown as Connection;
+
+    const pushes = await findPushSignatures(conn, feed, {
+      signature: "resolve-sig",
+      pre: decoded.pre,
+      post: decoded.post,
+    });
+    expect(pushes).toEqual({
+      pre: "failed-pre-push-sig",
+      post: "ok-post-push-sig",
+    });
+  });
 });
 
 // Explicit opt-in for the read-only devnet acceptance run.

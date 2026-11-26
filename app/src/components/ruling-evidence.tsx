@@ -96,6 +96,7 @@ function CachedRulingEvidence({
           </p>
         );
       })}
+      <p className="text-xs text-zinc-400">{t("evidence.rulingPriceNote")}</p>
       <p className="text-sm">
         {hasCounters && evidence.missingCount != null ? (
           <Source href={witnessLink}>
@@ -218,6 +219,7 @@ export function RulingEvidence({ market }: { market: MarketView }) {
               </p>
             );
           })}
+          <p className="text-xs text-zinc-400">{t("evidence.rulingPriceNote")}</p>
           <p className="text-sm">
             {counts ? (
               <Source href={witnessLink}>
