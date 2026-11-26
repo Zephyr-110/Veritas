@@ -94,7 +94,7 @@
     "badge": "Devnet 运行中 · 基于 Solana 构建",
     "titleA": "无争议期的",
     "titleB": "预测市场",
-    "subtitle": "每 15 分钟开新一轮。结算只认到期后的第一份 Chainlink OCR2 签名报告——不需要任何人裁决。略高于 1 USDT 就能发起市场。",
+    "subtitle": "结算只认到期后的第一份 Chainlink OCR2 签名报告——不需要任何人裁决。略高于 1 USDT 就能发起市场。",
     "howCta": "机制解析",
     "prices": "实时价格",
     "pricesSrc": "Chainlink 预言机",

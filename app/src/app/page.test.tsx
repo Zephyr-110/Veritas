@@ -191,9 +191,10 @@ describe("HomePage hero copy, layout order, and why cards", () => {
     expect(screen.getByText("with no dispute window.")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "New rounds open every 15 minutes. Settlement is decided solely by the first signed Chainlink OCR2 report after expiry — no intermediary decides the outcome. A market can be opened with just over 1 USDT."
+        "Settlement is decided solely by the first signed Chainlink OCR2 report after expiry — no intermediary decides the outcome. A market can be opened with just over 1 USDT."
       )
     ).toBeInTheDocument();
+    expect(screen.queryByText(/New rounds open every 15 minutes/i)).toBeNull();
     expect(screen.queryByText(/pm-AMM prediction/i)).toBeNull();
     expect(screen.queryByText(/A fast-paced prediction market/i)).toBeNull();
     expect(screen.queryByText(/Settlement disputes eliminated at the protocol layer\./i)).toBeNull();

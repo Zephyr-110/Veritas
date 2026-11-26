@@ -94,7 +94,7 @@
     "badge": "LIVE ON DEVNET · BUILT ON SOLANA",
     "titleA": "A prediction market",
     "titleB": "with no dispute window.",
-    "subtitle": "New rounds open every 15 minutes. Settlement is decided solely by the first signed Chainlink OCR2 report after expiry — no intermediary decides the outcome. A market can be opened with just over 1 USDT.",
+    "subtitle": "Settlement is decided solely by the first signed Chainlink OCR2 report after expiry — no intermediary decides the outcome. A market can be opened with just over 1 USDT.",
     "howCta": "How it Works",
     "prices": "Live prices",
     "pricesSrc": "Chainlink Oracle",
