@@ -118,4 +118,40 @@ describe("PricePanel", () => {
     expect(container.querySelectorAll('[data-sparkline="true"]')).toHaveLength(0);
     expect(screen.queryByText(/0\.00%/)).toBeNull();
   });
+
+  it("replaces stale price numbers (>30s since last client receipt) with stale state while preserving age, and restores live price on recovery", () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    for (const f of FEEDS) {
+      quotesState.quotes[f.key] = {
+        ...quotesState.quotes[f.key],
+        publishTime: nowSec - 35,
+        receivedAt: Date.now() - 35_000,
+      };
+    }
+
+    const { rerender, container } = renderPanel();
+    expect(container.querySelectorAll('[data-quote-stale="true"]')).toHaveLength(6);
+    expect(screen.getAllByText("Quote stale — reconnecting")).toHaveLength(6);
+    expect(screen.queryByText("95,420.50")).toBeNull();
+    expect(screen.getAllByText("35s ago")).toHaveLength(6);
+
+    // Quotes recover with fresh client receivedAt
+    const freshNowMs = Date.now();
+    for (const f of FEEDS) {
+      quotesState.quotes[f.key] = {
+        ...quotesState.quotes[f.key],
+        publishTime: Math.floor(freshNowMs / 1000) - 2,
+        receivedAt: freshNowMs,
+      };
+    }
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    rerender(
+      <QueryClientProvider client={qc}>
+        <LocaleProvider>
+          <PricePanel />
+        </LocaleProvider>
+      </QueryClientProvider>
+    );
+    expect(container.querySelectorAll('[data-quote-stale="true"]')).toHaveLength(0);
+  });
 });

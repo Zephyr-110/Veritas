@@ -24,7 +24,7 @@ No off-chain matching engine, no admin resolver, and no trusted relayer — the 
 | **Chainlink Store Program** | [`HEvSKofvBgfaexv23kMabbYqxasxU3mQ4ibBMEmJWHny`](https://explorer.solana.com/address/HEvSKofvBgfaexv23kMabbYqxasxU3mQ4ibBMEmJWHny?cluster=devnet) |
 | **Tech Stack** | Rust 1.89 · Anchor · Solana · Chainlink OCR2 · Next.js 15 · Vitest · LiteSVM |
 
-**Why Solana.** A market's full lifecycle here — create, seed, expiry snapshot, settle — has to cost almost nothing, because the seed floor is a little over 1 USDT. Expiry snapshots land inside a ±10-second window around expiry, and a complete on-chain settlement (secp256k1 verification of the signed Chainlink OCR2 report) consumes ≈120k compute units; the whole lifecycle costs a fraction of a cent in fees. At EVM gas prices the fees alone would consume a substantial share of a 1 USDT pool, and sub-second slots are what make a ±10-second snapshot window practical.
+**Why Solana.** A market's full lifecycle here — create, seed, expiry snapshot, settle — has to cost almost nothing, because the seed floor is a little over 1 USDT. Expiry snapshots land inside a ±10-second window around expiry, and a complete on-chain settlement (secp256k1 verification of the signed Chainlink OCR2 report) consumes 118k–130k compute units; the whole lifecycle costs a fraction of a cent in fees. At EVM gas prices the fees alone would consume a substantial share of a 1 USDT pool, and sub-second slots are what make a ±10-second snapshot window practical.
 
 ---
 

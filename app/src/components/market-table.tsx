@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { formatWhen, marketKind, money, questionTitle } from "@/lib/display";
+import { formatExpiredAgo, formatWhen, marketKind, money, questionTitle } from "@/lib/display";
 import { formatCents, formatYesNo } from "@/lib/format";
+import { isQuoteStale } from "@/lib/chainlink";
 import type { MarketView } from "@/lib/markets";
 import { useMarketPhaseTime, useVisibleVaults } from "@/hooks/use-markets";
 import { useFeeds } from "@/hooks/use-feeds";
+import { useNow } from "@/hooks/use-now";
 import { feedByState, formatFeedPrice, thresholdToHuman } from "@/lib/feeds";
 import { useT } from "@/i18n/provider";
 import { AssetBadge } from "./asset-badge";
@@ -23,6 +25,9 @@ export function MarketTable({
   useIndexedVault?: boolean;
 }) {
   const now = useMarketPhaseTime(markets);
+  const clockSec = useNow(1000);
+  const effectiveNow = clockSec > 0 ? clockSec : now;
+  const nowMs = Date.now();
   const vaultFor = useVisibleVaults(useIndexedVault ? EMPTY_MARKETS : markets);
   const { quotes } = useFeeds();
   const t = useT();
@@ -52,6 +57,9 @@ export function MarketTable({
         const vault = useIndexedVault ? market.vault : vaultFor(market);
         const kind = marketKind(market, now);
         const live = kind === "live";
+        const unsettled = kind === "awaiting" || kind === "voidable";
+        const expiredLabel =
+          unsettled && effectiveNow > 0 ? formatExpiredAgo(market.expiry, effectiveNow) : null;
         const actionKey =
           kind === "live"
             ? "markets.open"
@@ -62,14 +70,16 @@ export function MarketTable({
                 : "markets.view";
         const feedPreset = feedByState(market.ocr2State);
         const spot = feedPreset ? quotes[feedPreset.key] : undefined;
+        const hasSpot = Boolean(live && spot?.available && spot.price != null);
+        const spotStale = hasSpot && isQuoteStale(spot, nowMs);
         let spotLine: string | null = null;
-        if (live && spot?.available && spot.price != null) {
+        if (hasSpot && !spotStale) {
           const thr = Number(market.threshold) * 10 ** -market.priceDecimals;
           if (thr > 0) {
-            const pct = Math.abs(((spot.price - thr) / thr) * 100);
+            const pct = Math.abs(((spot!.price! - thr) / thr) * 100);
             const pctText = pct >= 0.1 ? pct.toFixed(1) : pct.toFixed(2);
-            spotLine = t(spot.price >= thr ? "markets.spotAbove" : "markets.spotBelow", {
-              spot: formatFeedPrice(spot.price),
+            spotLine = t(spot!.price! >= thr ? "markets.spotAbove" : "markets.spotBelow", {
+              spot: formatFeedPrice(spot!.price!),
               pct: pctText,
             });
           }
@@ -110,13 +120,26 @@ export function MarketTable({
                           <TickingCountdown expiry={market.expiry} className="text-xs text-zinc-300" />
                         </span>
                       ) : (
-                        <span className="lg:hidden">
+                        <span className="inline-flex items-baseline gap-2 lg:hidden">
                           <StatusChip market={market} now={now} compact />
+                          {expiredLabel ? (
+                            <span className="num font-medium text-[var(--warn)]">{expiredLabel}</span>
+                          ) : null}
                         </span>
                       )}
                       {spotLine ? (
                         <span className="hidden items-baseline gap-2 lg:inline-flex">
                           <span className="truncate">{spotLine}</span>
+                          <PriceAge
+                            publishTime={spot?.publishTime ?? null}
+                            className="min-w-[4.25rem] shrink-0 text-left text-[10px]"
+                          />
+                        </span>
+                      ) : spotStale ? (
+                        <span className="hidden items-baseline gap-2 lg:inline-flex" data-quote-stale="true">
+                          <span className="font-medium text-[var(--warn)]">
+                            <StableText k="quotes.stale" />
+                          </span>
                           <PriceAge
                             publishTime={spot?.publishTime ?? null}
                             className="min-w-[4.25rem] shrink-0 text-left text-[10px]"
@@ -139,6 +162,15 @@ export function MarketTable({
                     expiry={market.expiry}
                     className="whitespace-nowrap text-[15px] text-zinc-100"
                   />
+                ) : unsettled && expiredLabel ? (
+                  <div className="text-right">
+                    <span className="num block whitespace-nowrap text-[13px] font-medium text-[var(--warn)]">
+                      {expiredLabel}
+                    </span>
+                    <span className="num block whitespace-nowrap text-[11px] text-zinc-500">
+                      {formatWhen(market.expiry)}
+                    </span>
+                  </div>
                 ) : (
                   <span className="num block whitespace-nowrap text-[13px] text-zinc-400">
                     {formatWhen(market.expiry)}

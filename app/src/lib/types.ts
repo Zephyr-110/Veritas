@@ -40,4 +40,5 @@ export type FeedQuote = {
   publishTime: number | null;
   counter: number | null;
   available: boolean;
+  receivedAt?: number | null;
 };

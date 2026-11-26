@@ -8,7 +8,7 @@ import { parseStrictPositiveInt } from "@/lib/server-security";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const VALID_SECTIONS = new Set<ListSectionFilter>(["live", "ended", "all"]);
+const VALID_SECTIONS = new Set<ListSectionFilter>(["live", "unsettled", "ended", "all"]);
 const VALID_DURATIONS = new Set<DurationFilter>(["all", "2m", "15m", "24h"]);
 
 export async function GET(req: Request) {

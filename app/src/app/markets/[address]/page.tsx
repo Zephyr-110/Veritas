@@ -12,6 +12,7 @@ import { feedByState, formatFeedPrice, thresholdToHuman } from "@/lib/feeds";
 import { countdown, explorerAccount, formatCents, formatFixed, formatUnix, formatYesNo, marketIdHex, shorten } from "@/lib/format";
 import { COLLATERAL_SYMBOL, RESOLVE_WINDOW } from "@/lib/constants";
 import { isFinalizedStatus, marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
+import { isQuoteStale } from "@/lib/chainlink";
 import { pmAmmAccrue } from "@/lib/quote";
 import { TradeDesk } from "@/components/trade-desk";
 import { LiquidityCard, PriceChartCard } from "@/components/market-visuals";
@@ -90,15 +91,19 @@ export default function MarketDetailPage() {
     );
   }
 
+  const nowMs = Date.now();
   const kind = marketKind(market, now);
   const live = kind === "live";
   const preset = feedByState(market.ocr2State);
   const feedKey = preset?.key;
   const quote = feedKey ? quotes[feedKey] : undefined;
+  const quoteAvailable = Boolean(ready && quote?.available && quote?.price != null);
+  const quoteStale = quoteAvailable && isQuoteStale(quote, nowMs);
   const spot: Spot =
-    ready && quote?.available && quote?.price != null
-      ? { price: quote.price, publishTime: quote.publishTime }
+    quoteAvailable && !quoteStale
+      ? { price: quote!.price as number, publishTime: quote!.publishTime }
       : null;
+  const staleSpotPublishTime = quoteStale ? (quote?.publishTime ?? null) : undefined;
   const humanThreshold = thresholdToHuman(market.threshold, market.priceDecimals);
   const pair = chartPair(feedKey);
 
@@ -125,7 +130,13 @@ export default function MarketDetailPage() {
         </h1>
       </div>
 
-      <StatusBand market={market} now={now} spot={spot} humanThreshold={humanThreshold} />
+      <StatusBand
+        market={market}
+        now={now}
+        spot={spot}
+        staleSpotPublishTime={staleSpotPublishTime}
+        humanThreshold={humanThreshold}
+      />
 
       {market.status === "resolved" && <RulingEvidence market={market} />}
       <div className="split split-detail">
@@ -311,11 +322,13 @@ function StatusBand({
   market,
   now,
   spot,
+  staleSpotPublishTime,
   humanThreshold,
 }: {
   market: MarketView;
   now: number;
   spot: Spot;
+  staleSpotPublishTime?: number | null;
   humanThreshold: string;
 }) {
   const t = useT();
@@ -354,6 +367,13 @@ function StatusBand({
             <CountUp value={spot.price} format={(v) => formatFeedPrice(v)} />
           </FlashNum>
           <PriceAge publishTime={spot.publishTime} className="min-w-[4.25rem] text-left text-[11px]" />
+        </span>
+      ) : staleSpotPublishTime !== undefined ? (
+        <span className="flex items-baseline gap-2" data-quote-stale="true">
+          <span className="text-sm font-medium text-[var(--warn)]">
+            <StableText k="quotes.stale" />
+          </span>
+          <PriceAge publishTime={staleSpotPublishTime} className="min-w-[4.25rem] text-left text-[11px]" />
         </span>
       ) : (
         <span className="text-zinc-500">

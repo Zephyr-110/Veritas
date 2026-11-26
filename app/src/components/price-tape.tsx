@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FEEDS, formatFeedPrice } from "@/lib/feeds";
 import { chartPair, fetch24hSparkline, type SparklineData } from "@/lib/chart";
+import { isQuoteStale } from "@/lib/chainlink";
 import type { FeedKey } from "@/lib/types";
 import { useFeeds } from "@/hooks/use-feeds";
+import { useNow } from "@/hooks/use-now";
 import { AssetBadge } from "./asset-badge";
 import { Button, cx, onSpot, StableText } from "./ui";
 import { PricePanelSkeleton } from "./skeletons";
@@ -142,10 +144,13 @@ function useFeedSparklines(keys: FeedKey[]): Partial<Record<FeedKey, SparklineDa
 
 export function PricePanel() {
   const { quotes, ready, error, retry } = useFeeds();
+  useNow(1000);
+  const nowMs = Date.now();
   const visible = FEEDS.filter((feed) => {
     const q = quotes[feed.key];
     return Boolean(q?.available && q.price != null);
   });
+  const anyStale = visible.some((feed) => isQuoteStale(quotes[feed.key], nowMs));
   const sparklines = useFeedSparklines(visible.map((f) => f.key));
 
   if (!ready) return <PricePanelSkeleton />;
@@ -180,7 +185,12 @@ export function PricePanel() {
     <aside onMouseMove={onSpot} className="surface home-prices panel-float panel-in">
       <div className="home-prices-head">
         <span className="home-kicker flex items-center gap-2">
-          <span className={cx("live-dot h-1.5 w-1.5 rounded-full", error ? "bg-[var(--warn)]" : "bg-[var(--yes)]")} />
+          <span
+            className={cx(
+              "h-1.5 w-1.5 rounded-full",
+              error || anyStale ? "bg-[var(--warn)]" : "live-dot bg-[var(--yes)]"
+            )}
+          />
           <StableText k="home.prices" />
         </span>
         <span className="text-[11px] text-[var(--ink-3)]">
@@ -190,6 +200,7 @@ export function PricePanel() {
       <div>
         {visible.map((feed) => {
           const q = quotes[feed.key];
+          const stale = isQuoteStale(q, nowMs);
           const fullName = FEED_DISPLAY_NAMES[feed.key];
           const spark = sparklines[feed.key];
           const changeTone =
@@ -224,7 +235,16 @@ export function PricePanel() {
                 )}
               </div>
               <div className="home-prices-quote">
-                <PriceValue value={q.price as number} />
+                {stale ? (
+                  <span
+                    className="home-prices-value text-xs font-medium text-[var(--warn)]"
+                    data-quote-stale="true"
+                  >
+                    <StableText k="quotes.stale" align="end" />
+                  </span>
+                ) : (
+                  <PriceValue value={q.price as number} />
+                )}
                 <div className="home-prices-sub">
                   {spark?.changePct != null ? (
                     <span className={cx("num text-[11px] font-medium", changeTone)}>

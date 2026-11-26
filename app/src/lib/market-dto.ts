@@ -6,7 +6,7 @@ import { findMarketPdas } from "./pdas";
 import type { MarketView, UserPosition } from "./markets";
 import type { FeedKey, MarketPdas, MarketStatusName, Side } from "./types";
 
-export type ListSectionFilter = "live" | "ended" | "all";
+export type ListSectionFilter = "live" | "unsettled" | "ended" | "all";
 
 export type SerializedMarket = {
   address: string;

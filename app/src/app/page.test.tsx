@@ -221,4 +221,14 @@ describe("HomePage hero copy, layout order, and why cards", () => {
     expect(screen.queryByText(/At EVM gas prices/)).toBeNull();
     expect(screen.queryByText(/24 cases the round sequence jumped/)).toBeNull();
   });
+
+  it("excludes expired status=open markets from homepage Live this round", () => {
+    const expiredOpen = makeEndedMarket(9, 0);
+    expiredOpen.status = "open";
+    expiredOpen.winner = null;
+    homeState.live = [expiredOpen];
+
+    renderHome();
+    expect(screen.getByText("No markets this round.")).toBeInTheDocument();
+  });
 });

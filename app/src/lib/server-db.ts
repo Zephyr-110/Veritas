@@ -393,9 +393,13 @@ export function queryMarketsPage(opts: {
     conditions.push("expiry > ?");
     params.push(nowSec);
     orderBy = "expiry ASC";
-  } else if (section === "ended") {
-    conditions.push("(status != 'open' OR expiry <= ?)");
+  } else if (section === "unsettled") {
+    conditions.push("status = 'open'");
+    conditions.push("expiry <= ?");
     params.push(nowSec);
+    orderBy = "expiry DESC";
+  } else if (section === "ended") {
+    conditions.push("status != 'open'");
     orderBy = "expiry DESC";
   }
 

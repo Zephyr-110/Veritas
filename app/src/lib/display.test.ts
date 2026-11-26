@@ -4,6 +4,7 @@ import { RESOLVE_WINDOW } from "@/lib/constants";
 import {
   chancePct,
   clusterLabel,
+  formatExpiredAgo,
   formatWhen,
   hasBet,
   isMarketVoided,
@@ -182,11 +183,12 @@ describe("display", () => {
     expect(marketKind(liveM, expiry + 10)).toBe("awaiting");
     expect(kindLabelKey("awaiting", liveM)).toBe("kind.awaiting");
     expect(kindTone("awaiting", liveM)).toBe("accent");
-    expect(listSection("awaiting")).toBe("ended");
+    expect(listSection("awaiting")).toBe("unsettled");
 
     expect(marketKind(liveM, expiry + RESOLVE_WINDOW + 1)).toBe("voidable");
     expect(kindLabelKey("voidable", liveM)).toBe("kind.voidable");
     expect(kindTone("voidable", liveM)).toBe("ink");
+    expect(listSection("voidable")).toBe("unsettled");
 
     const yesWon = makeMarket({ status: "resolved", winner: "yes" });
     const noWon = makeMarket({ status: "resolved", winner: "no" });
@@ -195,11 +197,14 @@ describe("display", () => {
     expect(kindLabelKey("resolved", noWon)).toBe("kind.noWon");
     expect(kindTone("resolved", yesWon)).toBe("yes");
     expect(kindTone("resolved", noWon)).toBe("no");
+    expect(listSection("resolved")).toBe("ended");
 
     const stale = makeMarket({ status: "staleBurn" });
     const winVoid = makeMarket({ status: "windowBurn" });
     expect(marketKind(stale, expiry)).toBe("staleVoid");
     expect(marketKind(winVoid, expiry)).toBe("windowVoid");
+    expect(listSection("staleVoid")).toBe("ended");
+    expect(listSection("windowVoid")).toBe("ended");
     expect(kindLabelKey("staleVoid", stale)).toBe("kind.staleVoid");
     expect(kindLabelKey("windowVoid", winVoid)).toBe("kind.windowVoid");
     expect(kindTone("staleVoid", stale)).toBe("no");
@@ -221,6 +226,20 @@ describe("display", () => {
     expect(hasBet(EMPTY_POSITION)).toBe(false);
     expect(hasBet({ ...EMPTY_POSITION, yes: 1n })).toBe(true);
     expect(hasBet({ ...EMPTY_POSITION, no: 1n })).toBe(true);
+  });
+
+  it("formatExpiredAgo 正确输出秒/分钟/小时/天（EN/ZH）", () => {
+    setLocale("en");
+    expect(formatExpiredAgo(10_000, 10_045)).toBe("Expired 45s ago");
+    expect(formatExpiredAgo(10_000, 10_000 + 26 * 60)).toBe("Expired 26m ago");
+    expect(formatExpiredAgo(10_000, 10_000 + 3 * 3600)).toBe("Expired 3h ago");
+    expect(formatExpiredAgo(10_000, 10_000 + 2 * 86_400)).toBe("Expired 2d ago");
+
+    setLocale("zh");
+    expect(formatExpiredAgo(10_000, 10_045)).toBe("已过期 45 秒");
+    expect(formatExpiredAgo(10_000, 10_000 + 26 * 60)).toBe("已过期 26 分钟");
+    expect(formatExpiredAgo(10_000, 10_000 + 3 * 3600)).toBe("已过期 3 小时");
+    expect(formatExpiredAgo(10_000, 10_000 + 2 * 86_400)).toBe("已过期 2 天");
   });
 
   it("marketDurationSec 与 marketDurationBucket 识别 EN/ZH 模板时长并忽略自定义标题", () => {

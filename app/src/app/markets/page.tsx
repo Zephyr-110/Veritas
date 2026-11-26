@@ -14,7 +14,7 @@ import { useEffectivePublicKey } from "@/components/guest-session";
 import { useT } from "@/i18n/provider";
 import type { MarketView } from "@/lib/markets";
 
-type Tape = "hot" | "history";
+type Tape = "hot" | "unsettled" | "history";
 
 const DURATION_FILTERS: ReadonlyArray<{
   id: DurationFilter;
@@ -48,10 +48,21 @@ export default function MarketsPage() {
     pageSize: 1,
     enabled: tape !== "hot" || duration !== "all",
   });
+  const unsettledQuery = useMarketsInfinite({
+    section: "unsettled",
+    duration,
+    pageSize: PAGE_SIZE,
+    enabled: tape === "unsettled",
+  });
 
   const phaseSource = useMemo(
-    () => (tape === "hot" ? liveQuery.markets : railLiveQuery.markets),
-    [liveQuery.markets, railLiveQuery.markets, tape]
+    () =>
+      tape === "hot"
+        ? liveQuery.markets
+        : tape === "unsettled"
+          ? unsettledQuery.markets
+          : railLiveQuery.markets,
+    [liveQuery.markets, unsettledQuery.markets, railLiveQuery.markets, tape]
   );
   const now = useMarketPhaseTime(phaseSource);
 
@@ -61,6 +72,14 @@ export default function MarketsPage() {
         .filter((m) => listSection(marketKind(m, now)) === "live")
         .sort((a, b) => a.expiry - b.expiry),
     [liveQuery.markets, now]
+  );
+
+  const unsettledMarkets = useMemo(
+    () =>
+      unsettledQuery.markets
+        .filter((m) => listSection(marketKind(m, now)) === "unsettled")
+        .sort((a, b) => b.expiry - a.expiry),
+    [unsettledQuery.markets, now]
   );
 
   const historyEnabled =
@@ -101,20 +120,30 @@ export default function MarketsPage() {
 
   const currentLive: MarketView | null = railLiveMarkets[0] ?? null;
 
-  const activeError = tape === "hot" ? liveQuery.error : historyQuery.error;
+  const activeError =
+    tape === "hot"
+      ? liveQuery.error
+      : tape === "unsettled"
+        ? unsettledQuery.error
+        : historyQuery.error;
   const hasAnyRows =
     tape === "hot"
       ? liveMarkets.length > 0 || endedMarkets.length > 0
-      : endedMarkets.length > 0;
+      : tape === "unsettled"
+        ? unsettledMarkets.length > 0
+        : endedMarkets.length > 0;
   const initialLoading =
     tape === "hot"
       ? (liveQuery.loading && !liveQuery.markets.length) ||
         (historyEnabled && liveMarkets.length === 0 && historyQuery.loading && !historyQuery.markets.length)
-      : historyQuery.loading && !historyQuery.markets.length;
+      : tape === "unsettled"
+        ? unsettledQuery.loading && !unsettledQuery.markets.length
+        : historyQuery.loading && !historyQuery.markets.length;
 
   const reload = async () => {
     await Promise.all([
       tape === "hot" ? liveQuery.reload() : Promise.resolve(),
+      tape === "unsettled" ? unsettledQuery.reload() : Promise.resolve(),
       historyEnabled ? historyQuery.reload() : Promise.resolve(),
       tape !== "hot" || duration !== "all" ? railLiveQuery.reload() : Promise.resolve(),
     ]);
@@ -140,7 +169,14 @@ export default function MarketsPage() {
   }
 
   const endedPreview = tape === "hot" && liveMarkets.length === 0 && endedMarkets.length > 0;
-  const sections =
+  type SectionSpec = {
+    key: "live" | "unsettled" | "ended";
+    titleKey: "markets.live" | "markets.unsettled" | "markets.ended";
+    rows: MarketView[];
+    emptyTitleKey: "markets.emptyLiveTitle" | "markets.emptyUnsettledTitle" | "markets.emptyEndedTitle";
+    emptyBodyKey?: "markets.emptyLiveBody" | "markets.emptyEndedBody";
+  };
+  const sections: SectionSpec[] =
     tape === "hot"
       ? [
           {
@@ -153,7 +189,7 @@ export default function MarketsPage() {
           ...(endedPreview
             ? [
                 {
-                  key: "ended",
+                  key: "ended" as const,
                   titleKey: "markets.ended" as const,
                   rows: endedMarkets,
                   emptyTitleKey: "markets.emptyEndedTitle" as const,
@@ -162,26 +198,43 @@ export default function MarketsPage() {
               ]
             : []),
         ]
-      : [
-          {
-            key: "ended",
-            titleKey: "markets.ended",
-            rows: endedMarkets,
-            emptyTitleKey: "markets.emptyEndedTitle",
-            emptyBodyKey: "markets.emptyEndedBody",
-          },
-        ];
+      : tape === "unsettled"
+        ? [
+            {
+              key: "unsettled",
+              titleKey: "markets.unsettled",
+              rows: unsettledMarkets,
+              emptyTitleKey: "markets.emptyUnsettledTitle",
+            },
+          ]
+        : [
+            {
+              key: "ended",
+              titleKey: "markets.ended",
+              rows: endedMarkets,
+              emptyTitleKey: "markets.emptyEndedTitle",
+              emptyBodyKey: "markets.emptyEndedBody",
+            },
+          ];
 
   const updatedAt =
-    tape === "hot" ? liveQuery.updatedAt ?? historyQuery.updatedAt : historyQuery.updatedAt;
+    tape === "hot"
+      ? liveQuery.updatedAt ?? historyQuery.updatedAt
+      : tape === "unsettled"
+        ? unsettledQuery.updatedAt
+        : historyQuery.updatedAt;
   const refreshing =
     tape === "hot"
       ? liveQuery.refreshing || historyQuery.refreshing
-      : historyQuery.refreshing;
+      : tape === "unsettled"
+        ? unsettledQuery.refreshing
+        : historyQuery.refreshing;
   const isStaleError =
     tape === "hot"
       ? liveQuery.isStaleError || historyQuery.isStaleError
-      : historyQuery.isStaleError;
+      : tape === "unsettled"
+        ? unsettledQuery.isStaleError
+        : historyQuery.isStaleError;
 
   return (
     <div className="split split-markets">
@@ -199,7 +252,7 @@ export default function MarketsPage() {
             />
           </div>
           <div className="cluster-2 seg-slot p-1">
-            {(["hot", "history"] as const).map((id) => (
+            {(["hot", "unsettled", "history"] as const).map((id) => (
               <button
                 key={id}
                 type="button"
@@ -209,7 +262,10 @@ export default function MarketsPage() {
                   (tape === id ? "seg-on font-medium" : "text-zinc-400 hover:text-white")
                 }
               >
-                <StableText k={id === "hot" ? "markets.hot" : "markets.history"} align="center" />
+                <StableText
+                  k={id === "hot" ? "markets.hot" : id === "unsettled" ? "markets.unsettled" : "markets.history"}
+                  align="center"
+                />
               </button>
             ))}
           </div>
@@ -248,13 +304,13 @@ export default function MarketsPage() {
                   <StateBlock
                     kind="empty"
                     title={<StableText k={section.emptyTitleKey} />}
-                    body={<StableText k={section.emptyBodyKey} block />}
+                    body={section.emptyBodyKey ? <StableText k={section.emptyBodyKey} block /> : undefined}
                     action={
                       duration !== "all" ? (
                         <Button type="button" tone="secondary" onClick={() => setDuration("all")}>
                           <StableText k="markets.clearFilter" align="center" />
                         </Button>
-                      ) : section.key === "next" && liveMarkets.length === 0 ? undefined : (
+                      ) : section.key === "unsettled" ? undefined : (
                         <Link href="/create">
                           <Button type="button" tone={section.key === "live" ? "primary" : "secondary"}>
                             <StableText k="markets.emptyCta" align="center" />
@@ -263,6 +319,16 @@ export default function MarketsPage() {
                       )
                     }
                   />
+                )}
+                {section.key === "unsettled" && unsettledQuery.hasMore && (
+                  <Button
+                    type="button"
+                    tone="secondary"
+                    busy={unsettledQuery.loadingMore}
+                    onClick={() => void unsettledQuery.loadMore()}
+                  >
+                    <StableText k="markets.loadMore" />
+                  </Button>
                 )}
                 {section.key === "ended" && historyQuery.hasMore && (
                   <Button

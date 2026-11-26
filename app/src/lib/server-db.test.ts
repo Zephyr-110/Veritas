@@ -203,12 +203,53 @@ describe("server-db & API routes", () => {
 
     const planEndedCount = db
       .prepare<unknown[], { detail: string }>(
-        "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM markets WHERE program_id = ? AND (status != 'open' OR expiry <= ?)"
+        "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM markets WHERE program_id = ? AND status != 'open'"
       )
-      .all(DEFAULT_PROGRAM_ID, nowSec)
+      .all(DEFAULT_PROGRAM_ID)
       .map((r) => r.detail)
       .join(" ");
-    expect(planEndedCount).toMatch(/USING COVERING INDEX idx_markets_(bucket_)?expiry/);
+    expect(planEndedCount).toMatch(/USING (COVERING )?INDEX idx_markets_/);
+  });
+
+  it("partitions live, unsettled (expired + open), and ended markets mutually exclusively", async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const addresses = seedMarkets(dbPath, 18, nowSec);
+    const db = getServerDb(dbPath);
+    // Mark two markets as expired while still open (awaiting / voidable)
+    const expiredOpenA = addresses[12];
+    const expiredOpenB = addresses[13];
+    db.prepare(
+      "UPDATE markets SET status = 'open', winner = NULL, settled_price = '0', settled_publish_time = 0, finish_ts = 0 WHERE address IN (?, ?)"
+    ).run(expiredOpenA, expiredOpenB);
+
+    const live = queryMarketsPage({ programId: DEFAULT_PROGRAM_ID, section: "live", nowSec, pageSize: 50, dbPath });
+    const unsettled = queryMarketsPage({ programId: DEFAULT_PROGRAM_ID, section: "unsettled", nowSec, pageSize: 50, dbPath });
+    const ended = queryMarketsPage({ programId: DEFAULT_PROGRAM_ID, section: "ended", nowSec, pageSize: 50, dbPath });
+    const all = queryMarketsPage({ programId: DEFAULT_PROGRAM_ID, section: "all", nowSec, pageSize: 50, dbPath });
+
+    expect(live.total).toBe(12);
+    expect(unsettled.total).toBe(2);
+    expect(ended.total).toBe(4);
+    expect(live.total + unsettled.total + ended.total).toBe(all.total);
+
+    const liveIds = new Set(live.items.map((m) => m.address));
+    const unsettledIds = new Set(unsettled.items.map((m) => m.address));
+    const endedIds = new Set(ended.items.map((m) => m.address));
+    expect(unsettledIds.has(expiredOpenA)).toBe(true);
+    expect(unsettledIds.has(expiredOpenB)).toBe(true);
+    for (const id of unsettledIds) {
+      expect(liveIds.has(id)).toBe(false);
+      expect(endedIds.has(id)).toBe(false);
+    }
+
+    const res = await getMarketsApi(
+      new Request(`http://localhost/api/markets?programId=${DEFAULT_PROGRAM_ID}&section=unsettled&page=1&pageSize=30`)
+    );
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.items.map((m: { address: string }) => m.address).sort()).toEqual(
+      [expiredOpenA, expiredOpenB].sort()
+    );
   });
 
   it("queries settlement_evidence and paginated wallet_positions + API handlers", async () => {

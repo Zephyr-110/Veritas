@@ -149,6 +149,7 @@
     "next": "Upcoming",
     "ended": "Ended",
     "hot": "Live tape",
+    "unsettled": "Unsettled",
     "loadMore": "Load more",
     "history": "History",
     "filterAll": "All",
@@ -166,6 +167,11 @@
     "view": "View",
     "emptyLiveTitle": "No live markets",
     "emptyLiveBody": "Nothing is trading. Create a market or wait for the next round.",
+    "emptyUnsettledTitle": "No unsettled markets right now.",
+    "expiredSec": "Expired {n}s ago",
+    "expiredMin": "Expired {n}m ago",
+    "expiredHour": "Expired {n}h ago",
+    "expiredDay": "Expired {n}d ago",
     "emptyNextTitle": "No upcoming markets",
     "emptyNextBody": "Scheduled rounds will be announced here.",
     "emptyEndedTitle": "No ended markets yet",
@@ -384,7 +390,8 @@
   "quotes": {
     "ageSec": "{n}s ago",
     "ageMin": "{n}m ago",
-    "ageHour": "{n}h ago"
+    "ageHour": "{n}h ago",
+    "stale": "Quote stale — reconnecting"
   },
   "band": {
     "timeLeft": "Time left",

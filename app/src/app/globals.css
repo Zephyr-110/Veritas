@@ -1078,20 +1078,24 @@ html[lang="zh-CN"] .home-kicker:not(:has([lang])) {
 .nav-in { animation: nav-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both; }
 
 @keyframes line-rise {
-  to { transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .line-mask {
   display: inline-block;
-  overflow: hidden;
+  overflow: visible;
   vertical-align: bottom;
-  padding-bottom: 0.12em;
-  margin-bottom: -0.12em;
 }
 .line-inner {
   display: inline-block;
-  transform: translateY(110%);
   animation: line-rise 0.5s cubic-bezier(0.22, 0.8, 0.3, 1) both;
-  will-change: transform;
+  will-change: opacity, transform;
 }
 
 @keyframes panel-in {
@@ -1231,5 +1235,5 @@ input[type="range"]:active::-moz-range-thumb {
     display: none;
   }
   .reveal { opacity: 1; transform: none; transition: none; }
-  .line-inner { animation: none; transform: none; }
+  .line-inner { animation: none; opacity: 1; transform: none; }
 }

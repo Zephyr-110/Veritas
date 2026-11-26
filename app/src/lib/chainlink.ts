@@ -73,14 +73,30 @@ export function decodeChainlinkFeed(data: Buffer): ChainlinkPrint | null {
   return { price, decimals, publishTime, counter };
 }
 
+export const QUOTE_STALE_MS = 30_000;
+
+export function isQuoteStale(
+  quote: FeedQuote | null | undefined,
+  nowMs = Date.now(),
+  thresholdMs = QUOTE_STALE_MS
+): boolean {
+  if (!quote || !quote.available || quote.price == null || quote.receivedAt === null) {
+    return true;
+  }
+  if (quote.receivedAt === undefined) {
+    return false;
+  }
+  return nowMs - quote.receivedAt > thresholdMs;
+}
+
 export function emptyQuotes(): Record<FeedKey, FeedQuote> {
   return {
-    btc: { key: "btc", price: null, decimals: 8, publishTime: null, counter: null, available: false },
-    eth: { key: "eth", price: null, decimals: 8, publishTime: null, counter: null, available: false },
-    sol: { key: "sol", price: null, decimals: 8, publishTime: null, counter: null, available: false },
-    link: { key: "link", price: null, decimals: 8, publishTime: null, counter: null, available: false },
-    usdc: { key: "usdc", price: null, decimals: 8, publishTime: null, counter: null, available: false },
-    usdt: { key: "usdt", price: null, decimals: 8, publishTime: null, counter: null, available: false },
+    btc: { key: "btc", price: null, decimals: 8, publishTime: null, counter: null, available: false, receivedAt: null },
+    eth: { key: "eth", price: null, decimals: 8, publishTime: null, counter: null, available: false, receivedAt: null },
+    sol: { key: "sol", price: null, decimals: 8, publishTime: null, counter: null, available: false, receivedAt: null },
+    link: { key: "link", price: null, decimals: 8, publishTime: null, counter: null, available: false, receivedAt: null },
+    usdc: { key: "usdc", price: null, decimals: 8, publishTime: null, counter: null, available: false, receivedAt: null },
+    usdt: { key: "usdt", price: null, decimals: 8, publishTime: null, counter: null, available: false, receivedAt: null },
   };
 }
 
@@ -94,6 +110,7 @@ function quoteFromFeed(preset: FeedPreset, data: Buffer | null): FeedQuote {
       publishTime: null,
       counter: null,
       available: false,
+      receivedAt: null,
     };
   }
   return {
@@ -103,6 +120,7 @@ function quoteFromFeed(preset: FeedPreset, data: Buffer | null): FeedQuote {
     publishTime: parsed.publishTime,
     counter: parsed.counter,
     available: true,
+    receivedAt: Date.now(),
   };
 }
 
@@ -116,6 +134,12 @@ export async function fetchFeedQuotes(connection: Connection): Promise<Record<Fe
   });
   return out;
 }
+
+type RpcWebSocketLike = {
+  on?: (event: string, listener: (...args: unknown[]) => void) => void;
+  off?: (event: string, listener: (...args: unknown[]) => void) => void;
+  removeListener?: (event: string, listener: (...args: unknown[]) => void) => void;
+};
 
 export function subscribeFeedQuotes(
   connection: Connection,
@@ -136,24 +160,47 @@ export function subscribeFeedQuotes(
 
   FEEDS.forEach((feed) => {
     const address = new PublicKey(feed.feed);
-    const id = connection.onAccountChange(
-      address,
-      (info) => {
-        current = {
-          ...current,
-          [feed.key]: quoteFromFeed(feed, Buffer.from(info.data)),
-        };
-        onChange({ ...current });
-      },
-      "confirmed"
-    );
-    subs.push(id);
+    try {
+      const id = connection.onAccountChange(
+        address,
+        (info) => {
+          current = {
+            ...current,
+            [feed.key]: quoteFromFeed(feed, Buffer.from(info.data)),
+          };
+          onChange({ ...current });
+        },
+        "confirmed"
+      );
+      subs.push(id);
+    } catch (err) {
+      onError?.(err);
+    }
   });
+
+  const rpcWs = (connection as unknown as { _rpcWebSocket?: RpcWebSocketLike })._rpcWebSocket;
+  const onWsError = (err: unknown) => onError?.(err ?? new Error("WebSocket error"));
+  const onWsClose = (err: unknown) => onError?.(err ?? new Error("WebSocket disconnected"));
+  if (rpcWs?.on) {
+    rpcWs.on("error", onWsError);
+    rpcWs.on("close", onWsClose);
+  }
 
   return () => {
     subs.forEach((id) => {
-      void connection.removeAccountChangeListener(id);
+      try {
+        void connection.removeAccountChangeListener(id);
+      } catch {
+        // ignore cleanup failure on disconnected socket
+      }
     });
+    if (rpcWs) {
+      const detach = rpcWs.off ?? rpcWs.removeListener;
+      if (detach) {
+        detach.call(rpcWs, "error", onWsError);
+        detach.call(rpcWs, "close", onWsClose);
+      }
+    }
   };
 }
 

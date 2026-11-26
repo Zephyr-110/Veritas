@@ -226,9 +226,18 @@ export function resolveHours(): number {
   return Math.floor(RESOLVE_WINDOW / 3600);
 }
 
-export function listSection(kind: MarketKind): "live" | "next" | "ended" {
+export function listSection(kind: MarketKind): "live" | "unsettled" | "ended" {
   if (kind === "live") return "live";
+  if (kind === "awaiting" || kind === "voidable") return "unsettled";
   return "ended";
+}
+
+export function formatExpiredAgo(expiry: number, now: number): string {
+  const sec = Math.max(0, Math.floor(now - expiry));
+  if (sec < 60) return t("markets.expiredSec", { n: sec });
+  if (sec < 3600) return t("markets.expiredMin", { n: Math.floor(sec / 60) });
+  if (sec < 86_400) return t("markets.expiredHour", { n: Math.floor(sec / 3600) });
+  return t("markets.expiredDay", { n: Math.floor(sec / 86_400) });
 }
 
 export function isMarketVoided(market: { status: MarketView["status"] }): boolean {

@@ -8,10 +8,15 @@ import { listSection, marketDurationBucket, marketKind, type DurationFilter } fr
 import { FEEDS } from "@/lib/feeds";
 import type { ListSectionFilter } from "@/lib/market-dto";
 import type { MarketView } from "@/lib/markets";
+import type { FeedKey, FeedQuote } from "@/lib/types";
 import { LocaleProvider } from "@/i18n/provider";
 
 const NOW = 1_767_225_600;
 const USER_KEY = new PublicKey(Buffer.alloc(32, 7));
+
+const feedQuotesState = vi.hoisted(() => ({
+  quotes: {} as Record<FeedKey, FeedQuote>,
+}));
 
 const marketState = vi.hoisted(() => ({
   markets: [] as MarketView[],
@@ -34,6 +39,11 @@ function filterMockMarkets(section: ListSectionFilter, duration: DurationFilter)
     return byDur
       .filter((m) => listSection(marketKind(m, NOW)) === "live")
       .sort((a, b) => a.expiry - b.expiry);
+  }
+  if (section === "unsettled") {
+    return byDur
+      .filter((m) => listSection(marketKind(m, NOW)) === "unsettled")
+      .sort((a, b) => b.expiry - a.expiry);
   }
   if (section === "ended") {
     return byDur
@@ -133,12 +143,17 @@ vi.mock("@/hooks/use-markets", () => ({
   useVisibleVaults: () => (m: MarketView) => m.vault,
 }));
 
+vi.mock("@/hooks/use-now", () => ({
+  useNow: () => NOW,
+}));
+
 vi.mock("@/hooks/use-feeds", () => ({
   useFeeds: () => ({
-    quotes: emptyQuotes(),
+    quotes: feedQuotesState.quotes,
     ready: true,
     error: null,
     lastUpdated: NOW,
+    lastReceivedAt: Date.now(),
     retry: vi.fn(),
   }),
 }));
@@ -230,6 +245,7 @@ function renderMarkets() {
 
 beforeEach(() => {
   marketState.markets = [];
+  feedQuotesState.quotes = emptyQuotes();
 });
 
 afterEach(() => cleanup());
@@ -362,5 +378,85 @@ describe("MarketsPage duration filter chips", () => {
     expect(container.querySelector('[data-asset-logo="sol"] img')).toHaveAttribute("src", "/tokens/sol.svg");
     expect(container.querySelector('[data-asset-logo="link"] img')).toHaveAttribute("src", "/tokens/link.svg");
     expect(container.querySelector('[data-asset-logo="fallback"]')).toHaveTextContent("AV");
+  });
+
+  it("places expired status=open markets strictly in Unsettled tab in order Live tape | Unsettled | History", async () => {
+    const liveM = makeMarket(10, {
+      title: "BTC/USD at or above opening price in 15 min?",
+      expiry: NOW + 600,
+      endTs: NOW + 600,
+    });
+    const unsettledM = makeMarket(11, {
+      title: "ETH/USD at or above opening price in 15 min?",
+      ocr2State: new PublicKey(FEEDS[1].state),
+      feedKey: "eth",
+      feedSymbol: "ETH/USD",
+      status: "open",
+      expiry: NOW - 26 * 60,
+      endTs: NOW - 26 * 60,
+    });
+    const endedM = makeMarket(12, {
+      title: "SOL/USD at or above opening price in 15 min?",
+      ocr2State: new PublicKey(FEEDS[2].state),
+      feedKey: "sol",
+      feedSymbol: "SOL/USD",
+      status: "resolved",
+      winner: "yes",
+      expiry: NOW - 3600,
+      endTs: NOW - 3600,
+      finishTs: NOW - 3590,
+    });
+
+    marketState.markets = [liveM, unsettledM, endedM];
+    const { container } = renderMarkets();
+
+    const tabs = Array.from(container.querySelectorAll('.seg-slot button [lang="en"]')).map((el) =>
+      el.textContent?.trim()
+    );
+    expect(tabs).toEqual(["Live tape", "Unsettled", "History"]);
+
+    // Live tab shows only live market
+    expect(screen.getByRole("link", { name: /BTC\/USD/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /ETH\/USD/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /SOL\/USD/ })).toBeNull();
+
+    // Unsettled tab shows only expired-open market with explicit expired duration & pending status
+    await userEvent.click(screen.getByRole("button", { name: "Unsettled" }));
+    expect(screen.getByRole("link", { name: /ETH\/USD/ })).toBeInTheDocument();
+    expect(screen.getAllByText("Expired 26m ago").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Pending Settlement").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByRole("link", { name: /BTC\/USD/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /SOL\/USD/ })).toBeNull();
+
+    // History tab shows only resolved/ended market
+    await userEvent.click(screen.getByRole("button", { name: "History" }));
+    expect(screen.getByRole("link", { name: /SOL\/USD/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /ETH\/USD/ })).toBeNull();
+  });
+
+  it("shows empty Unsettled copy cleanly and hides stale spot prices (>30s) in MarketTable", async () => {
+    const liveM = makeMarket(20, {
+      title: "BTC/USD at or above opening price in 15 min?",
+      expiry: NOW + 600,
+      endTs: NOW + 600,
+    });
+    marketState.markets = [liveM];
+    feedQuotesState.quotes.btc = {
+      key: "btc",
+      price: 99_123.45,
+      decimals: 8,
+      publishTime: NOW - 45,
+      counter: 1,
+      available: true,
+      receivedAt: Date.now() - 45_000,
+    };
+
+    const { container } = renderMarkets();
+    expect(container.querySelector('[data-quote-stale="true"]')).not.toBeNull();
+    expect(screen.getByText("Quote stale — reconnecting")).toBeInTheDocument();
+    expect(screen.queryByText(/99,123\.45/)).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Unsettled" }));
+    expect(screen.getByText("No unsettled markets right now.")).toBeInTheDocument();
   });
 });
