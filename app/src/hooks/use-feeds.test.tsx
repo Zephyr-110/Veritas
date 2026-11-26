@@ -3,7 +3,7 @@ import { render, act, cleanup } from "@testing-library/react";
 import type { Connection } from "@solana/web3.js";
 import type { FeedKey, FeedQuote } from "@/lib/types";
 import { FEEDS } from "@/lib/feeds";
-import { isQuoteStale, QUOTE_STALE_MS } from "@/lib/chainlink";
+import { isQuoteStale, QUOTE_PUBLISH_STALE_MS, QUOTE_STALE_MS } from "@/lib/chainlink";
 
 const chainlinkMocks = vi.hoisted(() => ({
   fetchFeedQuotes: vi.fn(),
@@ -61,13 +61,14 @@ function emptyMockQuotes(): Record<FeedKey, FeedQuote> {
 }
 
 describe("isQuoteStale", () => {
-  it("uses client receivedAt > 30s rather than Chainlink publishTime", () => {
+  it("gates on both client receivedAt (>30s) and Chainlink report publishTime (>5m)", () => {
     const nowMs = 1_800_000_000_000;
+    const nowSec = Math.floor(nowMs / 1000);
     const quietLive: FeedQuote = {
       key: "btc",
       price: 60_000,
       decimals: 8,
-      publishTime: Math.floor(nowMs / 1000) - 120,
+      publishTime: nowSec - 120,
       counter: 10,
       available: true,
       receivedAt: nowMs - 5_000,
@@ -77,6 +78,14 @@ describe("isQuoteStale", () => {
     expect(isQuoteStale({ ...quietLive, receivedAt: nowMs - QUOTE_STALE_MS - 1 }, nowMs)).toBe(true);
     expect(isQuoteStale({ ...quietLive, receivedAt: null }, nowMs)).toBe(true);
     expect(isQuoteStale({ ...quietLive, available: false }, nowMs)).toBe(true);
+    // Feed stopped updating (>5m old publishTime) triggers stale gate even when RPC receivedAt is fresh
+    expect(
+      isQuoteStale({ ...quietLive, publishTime: nowSec - QUOTE_PUBLISH_STALE_MS / 1000, receivedAt: nowMs - 1_000 }, nowMs)
+    ).toBe(false);
+    expect(
+      isQuoteStale({ ...quietLive, publishTime: nowSec - QUOTE_PUBLISH_STALE_MS / 1000 - 1, receivedAt: nowMs - 1_000 }, nowMs)
+    ).toBe(true);
+    expect(isQuoteStale({ ...quietLive, publishTime: null, receivedAt: nowMs - 1_000 }, nowMs)).toBe(true);
   });
 });
 

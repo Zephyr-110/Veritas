@@ -152,11 +152,29 @@ function instructionGroups(tx) {
 }
 
 function extractOcr2Instructions(tx) {
-  if (!tx || !tx.meta) return [];
-  return instructionGroups(tx)
-    .flat()
-    .filter((ix) => ix.program && ix.program.equals(CHAINLINK_OCR2_PROGRAM_ID))
-    .map((ix) => ix.data);
+  if (!tx) return [];
+  const message = tx.transaction.message;
+  const keys = message.getAccountKeys({
+    accountKeysFromLookups: tx.meta?.loadedAddresses || undefined,
+  });
+  const out = [];
+  for (const ix of message.compiledInstructions) {
+    const pid = keys.get(ix.programIdIndex);
+    if (pid && pid.equals(CHAINLINK_OCR2_PROGRAM_ID)) {
+      out.push(decodeIxData(ix.data));
+    }
+  }
+  if (tx.meta?.innerInstructions) {
+    for (const group of tx.meta.innerInstructions) {
+      for (const ix of group.instructions) {
+        const pid = keys.get(ix.programIdIndex);
+        if (pid && pid.equals(CHAINLINK_OCR2_PROGRAM_ID)) {
+          out.push(decodeIxData(ix.data));
+        }
+      }
+    }
+  }
+  return out;
 }
 
 async function fetchTxBatch(connection, signatures) {
@@ -883,6 +901,7 @@ module.exports = {
   buildEvidenceRecord,
   computeEvidenceFromChain,
   decodeResolveReports,
+  extractOcr2Instructions,
   fetchRulingForMarket,
   findPushSignaturesForRuling,
   hydrateMarketRows,

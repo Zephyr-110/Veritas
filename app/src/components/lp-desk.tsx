@@ -44,17 +44,36 @@ export function LpDesk({
     }
   }, [amount, market.decimals]);
 
-  const accrued = useMemo(() => pmAmmAccrue(market, now), [market, now]);
-  const effectiveReserveYes = BigInt(Math.max(0, Math.floor(accrued.reserveYes)));
-  const effectiveReserveNo = BigInt(Math.max(0, Math.floor(accrued.reserveNo)));
+  const accrued = useMemo(
+    () => (market.status === "open" ? pmAmmAccrue(market, now) : null),
+    [market, now]
+  );
+  const effectiveReserveYes = accrued
+    ? BigInt(Math.max(0, Math.floor(accrued.reserveYes)))
+    : market.reserveYes;
+  const effectiveReserveNo = accrued
+    ? BigInt(Math.max(0, Math.floor(accrued.reserveNo)))
+    : market.reserveNo;
+  const releasedYes =
+    market.reserveYes > effectiveReserveYes ? market.reserveYes - effectiveReserveYes : 0n;
+  const releasedNo =
+    market.reserveNo > effectiveReserveNo ? market.reserveNo - effectiveReserveNo : 0n;
+  const accruedPendingYes =
+    market.totalLpShares > 0n
+      ? position.pendingYes + (releasedYes * position.lpShares) / market.totalLpShares
+      : position.pendingYes;
+  const accruedPendingNo =
+    market.totalLpShares > 0n
+      ? position.pendingNo + (releasedNo * position.lpShares) / market.totalLpShares
+      : position.pendingNo;
   const addQuote = quoteAddLiquidity(effectiveReserveYes, effectiveReserveNo, market.totalLpShares, parsed.value);
   const wdQuote = quoteWithdrawLiquidity(
     effectiveReserveYes,
     effectiveReserveNo,
     market.totalLpShares,
     parsed.value,
-    position.pendingYes,
-    position.pendingNo,
+    accruedPendingYes,
+    accruedPendingNo,
     position.lpShares
   );
 
@@ -133,7 +152,7 @@ export function LpDesk({
           <span className="text-zinc-500">
             <StableText k="common.pending" />
             <span className="num ml-1.5 text-zinc-100">
-              {formatFixed(position.pendingYes, market.decimals, 4)} / {formatFixed(position.pendingNo, market.decimals, 4)}
+              {formatFixed(accruedPendingYes, market.decimals, 4)} / {formatFixed(accruedPendingNo, market.decimals, 4)}
             </span>
           </span>
         </div>
@@ -205,6 +224,11 @@ export function LpDesk({
             <StableText k={activeTab === "add" ? "lp.addSubmit" : "lp.withdrawSubmit"} align="center" />
           )}
         </Button>
+        {isSandbox ? (
+          <p className="text-xs leading-5 text-zinc-400">
+            <StableText k="lp.sandboxNote" block />
+          </p>
+        ) : null}
         {withdrawn ? (
           <p className="border border-[var(--yes-line)] bg-[var(--yes-soft)] px-3 py-2 text-xs leading-5 text-[var(--yes)]">
             <StableText k="lp.withdrawnRedeemHint" vars={{ symbol: COLLATERAL_SYMBOL }} block />

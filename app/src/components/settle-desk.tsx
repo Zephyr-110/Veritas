@@ -21,6 +21,7 @@ import {
   ixVoidMarket,
 } from "@/lib/instructions";
 import {
+  claimableOf,
   fetchMarketSnapshot,
   marketPhase,
   type MarketView,
@@ -55,7 +56,7 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
       : 0n;
   const canMerge = market.status === "open" && mergeable > 0n;
   const canClaimWinner = market.status === "resolved" && winningAmount > 0n;
-  const canClaimVoid = isMarketVoided(market) && (position.yes > 1n || position.no > 1n);
+  const canClaimVoid = isMarketVoided(market) && claimableOf(market, position) > 0n;
   const showSnapshot = phase.inSnapshotWindow && !isSandbox;
   const showResolve = market.status === "open" && phase.expired;
   const isCreator = Boolean(realPublicKey && realPublicKey.equals(market.creator));

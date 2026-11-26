@@ -247,6 +247,8 @@ function SettingsInner({ children }: { children: ReactNode }) {
       void queryClient.invalidateQueries({ queryKey: ["positions"], refetchType: "all" });
       void queryClient.invalidateQueries({ queryKey: ["redemptions"], refetchType: "all" });
       void queryClient.invalidateQueries({ queryKey: ["sandbox-balance"], refetchType: "all" });
+      void queryClient.invalidateQueries({ queryKey: ["ruling-db"], refetchType: "all" });
+      void queryClient.invalidateQueries({ queryKey: ["ruling"], refetchType: "all" });
       if (includeLists) {
         void queryClient.invalidateQueries({ queryKey: ["markets"], refetchType: "all" });
         void queryClient.invalidateQueries({ queryKey: ["visible-vaults"] });

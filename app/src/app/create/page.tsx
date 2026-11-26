@@ -319,7 +319,7 @@ export default function CreatePage() {
   };
 
   const previewThreshold = useMemo(
-    () => t(feed.labelKey) + " " + (above ? ">=" : "<") + " " + human,
+    () => t(feed.labelKey) + " " + (above ? "≥" : "<") + " " + human,
     [feed.labelKey, above, human, t]
   );
 

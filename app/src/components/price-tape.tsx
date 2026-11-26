@@ -21,38 +21,34 @@ export const FEED_DISPLAY_NAMES: Partial<Record<FeedKey, string>> = {
 };
 
 function PriceValue({ value }: { value: number }) {
-  const [display, setDisplay] = useState(0);
+  const [display, setDisplay] = useState(value);
   const [dir, setDir] = useState<"up" | "down" | null>(null);
-  const fromRef = useRef(0);
-  const mountedRef = useRef(false);
+  const fromRef = useRef(value);
   const rafRef = useRef(0);
 
   useEffect(() => {
-    const first = !mountedRef.current;
-    mountedRef.current = true;
-    const from = first ? 0 : fromRef.current;
+    const from = fromRef.current;
     const to = value;
     fromRef.current = value;
-    if (typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setDisplay(to);
-      return;
-    }
     if (from === to) {
       setDisplay(to);
       return;
     }
-    if (!first) setDir(to > from ? "up" : "down");
-    const start = performance.now();
-    const dur = first ? 700 : 380;
-    cancelAnimationFrame(rafRef.current);
-    const step = (nowMs: number) => {
-      const k = Math.min(1, (nowMs - start) / dur);
-      const eased = 1 - Math.pow(1 - k, 3);
-      setDisplay(from + (to - from) * eased);
-      if (k < 1) rafRef.current = requestAnimationFrame(step);
-    };
-    rafRef.current = requestAnimationFrame(step);
-    if (first) return;
+    setDir(to > from ? "up" : "down");
+    if (typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setDisplay(to);
+    } else {
+      const start = performance.now();
+      const dur = 380;
+      cancelAnimationFrame(rafRef.current);
+      const step = (nowMs: number) => {
+        const k = Math.min(1, (nowMs - start) / dur);
+        const eased = 1 - Math.pow(1 - k, 3);
+        setDisplay(from + (to - from) * eased);
+        if (k < 1) rafRef.current = requestAnimationFrame(step);
+      };
+      rafRef.current = requestAnimationFrame(step);
+    }
     const id = window.setTimeout(() => setDir(null), 650);
     return () => window.clearTimeout(id);
   }, [value]);

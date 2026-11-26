@@ -1,8 +1,8 @@
 // @vitest-environment node
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { utils } from "@coral-xyz/anchor";
-import { PublicKey, type VersionedTransactionResponse } from "@solana/web3.js";
-import { redemptionRows } from "./history";
+import { PublicKey, type Connection, type VersionedTransactionResponse } from "@solana/web3.js";
+import { fetchRedemptions, redemptionRows } from "./history";
 
 it("keeps both sides of a void redemption and accounts for each actual payout separately", () => {
   const key = (b: number) => new PublicKey(Buffer.alloc(32, b));
@@ -31,4 +31,18 @@ it("keeps both sides of a void redemption and accounts for each actual payout se
   expect(rows[0].id).not.toBe(rows[1].id);
   expect(redemptionRows(tx, "sig", key(42), program)).toEqual([]);
   expect(redemptionRows({ ...tx, meta: null }, "sig", owner, program)).toEqual([]);
+});
+
+it("propagates RPC errors from fetchRedemptions instead of silently returning an empty list", async () => {
+  const owner = new PublicKey(Buffer.alloc(32, 1));
+  const program = new PublicKey(Buffer.alloc(32, 2));
+  const conn = {
+    getSignaturesForAddress: vi.fn().mockResolvedValue([
+      { signature: "sig-1", slot: 1, err: null, memo: null, blockTime: 1_800_000_000 },
+    ]),
+    getTransactions: vi.fn().mockRejectedValue(new Error("429 Too Many Requests")),
+    getTransaction: vi.fn().mockRejectedValue(new Error("429 Too Many Requests")),
+  } as unknown as Connection;
+
+  await expect(fetchRedemptions(conn, owner, program)).rejects.toThrow("429 Too Many Requests");
 });

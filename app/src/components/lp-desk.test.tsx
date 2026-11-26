@@ -300,4 +300,36 @@ describe("LpDesk 报价展示与指令提交", () => {
       )
     ).toBeInTheDocument();
   });
+
+  it("长时间无交易后按结息重算储备预览，撤出时将释放量计入待领不低报实得", async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    // 15m market where 11.25m elapsed (T-t drops from 900s to 225s -> L_eff halves)
+    // At P=0.5, reserves = L_eff * phi(0) ≈ L_eff * 0.39894228
+    const lZeroInt = 8_355_426n; // L_eff(900) = 8_355_426 * 30 ≈ 250_662_780 -> reserves ≈ 100_000_000
+    const market = makeMarket({
+      status: "open",
+      expiry: nowSec + 225,
+      endTs: nowSec + 225,
+      lastAccrualTs: nowSec - 675,
+      lZero: lZeroInt << 48n,
+      reserveYes: 100_000_000n,
+      reserveNo: 100_000_000n,
+      totalLpShares: 100_000_000n,
+    });
+    const position = makePosition({
+      lpShares: 100_000_000n,
+      pendingYes: 1_000_000n,
+      pendingNo: 1_000_000n,
+    });
+    const { container } = renderDesk(market, position);
+
+    await userEvent.click(screen.getByRole("button", { name: "Withdraw" }));
+    await userEvent.click(screen.getByRole("button", { name: "Max" }));
+
+    // Full exit of 100% LP shares must conserve total working + newly released + prior pending (~101.00 each)
+    const pops = Array.from(container.querySelectorAll(".pop-num")).map((el) => el.textContent);
+    expect(pops).toEqual(["101.00", "101.00"]);
+    // Also verify chips have no USDT suffix
+    expect(pops.every((p) => !p?.includes("USDT"))).toBe(true);
+  });
 });

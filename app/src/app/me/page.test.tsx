@@ -6,7 +6,7 @@ import { PublicKey } from "@solana/web3.js";
 import { FEEDS } from "@/lib/feeds";
 import { toUi } from "@/lib/format";
 import type { WalletPositionsSummaryDto } from "@/lib/market-dto";
-import { isFinalizedStatus, isVoidedStatus, pendingValueOf, type MarketView, type UserPosition } from "@/lib/markets";
+import { claimableOf, isFinalizedStatus, pendingValueOf, type MarketView, type UserPosition } from "@/lib/markets";
 import { LocaleProvider } from "@/i18n/provider";
 
 const NOW = 1_767_225_600;
@@ -38,18 +38,25 @@ vi.mock("@/hooks/use-program", () => ({
 }));
 
 function buildSummary(rows: PositionRow[]): WalletPositionsSummaryDto {
-  const claimableOf = (market: MarketView, position: UserPosition) => {
-    if (market.status === "resolved") return market.winner === "yes" ? position.yes : position.no;
-    if (isVoidedStatus(market.status)) {
-      return position.yes > 1n || position.no > 1n ? (position.yes + position.no) / 2n : 0n;
-    }
-    return 0n;
-  };
   const finalized = rows.filter(({ market }) => isFinalizedStatus(market.status));
   return {
     totalMarkets: rows.length,
-    sumYes: rows.reduce((a, r) => a + Number(toUi(r.position.yes, r.market.decimals, 2)), 0),
-    sumNo: rows.reduce((a, r) => a + Number(toUi(r.position.no, r.market.decimals, 2)), 0),
+    sumYes: rows.reduce(
+      (a, r) =>
+        a +
+        (r.market.status === "open" || (r.market.status === "resolved" && r.market.winner === "yes")
+          ? Number(toUi(r.position.yes, r.market.decimals, 2))
+          : 0),
+      0
+    ),
+    sumNo: rows.reduce(
+      (a, r) =>
+        a +
+        (r.market.status === "open" || (r.market.status === "resolved" && r.market.winner === "no")
+          ? Number(toUi(r.position.no, r.market.decimals, 2))
+          : 0),
+      0
+    ),
     sumPending: rows.reduce(
       (a, r) => a + Number(toUi(pendingValueOf(r.market, r.position), r.market.decimals, 4)),
       0
@@ -320,5 +327,24 @@ describe("MePage Claim 跳转分流", () => {
     await screen.findByText("Single Unclaimed Market");
     expect(screen.getByText(/in 1 finalized market —/)).toBeInTheDocument();
     expect(screen.queryByText(/in 1 finalized markets/)).toBeNull();
+  });
+
+  it("兑付记录拉取失败时显示错误态与重试按钮，不伪装成无记录", async () => {
+    fetchRedemptions.mockRejectedValue(new Error("429 Too Many Requests"));
+    positionState.rows = [
+      {
+        market: makeMarket(10, { title: "Active Market" }),
+        position: makePosition({ yes: 2_000_000n }),
+      },
+    ];
+
+    renderMePage();
+
+    expect(await screen.findByText("Could not load redemption history from RPC.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Public RPC may be rate-limited or temporarily unavailable. Please retry in a moment.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.queryByText("No redemption signatures in the recent history window.")).toBeNull();
   });
 });

@@ -11,7 +11,7 @@ import { localizeError } from "@/lib/errors";
 import { feedByState, formatFeedPrice, thresholdToHuman } from "@/lib/feeds";
 import { countdown, explorerAccount, formatCents, formatFixed, formatUnix, formatYesNo, marketIdHex, shorten } from "@/lib/format";
 import { COLLATERAL_SYMBOL, RESOLVE_WINDOW } from "@/lib/constants";
-import { isFinalizedStatus, marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
+import { claimableOf, isFinalizedStatus, marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
 import { isQuoteStale } from "@/lib/chainlink";
 import { pmAmmAccrue } from "@/lib/quote";
 import { TradeDesk } from "@/components/trade-desk";
@@ -19,7 +19,7 @@ import { LiquidityCard, PriceChartCard } from "@/components/market-visuals";
 import { chartPair } from "@/lib/chart";
 import { LpDesk } from "@/components/lp-desk";
 import { SettleDesk } from "@/components/settle-desk";
-import { CountUp, FlashNum, LiveCountdown } from "@/components/live";
+import { FlashNum, LiveCountdown } from "@/components/live";
 import { PriceAge } from "@/components/price-age";
 import { RulingEvidence } from "@/components/ruling-evidence";
 import { Button, Card, CopyText, DataFreshness, Kv, Reveal, SegTabs, StableText, StateBlock, StatusChip, onSpot } from "@/components/ui";
@@ -364,7 +364,7 @@ function StatusBand({
       {spot ? (
         <span className="flex items-baseline gap-2">
           <FlashNum value={spot.price}>
-            <CountUp value={spot.price} format={(v) => formatFeedPrice(v)} />
+            {formatFeedPrice(spot.price)}
           </FlashNum>
           <PriceAge publishTime={spot.publishTime} className="min-w-[4.25rem] text-left text-[11px]" />
         </span>
@@ -506,14 +506,7 @@ function PositionCard({
     return Number.isFinite(num) ? `~${num.toFixed(2)} ${COLLATERAL_SYMBOL}` : "";
   };
 
-  const finalizedClaimable =
-    market.status === "resolved"
-      ? market.winner === "yes"
-        ? position.yes
-        : position.no
-      : isMarketVoided(market)
-        ? position.yes / 2n + position.no / 2n
-        : 0n;
+  const finalizedClaimable = claimableOf(market, position);
 
   const isExpiredOpen = market.status === "open" && now > 0 && now >= market.expiry;
 

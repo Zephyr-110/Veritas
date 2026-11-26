@@ -55,6 +55,8 @@ describe("Providers refresh invalidation", () => {
     expect(spy).toHaveBeenCalledWith({ queryKey: ["positions"], refetchType: "all" });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["redemptions"], refetchType: "all" });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["sandbox-balance"], refetchType: "all" });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["ruling-db"], refetchType: "all" });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["ruling"], refetchType: "all" });
     expect(typeof markTxRefresh).toBe("function");
   });
 

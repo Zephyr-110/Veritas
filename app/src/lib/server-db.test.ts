@@ -28,6 +28,7 @@ import {
   queryMarketsPage,
   querySettlementEvidence,
   queryWalletPositionsPage,
+  syncWalletPositionsOnDemand,
   upsertSettlementEvidence,
 } from "@/lib/server-db";
 import { GET as getMarketsApi } from "@/app/api/markets/route";
@@ -630,5 +631,88 @@ describe("server-db & API routes", () => {
     expect(adj.complete).toBe(true);
     expect(adj.healed).toBe(false);
     expect(getAccSpy).not.toHaveBeenCalled();
+  });
+
+  it("filters losing and voided shares out of summary sumYes/sumNo and applies per-mint floor on void claimTotal", () => {
+    const nowSec = 1_800_000_000;
+    const addresses = seedMarkets(dbPath, 16, nowSec);
+    const db = getServerDb(dbPath);
+    const wallet = Keypair.generate().publicKey.toBase58();
+
+    // addresses[0]: open; addresses[12]: resolved yes; addresses[13]: resolved no; addresses[14]: staleBurn
+    const openAddr = addresses[0];
+    const resolvedYesAddr = addresses[12];
+    const resolvedNoAddr = addresses[13];
+    const voidAddr = addresses[14];
+    db.prepare("UPDATE markets SET status = 'staleBurn', winner = NULL WHERE address = ?").run(voidAddr);
+
+    const insertPos = db.prepare(`
+      INSERT INTO wallet_positions (
+        wallet, market_address, program_id, yes_amount, no_amount, lp_shares,
+        pending_yes, pending_no, claimable_amount, can_claim, collateral_amount, updated_at
+      ) VALUES (?, ?, ?, ?, ?, '0', '0', '0', '0', 0, '0', ?)
+    `);
+    insertPos.run(wallet, openAddr, DEFAULT_PROGRAM_ID, "4000000", "1000000", nowSec);
+    // Winning YES (3) + losing NO (5) -> only YES counts in sumYes, claimable = 3
+    insertPos.run(wallet, resolvedYesAddr, DEFAULT_PROGRAM_ID, "3000000", "5000000", nowSec);
+    // Losing YES (8) + winning NO (2) -> only NO counts in sumNo, claimable = 2
+    insertPos.run(wallet, resolvedNoAddr, DEFAULT_PROGRAM_ID, "8000000", "2000000", nowSec);
+    // Voided double-odd: yes=2_000_001, no=2_000_001 -> excluded from sumYes/sumNo, claimable = 1_000_000 + 1_000_000 = 2_000_000
+    insertPos.run(wallet, voidAddr, DEFAULT_PROGRAM_ID, "2000001", "2000001", nowSec);
+
+    const page = queryWalletPositionsPage({ wallet, programId: DEFAULT_PROGRAM_ID, dbPath });
+    expect(page.summary.totalMarkets).toBe(4);
+    expect(page.summary.sumYes).toBe(7); // 4 (open) + 3 (resolved yes win)
+    expect(page.summary.sumNo).toBe(3); // 1 (open) + 2 (resolved no win)
+    expect(page.summary.claimCount).toBe(3);
+    expect(page.summary.claimTotal).toBe(7); // 3 + 2 + 2
+  });
+
+  it("allows 1.5s post-tx forceRefresh retry while coalescing sub-second duplicate force refreshes", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_800_000_000_400);
+      const wallet = Keypair.generate().publicKey.toBase58();
+      const getTokenAccountsByOwner = vi.fn(async () => ({ value: [] }));
+      const getProgramAccounts = vi.fn(async () => []);
+      const fakeConn = {
+        rpcEndpoint: "https://api.devnet.solana.com",
+        getTokenAccountsByOwner,
+        getProgramAccounts,
+      } as unknown as Connection;
+
+      await syncWalletPositionsOnDemand({
+        wallet,
+        programId: DEFAULT_PROGRAM_ID,
+        forceRefresh: true,
+        dbPath,
+        connectionOverride: fakeConn,
+      });
+      expect(getProgramAccounts).toHaveBeenCalledTimes(1);
+
+      // Duplicate within 500ms is blocked by the 1s cooldown
+      vi.advanceTimersByTime(500);
+      await syncWalletPositionsOnDemand({
+        wallet,
+        programId: DEFAULT_PROGRAM_ID,
+        forceRefresh: true,
+        dbPath,
+        connectionOverride: fakeConn,
+      });
+      expect(getProgramAccounts).toHaveBeenCalledTimes(1);
+
+      // 1500ms retry (1000ms later, total 1500ms) succeeds even across integer-second boundary
+      vi.advanceTimersByTime(1000);
+      await syncWalletPositionsOnDemand({
+        wallet,
+        programId: DEFAULT_PROGRAM_ID,
+        forceRefresh: true,
+        dbPath,
+        connectionOverride: fakeConn,
+      });
+      expect(getProgramAccounts).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

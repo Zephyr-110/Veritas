@@ -331,6 +331,9 @@ describe("Sandbox desks & header integration", () => {
     const submit = btns[btns.length - 1];
     expect(submit).toBeEnabled();
     expect(submit).toHaveTextContent("Connect real wallet to add liquidity");
+    expect(
+      screen.getByText(/adding or withdrawing liquidity requires a persistent real wallet/i)
+    ).toBeInTheDocument();
     await userEvent.click(submit);
     expect(openWalletModal).toHaveBeenCalledTimes(1);
     expect(ixAddLiquidity).not.toHaveBeenCalled();

@@ -20,7 +20,7 @@ import {
   type WalletPositionsPageResponse,
   type WalletPositionsSummaryDto,
 } from "./market-dto";
-import { fetchMarketSnapshot, isFinalizedStatus, isVoidedStatus, pendingValueOf } from "./markets";
+import { claimableOf, fetchMarketSnapshot, isFinalizedStatus, pendingValueOf } from "./markets";
 import { findLpPosition, findMarketPdas } from "./pdas";
 import { fetchTxBatch } from "./resolve";
 import { fetchRuling, findPushSignatures, witnessCounts } from "./ruling-evidence";
@@ -127,8 +127,9 @@ const globalScope = globalThis as typeof globalThis & {
 };
 
 const EVIDENCE_HEAL_COOLDOWN_MS = 5 * 60 * 1000;
+const EVIDENCE_HEAL_SHORT_COOLDOWN_MS = 5_000;
 const EVIDENCE_HEAL_COOLDOWN_MAX = 500;
-const WALLET_FORCE_SYNC_COOLDOWN_SEC = 2;
+const WALLET_FORCE_SYNC_COOLDOWN_SEC = 1;
 const WALLET_FORCE_SYNC_MAX = 1000;
 const SERVER_RPC_TIMEOUT_MS = 15_000;
 
@@ -547,7 +548,11 @@ function inferClusterFromRpc(rpcUrl = ""): string {
   return "devnet";
 }
 
-function recordEvidenceHealCooldown(key: string, nowMs = Date.now()): void {
+function recordEvidenceHealCooldown(
+  key: string,
+  nowMs = Date.now(),
+  cooldownMs = EVIDENCE_HEAL_COOLDOWN_MS
+): void {
   if (!globalScope.__veritasEvidenceHealCooldown) {
     globalScope.__veritasEvidenceHealCooldown = new Map();
   }
@@ -556,7 +561,7 @@ function recordEvidenceHealCooldown(key: string, nowMs = Date.now()): void {
     const oldest = map.keys().next().value;
     if (oldest !== undefined) map.delete(oldest);
   }
-  map.set(key, nowMs + EVIDENCE_HEAL_COOLDOWN_MS);
+  map.set(key, nowMs + cooldownMs);
 }
 
 export function clearEvidenceHealStateForTests(): void {
@@ -707,7 +712,11 @@ export async function healSettlementEvidenceOnDemand(opts: {
 
       if (dbMarket) {
         if (dbMarket.status !== "resolved") {
-          recordEvidenceHealCooldown(key);
+          recordEvidenceHealCooldown(
+            key,
+            Date.now(),
+            dbMarket.status === "open" ? EVIDENCE_HEAL_SHORT_COOLDOWN_MS : EVIDENCE_HEAL_COOLDOWN_MS
+          );
           return {
             found: Boolean(existing),
             complete: false,
@@ -773,7 +782,11 @@ export async function healSettlementEvidenceOnDemand(opts: {
         fetchMarketSnapshot(connection, new PublicKey(snapshotAddress)),
       ]);
       if (!ruling) {
-        recordEvidenceHealCooldown(key);
+        recordEvidenceHealCooldown(
+          key,
+          Date.now(),
+          existing ? EVIDENCE_HEAL_COOLDOWN_MS : EVIDENCE_HEAL_SHORT_COOLDOWN_MS
+        );
         return {
           found: Boolean(existing),
           complete: false,
@@ -859,21 +872,6 @@ export async function healSettlementEvidenceOnDemand(opts: {
   return task;
 }
 
-function claimableOfRow(
-  status: MarketStatusName,
-  winner: Side | null,
-  yes: bigint,
-  no: bigint
-): bigint {
-  if (status === "resolved") {
-    return winner === "yes" ? yes : winner === "no" ? no : 0n;
-  }
-  if (isVoidedStatus(status)) {
-    return yes / 2n + no / 2n;
-  }
-  return 0n;
-}
-
 async function resolveUnknownLpMarket(
   connection: Connection,
   programId: PublicKey,
@@ -919,19 +917,17 @@ export async function syncWalletPositionsOnDemand(opts: {
     )
     .get(opts.wallet, programId);
 
-  const nowSec = Math.floor(Date.now() / 1000);
+  const nowMs = Date.now();
+  const nowSec = Math.floor(nowMs / 1000);
   const ttlSec = opts.ttlSec ?? 30;
-  const forceCooldownSec = opts.forceCooldownSec ?? WALLET_FORCE_SYNC_COOLDOWN_SEC;
+  const forceCooldownMs = (opts.forceCooldownSec ?? WALLET_FORCE_SYNC_COOLDOWN_SEC) * 1000;
   if (process.env.VERITAS_DISABLE_ON_DEMAND_SYNC === "1" && !opts.connectionOverride) {
     return { syncedAt: existingSync?.synced_at ?? null };
   }
   const syncKey = `${opts.dbPath ?? "default"}:${programId}:${opts.wallet}`;
   const lastForceAt = globalScope.__veritasWalletForceSyncAt?.get(syncKey);
   if (opts.forceRefresh) {
-    if (
-      (existingSync && nowSec - existingSync.synced_at < forceCooldownSec) ||
-      (lastForceAt != null && nowSec - lastForceAt < forceCooldownSec)
-    ) {
+    if (lastForceAt != null && nowMs - lastForceAt < forceCooldownMs) {
       return { syncedAt: existingSync?.synced_at ?? null };
     }
   } else if (existingSync && nowSec - existingSync.synced_at < ttlSec) {
@@ -952,7 +948,7 @@ export async function syncWalletPositionsOnDemand(opts: {
       const oldest = globalScope.__veritasWalletForceSyncAt.keys().next().value;
       if (oldest !== undefined) globalScope.__veritasWalletForceSyncAt.delete(oldest);
     }
-    globalScope.__veritasWalletForceSyncAt.set(syncKey, nowSec);
+    globalScope.__veritasWalletForceSyncAt.set(syncKey, nowMs);
   }
 
   const task = (async () => {
@@ -1121,7 +1117,7 @@ export async function syncWalletPositionsOnDemand(opts: {
         }
         const status = marketRow.status as MarketStatusName;
         const winner = (marketRow.winner as Side | null) ?? null;
-        const claimable = claimableOfRow(status, winner, yes, no);
+        const claimable = claimableOf({ status, winner }, { yes, no });
         const canClaim =
           isFinalizedStatus(status) &&
           (claimable > 0n || lpShares > 0n || pending.yes > 0n || pending.no > 0n)
@@ -1261,7 +1257,7 @@ export function queryWalletPositionsPage(opts: {
       toUi(pendingValueOf({ status, winner }, { pendingYes, pendingNo }), r.decimals, 4)
     );
     if (isFinalizedStatus(status)) {
-      const claimable = claimableOfRow(status, winner, yes, no);
+      const claimable = claimableOf({ status, winner }, { yes, no });
       if (claimable > 0n) {
         summary.claimCount += 1;
         sumClaimAtoms += claimable;

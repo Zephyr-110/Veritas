@@ -9,7 +9,7 @@ import { ExternalLink } from "lucide-react";
 import { useMarketPhaseTime, useWalletPositionsPage } from "@/hooks/use-markets";
 import { useProgram } from "@/hooks/use-program";
 import { subscribeAccountsWithFallback, type SyncMode } from "@/lib/account-sync";
-import { isVoidedStatus, pendingValueOf, type MarketView, type UserPosition } from "@/lib/markets";
+import { claimableOf, pendingValueOf, type MarketView, type UserPosition } from "@/lib/markets";
 import { fetchRedemptions } from "@/lib/history";
 import { localizeError } from "@/lib/errors";
 import { explorerAccount, explorerTx, formatFixed, formatUnix, shorten, toUi } from "@/lib/format";
@@ -26,14 +26,6 @@ import { useT } from "@/i18n/provider";
 import { COLLATERAL_SYMBOL } from "@/lib/constants";
 
 type Row = { market: MarketView; position: UserPosition };
-
-function claimableOf(market: MarketView, position: UserPosition): bigint {
-  if (market.status === "resolved") return market.winner === "yes" ? position.yes : position.no;
-  if (isVoidedStatus(market.status)) {
-    return position.yes / 2n + position.no / 2n;
-  }
-  return 0n;
-}
 
 function GuideStep({
   n,
@@ -477,7 +469,7 @@ export default function MePage() {
             <StateBlock
               kind="error"
               title={<StableText k="me.redeemError" />}
-              body={<StableText k="state.loadHint" block />}
+              body={<StableText k="me.redeemErrorHint" block />}
               action={
                 <Button type="button" tone="secondary" onClick={() => void redemptionsQuery.refetch()}>
                   <StableText k="common.retry" align="center" />

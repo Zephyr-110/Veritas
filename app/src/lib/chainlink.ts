@@ -74,13 +74,21 @@ export function decodeChainlinkFeed(data: Buffer): ChainlinkPrint | null {
 }
 
 export const QUOTE_STALE_MS = 30_000;
+export const QUOTE_PUBLISH_STALE_MS = 300_000;
 
 export function isQuoteStale(
   quote: FeedQuote | null | undefined,
   nowMs = Date.now(),
-  thresholdMs = QUOTE_STALE_MS
+  thresholdMs = QUOTE_STALE_MS,
+  publishThresholdMs = QUOTE_PUBLISH_STALE_MS
 ): boolean {
   if (!quote || !quote.available || quote.price == null || quote.receivedAt === null) {
+    return true;
+  }
+  if (quote.publishTime == null || !Number.isFinite(quote.publishTime) || quote.publishTime <= 0) {
+    return true;
+  }
+  if (nowMs - quote.publishTime * 1000 > publishThresholdMs) {
     return true;
   }
   if (quote.receivedAt === undefined) {

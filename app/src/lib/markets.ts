@@ -95,6 +95,24 @@ export function isFinalizedStatus(status: MarketStatusName): boolean {
   return status === "resolved" || isVoidedStatus(status);
 }
 
+/**
+ * Single source of truth for redeemable collateral atoms matching on-chain
+ * `get_collateral.rs`: winner redeems 1:1; voided markets redeem each mint
+ * independently at `floor(amount / 2)` (`yes / 2n + no / 2n`).
+ */
+export function claimableOf(
+  market: Pick<MarketView, "status" | "winner">,
+  position: Pick<UserPosition, "yes" | "no">
+): bigint {
+  if (market.status === "resolved") {
+    return market.winner === "yes" ? position.yes : market.winner === "no" ? position.no : 0n;
+  }
+  if (isVoidedStatus(market.status)) {
+    return position.yes / 2n + position.no / 2n;
+  }
+  return 0n;
+}
+
 export function pendingValueOf(
   market: Pick<MarketView, "status" | "winner">,
   position: Pick<UserPosition, "pendingYes" | "pendingNo">

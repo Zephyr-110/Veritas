@@ -95,6 +95,9 @@ describe("CreatePage sandbox lock reason", () => {
     expect(
       screen.getByText(/Sandbox Account \(Devnet\) supports trading and redemption only/i)
     ).toBeInTheDocument();
+    // Preview threshold uses Unicode "≥" consistently with the rest of the site
+    expect(screen.getByText(/BTC\/USD ≥ /)).toBeInTheDocument();
+    expect(screen.queryByText(/BTC\/USD >= /)).toBeNull();
 
     await userEvent.click(submit);
     expect(openWalletModal).toHaveBeenCalledTimes(1);

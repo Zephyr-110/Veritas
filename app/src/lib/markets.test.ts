@@ -14,6 +14,7 @@ import { PublicKey, type AccountInfo, type Connection } from "@solana/web3.js";
 import type { Program } from "@coral-xyz/anchor";
 import type { PredictionMarket } from "@/idl/prediction_market";
 import {
+  claimableOf,
   isVoidedStatus,
   isFinalizedStatus,
   pendingValueOf,
@@ -556,8 +557,22 @@ describe("pendingValueOf", () => {
     expect(pendingValueOf({ status: "resolved", winner: null }, pending)).toBe(0n);
   });
 
-  it("作废市场按两边各值一半（0.5 退回）计价", () => {
+  it("作废市场按两边各值一半（0.5 退回）计价，双奇数余额逐边向下取整", () => {
     expect(pendingValueOf({ status: "windowBurn", winner: null }, pending)).toBe(50_030_000n);
     expect(pendingValueOf({ status: "staleBurn", winner: null }, pending)).toBe(50_030_000n);
+    expect(pendingValueOf({ status: "staleBurn", winner: null }, { pendingYes: 3n, pendingNo: 3n })).toBe(2n);
+  });
+});
+
+describe("claimableOf", () => {
+  it("按链上 get_collateral 口径计算胜方与作废逐边减半可领额", () => {
+    expect(claimableOf({ status: "open", winner: null }, { yes: 10n, no: 10n })).toBe(0n);
+    expect(claimableOf({ status: "resolved", winner: "yes" }, { yes: 7n, no: 9n })).toBe(7n);
+    expect(claimableOf({ status: "resolved", winner: "no" }, { yes: 7n, no: 9n })).toBe(9n);
+    expect(claimableOf({ status: "resolved", winner: null }, { yes: 7n, no: 9n })).toBe(0n);
+    // Double-odd void balances: floor(3/2) + floor(3/2) = 2, NOT floor((3+3)/2) = 3
+    expect(claimableOf({ status: "staleBurn", winner: null }, { yes: 3n, no: 3n })).toBe(2n);
+    expect(claimableOf({ status: "windowBurn", winner: null }, { yes: 1n, no: 1n })).toBe(0n);
+    expect(claimableOf({ status: "windowBurn", winner: null }, { yes: 5n, no: 2n })).toBe(3n);
   });
 });

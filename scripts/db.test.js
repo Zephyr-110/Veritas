@@ -328,3 +328,70 @@ test("upsertSettlementEvidence is immutable once set and only fills missing push
   );
   assert.deepEqual(counts, [42, 43]);
 });
+
+test("claimableOf floors voided YES and NO independently and indexer extracts failed OCR2 push payloads", async () => {
+  // Double-odd void balances: floor(3/2) + floor(3/2) = 2, not floor((3+3)/2) = 3
+  assert.equal(dbLib.claimableOf("staleBurn", null, 3n, 3n), 2n);
+  assert.equal(dbLib.claimableOf("windowBurn", null, 1n, 1n), 0n);
+  assert.equal(dbLib.claimableOf("resolved", "yes", 7n, 9n), 7n);
+
+  const indexer = require("./index-markets");
+  const ocr2Program = new PublicKey("cjg3oHmg9uuPsP8D6g29NWvhySJkdYdAo9D25PRbKXJ");
+  const digest = Buffer.alloc(32, 0xab);
+  const makeRawReport = (epoch, round, ts, median) => {
+    const raw = Buffer.alloc(1 + 96 + 61 + 65 * 2);
+    digest.copy(raw, 1);
+    raw.writeUInt32BE(epoch, 1 + 59);
+    raw[1 + 63] = round;
+    raw.writeUInt32BE(ts, 1 + 96);
+    raw[1 + 96 + 4] = 4;
+    raw.writeBigInt64BE(median >> 64n, 1 + 96 + 37);
+    raw.writeBigUInt64BE(BigInt.asUintN(64, median), 1 + 96 + 45);
+    return raw;
+  };
+  const preRaw = makeRawReport(500, 1, 1_800_000_000, 95_000_00000000n);
+  const postRaw = makeRawReport(500, 2, 1_800_000_003, 95_100_00000000n);
+
+  const failedPushTx = {
+    transaction: {
+      signatures: ["sig-failed-post-push"],
+      message: {
+        getAccountKeys: () => ({ get: () => ocr2Program }),
+        compiledInstructions: [{ programIdIndex: 0, accountKeyIndexes: [], data: postRaw }],
+      },
+    },
+    meta: { err: { InstructionError: [0, { Custom: 1 }] }, innerInstructions: [] },
+  };
+  const okPushTx = {
+    transaction: {
+      signatures: ["sig-ok-pre-push"],
+      message: {
+        getAccountKeys: () => ({ get: () => ocr2Program }),
+        compiledInstructions: [{ programIdIndex: 0, accountKeyIndexes: [], data: preRaw }],
+      },
+    },
+    meta: { err: null, innerInstructions: [] },
+  };
+
+  // extractOcr2Instructions must extract payloads from failed push transactions too
+  assert.equal(indexer.extractOcr2Instructions(failedPushTx).length, 1);
+
+  const mockConn = {
+    getSignaturesForAddress: async () => [
+      { signature: "sig-failed-post-push", blockTime: 1_800_000_003, err: { InstructionError: [0, { Custom: 1 }] } },
+      { signature: "sig-ok-pre-push", blockTime: 1_800_000_000, err: null },
+    ],
+    getTransactions: async () => [failedPushTx, okPushTx],
+  };
+
+  const pushes = await indexer.findPushSignaturesForRuling(
+    mockConn,
+    new PublicKey(dbLib.FEEDS[0].feed),
+    {
+      signature: "sig-resolve",
+      pre: { configDigest: digest, raw: preRaw, observationsTimestamp: 1_800_000_000 },
+      post: { configDigest: digest, raw: postRaw, observationsTimestamp: 1_800_000_003 },
+    }
+  );
+  assert.deepEqual(pushes, { pre: "sig-ok-pre-push", post: "sig-failed-post-push" });
+});
