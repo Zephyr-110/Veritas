@@ -182,3 +182,35 @@ describe("HomePage finished marquee & token logos", () => {
     expect(container.querySelectorAll(".home-fin-item")).toHaveLength(1);
   });
 });
+
+describe("HomePage hero copy, layout order, and why cards", () => {
+  it("renders finalized hero headline & subline without mastheadTag or old subtitle", () => {
+    renderHome();
+    expect(screen.getByText("pm-AMM prediction")).toBeInTheDocument();
+    expect(screen.getByText("markets on Solana.")).toBeInTheDocument();
+    expect(screen.getByText("Settlement disputes eliminated at the protocol layer.")).toBeInTheDocument();
+    expect(screen.queryByText(/A fast-paced prediction market/i)).toBeNull();
+    expect(screen.queryByText(/New rounds open every 15 minutes/i)).toBeNull();
+  });
+
+  it("places Live this round immediately below Hero and above the settlement architecture strip", () => {
+    const { container } = renderHome();
+    const hero = container.querySelector(".home-hero");
+    const liveHeading = screen.getByText("Live this round");
+    const settleHeading = screen.getByText(/ON-CHAIN SETTLEMENT/i);
+    expect(hero).not.toBeNull();
+    expect(hero!.compareDocumentPosition(liveHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(liveHeading.compareDocumentPosition(settleHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("renders updated Solana-fit why1 copy and concise dispute-free why2 copy", () => {
+    renderHome();
+    expect(
+      screen.getByText(/At EVM gas prices, the fees alone would eat the pool\./)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/No voting, no dispute bond, no appeal window\./)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/24 cases the round sequence jumped/)).toBeNull();
+  });
+});

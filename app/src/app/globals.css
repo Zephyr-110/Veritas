@@ -740,7 +740,7 @@ html[lang="zh-CN"] .section-title:not(:has([lang])) {
 }
 .masthead .line-mask {
   display: block;
-  padding: 0.25rem 0 0;
+  padding: 0.15rem 0 0.12rem;
 }
 .masthead .mh-brand {
   display: flex;
@@ -752,18 +752,19 @@ html[lang="zh-CN"] .section-title:not(:has([lang])) {
   letter-spacing: -0.015em;
   color: var(--ink-strong);
 }
-.mh-tag {
+.mh-title {
   font-family: "Newsreader", "Noto Serif SC", "Songti SC", Georgia, serif;
-  font-size: clamp(26px, 3vw, 36px);
+  font-size: clamp(32px, 3.7vw, 50px);
+  line-height: 1.12;
   font-weight: 600;
-  color: var(--ink);
+  color: var(--ink-strong);
 }
-.mh-tag :lang(en) {
-  letter-spacing: -0.01em;
+.mh-title :lang(en) {
+  letter-spacing: -0.015em;
 }
-.mh-tag :lang(zh-CN),
-html[lang="zh-CN"] .mh-tag:not(:has([lang])) {
-  letter-spacing: 0.02em;
+.mh-title :lang(zh-CN),
+html[lang="zh-CN"] .mh-title:not(:has([lang])) {
+  letter-spacing: 0.01em;
 }
 
 .brand-word {

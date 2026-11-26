@@ -9,7 +9,6 @@ import { ORACLE_CENSUS_URL } from "@/lib/constants";
 import type { MarketView } from "@/lib/markets";
 import { DemoVideo } from "@/components/demo-video";
 import { PricePanel } from "@/components/price-tape";
-import { PulseAreaMark } from "@/components/logo-marks";
 import { MarketTable } from "@/components/market-table";
 import { MarketCard } from "@/components/market-card";
 import { MarketTableSkeleton } from "@/components/skeletons";
@@ -86,14 +85,13 @@ export default function HomePage() {
               </div>
               <h1 className="mt-4">
                 <span className="line-mask">
-                  <span className="line-inner mh-brand" style={{ animationDelay: "40ms" }}>
-                    <PulseAreaMark size={64} variant="hero" />
-                    <span className="mh-name">{t("brand.name")}</span>
+                  <span className="line-inner mh-title" style={{ animationDelay: "40ms" }}>
+                    <StableText k="home.titleA" align="start" />
                   </span>
                 </span>
-                <span className="line-mask mh-tag-mask">
-                  <span className="line-inner mh-tag" style={{ animationDelay: "90ms" }}>
-                    <StableText k="home.mastheadTag" align="start" />
+                <span className="line-mask">
+                  <span className="line-inner mh-title" style={{ animationDelay: "90ms" }}>
+                    <StableText k="home.titleB" align="start" />
                   </span>
                 </span>
               </h1>
@@ -145,6 +143,85 @@ export default function HomePage() {
           <PricePanel />
         </div>
       </section>
+
+      <Reveal>
+        <section className="home-section">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="home-kicker flex items-center gap-2">
+              <span className="live-dot h-1.5 w-1.5 rounded-full bg-[var(--yes)]" />
+              <StableText k="home.live" />
+            </h2>
+            <DataFreshness
+              updatedAt={updatedAt}
+              refreshing={refreshing}
+              staleError={isStaleError}
+              onRefresh={() => void reload()}
+            />
+          </div>
+          <div className="mt-5">
+            {error && !live.length ? (
+              <div className="surface flex flex-wrap items-center gap-3 p-5 text-[15px] text-zinc-400">
+                <span>{t("markets.loadError", { error: localizeError(error) })}</span>
+                <Button type="button" tone="secondary" className="h-8 px-3 text-[13px]" onClick={() => void reload()}>
+                  <StableText k="common.tryAgain" align="center" />
+                </Button>
+              </div>
+            ) : liveQuery.loading && !liveQuery.markets.length ? (
+              <MarketTableSkeleton rows={4} />
+            ) : live.length ? (
+              <div className="fade-in stack-3">
+                {hydrated && !publicKey ? (
+                  <p className="text-xs text-zinc-400">
+                    <StableText k="home.simLiveHint" block />
+                  </p>
+                ) : null}
+                <MarketTable markets={live} useIndexedVault />
+              </div>
+            ) : (
+              <div className="surface fade-in p-5">
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="text-[15px] text-zinc-400">
+                    <StableText k="home.emptyLive" />
+                  </p>
+                  {hydrated && !publicKey ? (
+                    <Link href="/markets#sim-preview">
+                      <Button type="button" tone="primary" className="h-8 px-3 text-[13px]">
+                        <StableText k="home.simCta" align="center" />
+                      </Button>
+                    </Link>
+                  ) : null}
+                  <Link href="/create">
+                    <Button type="button" tone="secondary" className="h-8 px-3 text-[13px]">
+                      <StableText k="markets.emptyCta" align="center" />
+                    </Button>
+                  </Link>
+                </div>
+                {nextMarket ? (
+                  <div className="mt-5 border-t border-[var(--hair)] pt-5">
+                    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                      <span className="home-kicker">
+                        <StableText k="home.next" />
+                      </span>
+                      <Link
+                        href={`/markets/${nextMarket.address.toBase58()}`}
+                        className="link-accent text-[15px] text-white"
+                      >
+                        {questionTitle(nextMarket)}
+                      </Link>
+                      {mountedNow ? (
+                        <TickingCountdown expiry={nextMarket.expiry} className="text-[18px] text-white" />
+                      ) : null}
+                    </div>
+                    <p className="mt-3 text-[13px] text-zinc-500">
+                      <StableText k="home.nextBody" block />
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+        </section>
+      </Reveal>
 
       <Reveal>
         <section className="py-3">
@@ -246,85 +323,6 @@ export default function HomePage() {
       </Reveal>
 
       <DemoVideo />
-
-      <Reveal>
-        <section className="home-section">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="home-kicker flex items-center gap-2">
-              <span className="live-dot h-1.5 w-1.5 rounded-full bg-[var(--yes)]" />
-              <StableText k="home.live" />
-            </h2>
-            <DataFreshness
-              updatedAt={updatedAt}
-              refreshing={refreshing}
-              staleError={isStaleError}
-              onRefresh={() => void reload()}
-            />
-          </div>
-          <div className="mt-5">
-            {error && !live.length ? (
-              <div className="surface flex flex-wrap items-center gap-3 p-5 text-[15px] text-zinc-400">
-                <span>{t("markets.loadError", { error: localizeError(error) })}</span>
-                <Button type="button" tone="secondary" className="h-8 px-3 text-[13px]" onClick={() => void reload()}>
-                  <StableText k="common.tryAgain" align="center" />
-                </Button>
-              </div>
-            ) : liveQuery.loading && !liveQuery.markets.length ? (
-              <MarketTableSkeleton rows={4} />
-            ) : live.length ? (
-              <div className="fade-in stack-3">
-                {hydrated && !publicKey ? (
-                  <p className="text-xs text-zinc-400">
-                    <StableText k="home.simLiveHint" block />
-                  </p>
-                ) : null}
-                <MarketTable markets={live} useIndexedVault />
-              </div>
-            ) : (
-              <div className="surface fade-in p-5">
-                <div className="flex flex-wrap items-center gap-3">
-                  <p className="text-[15px] text-zinc-400">
-                    <StableText k="home.emptyLive" />
-                  </p>
-                  {hydrated && !publicKey ? (
-                    <Link href="/markets#sim-preview">
-                      <Button type="button" tone="primary" className="h-8 px-3 text-[13px]">
-                        <StableText k="home.simCta" align="center" />
-                      </Button>
-                    </Link>
-                  ) : null}
-                  <Link href="/create">
-                    <Button type="button" tone="secondary" className="h-8 px-3 text-[13px]">
-                      <StableText k="markets.emptyCta" align="center" />
-                    </Button>
-                  </Link>
-                </div>
-                {nextMarket ? (
-                  <div className="mt-5 border-t border-[var(--hair)] pt-5">
-                    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                      <span className="home-kicker">
-                        <StableText k="home.next" />
-                      </span>
-                      <Link
-                        href={`/markets/${nextMarket.address.toBase58()}`}
-                        className="link-accent text-[15px] text-white"
-                      >
-                        {questionTitle(nextMarket)}
-                      </Link>
-                      {mountedNow ? (
-                        <TickingCountdown expiry={nextMarket.expiry} className="text-[18px] text-white" />
-                      ) : null}
-                    </div>
-                    <p className="mt-3 text-[13px] text-zinc-500">
-                      <StableText k="home.nextBody" block />
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-            )}
-          </div>
-        </section>
-      </Reveal>
 
       {merged || !nextMarket ? null : (
         <Reveal>
