@@ -38,8 +38,8 @@ const nextConfig = {
   async rewrites() {
     return [
       {
-        source: "/chart/:path*",
-        destination: "https://api.exchange.coinbase.com/:path*",
+        source: "/chart/products/:productId/candles",
+        destination: "https://api.exchange.coinbase.com/products/:productId/candles",
       },
     ];
   },

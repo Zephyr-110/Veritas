@@ -60,7 +60,7 @@ create_market (creates Market + MarketSnapshot PDAs, binds OCR2 State)
       ▼
     Open ──── user_bet_on / swap / add_liquidity / get_liquidity / merge_token
       │
-      ├── [end_ts - 10s, end_ts + 10s] ──► take_snapshot (records up to 16 feed landings)
+      ├── (end_ts - 10s, end_ts + 10s) ──► take_snapshot (records up to 16 feed landings)
       │
       │  expiry (end_ts)
       ▼
@@ -125,7 +125,7 @@ create_market (creates Market + MarketSnapshot PDAs, binds OCR2 State)
 ## Repository Layout
 
 ```text
-prediction_market/
+Veritas/
 ├── programs/prediction_market/
 │   ├── src/
 │   │   ├── lib.rs                 # Anchor program entrypoints (11 instructions)
@@ -137,8 +137,10 @@ prediction_market/
 │   │   └── math/                  # pm_math, accrual (I80F48), lut, ocr2 (verify_report & read_r_max)
 │   └── tests/                     # LiteSVM integration, econ-security, and captured OCR2 suites
 ├── oracle/                        # Python pm-AMM math & protocol simulator reference vectors
+├── docs/                          # Full-day Devnet Chainlink OCR2 census & verification data
 ├── app/                           # Next.js 15 frontend client & Vitest suite (see app/README.md)
-├── scripts/                       # Permissionless settle.js CLI, Devnet deploy, status, and faucet scripts
+├── scripts/                       # Permissionless settle.js CLI, SQLite indexer, Devnet deploy, and faucet scripts
+│   └── sandbox/                   # Keeper tick.js, daily.js, settle-all.js, expiry-watch.js & tests
 └── .github/workflows/             # CI pipelines (contract-tests.yml & frontend-tests.yml)
 ```
 
@@ -184,8 +186,10 @@ cp .env.example .env.local   # optional; defaults target Solana Devnet
 npm run dev                  # start Next.js dev server on http://localhost:3000
 npm run typecheck            # TypeScript check (tsc --noEmit)
 npm run lint                 # ESLint check (eslint .)
-npm run test:coverage        # Run all 29 Vitest suites (294 tests + 4 opt-in devnet checks) with v8 coverage gates
+npm run test:coverage        # Run all 40 Vitest suites (343 tests + 4 opt-in devnet checks) with v8 coverage gates
 ```
+
+From the repository root, `scripts/` also includes **6 `node --test` suites** (`scripts/settle.test.js`, `scripts/db.test.js`, and `scripts/sandbox/*.test.js`).
 
 The default public Devnet RPC is rate-limited. For local development, set `NEXT_PUBLIC_SOLANA_RPC` in `app/.env.local` to your own Devnet RPC endpoint.
 
@@ -194,7 +198,7 @@ The client IDL under `app/src/idl/` is generated via `npm run gen-idl` (from `ap
 ### 3. Continuous Integration
 
 - [`.github/workflows/contract-tests.yml`](.github/workflows/contract-tests.yml) — Builds the SBF binary (`release.anza.xyz/stable`) and executes the full Cargo + LiteSVM test net (`--lib`, `spec_scenarios`, `econ_settlement`, `ocr2_settle`).
-- [`.github/workflows/frontend-tests.yml`](.github/workflows/frontend-tests.yml) — Runs on Node 24 with `npm run typecheck`, `npm run lint`, and `npm run test:coverage` with enforced coverage gates.
+- [`.github/workflows/frontend-tests.yml`](.github/workflows/frontend-tests.yml) — Runs on Node 24 with `npm run typecheck`, `npm run lint`, `npm run test:coverage` with enforced coverage gates, plus the 6 `node --test` script suites.
 
 ---
 

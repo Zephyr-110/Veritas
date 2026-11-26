@@ -105,7 +105,12 @@ async function claim(address: string, keypairPath: string, ip: string, ipDailyLi
 
   const secret = Uint8Array.from(JSON.parse(readFileSync(keypairPath, "utf8")) as number[]);
   const payer = Keypair.fromSecretKey(secret);
-  const rpc = process.env.FAUCET_RPC_URL ?? "https://api.devnet.solana.com";
+  const rpc = (
+    process.env.FAUCET_RPC_URL ||
+    process.env.SOLANA_RPC ||
+    process.env.NEXT_PUBLIC_SOLANA_RPC ||
+    "https://api.devnet.solana.com"
+  ).trim();
   const connection = new Connection(rpc, "confirmed");
   const mint = new PublicKey(DEFAULT_COLLATERAL_MINT);
   const recipient = new PublicKey(address);

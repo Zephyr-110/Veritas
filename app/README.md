@@ -1,6 +1,6 @@
 # Veritas Client
 
-Next.js 15 frontend for the Veritas on-chain prediction market. All market reads and transactions go directly from the browser to Solana RPC — there is no backend indexer or matching server.
+Next.js 15 frontend for the Veritas on-chain prediction market. Transactions and live market-detail/quote reads go directly from the browser to Solana RPC (no matching server), while paginated market lists, settlement evidence, and wallet position indexes are served from the server-side SQLite index (`/api/markets`, `/api/evidence/[address]`, `/api/positions`).
 
 Protocol mechanics and on-chain constants are documented in the [root README](../README.md).
 
@@ -24,13 +24,13 @@ Protocol mechanics and on-chain constants are documented in the [root README](..
 - **Dual-Track Devnet Faucets & Reference Charts**:
   - `POST /api/faucet/sandbox` powers the zero-wallet **Sandbox Account (Devnet)** flow, generating a browser keypair and automatically topping it up to **0.04 SOL + 30 test USDT** when `SANDBOX_FAUCET_KEYPAIR_PATH` / `FAUCET_KEYPAIR_PATH` is configured.
   - `POST /api/faucet` serves connected real Devnet wallets with **100 test USDT per 24h** when `FAUCET_KEYPAIR_PATH` is configured.
-  - `/chart/*` proxies Coinbase Exchange candles (`next.config.js` rewrite) for visual reference only — settlement always uses signed Chainlink OCR2 reports.
+  - `/chart/products/:productId/candles` proxies Coinbase Exchange candles (`next.config.js` rewrite) for visual reference only — settlement always uses signed Chainlink OCR2 reports.
 
 ### Directory Layout
 
 ```text
 app/src/
-├── app/                   # Next.js App Router pages (/, /markets, /markets/[address], /create, /me, /help, /api/faucet, /api/faucet/sandbox)
+├── app/                   # Next.js App Router pages & API routes (/, /markets, /markets/[address], /create, /me, /help, /api/markets, /api/evidence/[address], /api/positions, /api/faucet, /api/faucet/sandbox)
 ├── components/            # TradeDesk, LpDesk, SettleDesk, MarketCard, MarketTable, PriceTape, UI primitives
 ├── hooks/                 # React Query & RPC hooks (useMarkets, useMarket, useFeeds, useProgram, useNow)
 ├── i18n/                  # Bilingual store, parity assertions, and LocaleProvider
@@ -71,7 +71,7 @@ npm run test:coverage      # Run all suites with v8 coverage report & threshold 
 npm run test:watch         # Watch mode for local development
 ```
 
-### Coverage Overview (29 Suites · 294 Tests + 4 Opt-In Devnet Checks)
+### Coverage Overview (40 Suites · 343 Tests + 4 Opt-In Devnet Checks; plus 6 `scripts/` `node --test` Suites)
 
 | Area | What Is Verified |
 | :--- | :--- |

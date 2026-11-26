@@ -646,6 +646,9 @@
     "sandboxLocked": "Faucet request already processed recently. Retry in 10 seconds.",
     "sandboxEmpty": "Devnet sandbox faucet reserves are depleted. Connect a real wallet to continue.",
     "sandboxDisabled": "Sandbox faucet is not configured on this server. Connect a real wallet instead.",
+    "sandboxRateLimited": "Too many requests. Wait a moment and try again.",
+    "sandboxAddressLimit": "This address has reached the sandbox claim limit. Connect a real wallet to continue.",
+    "sandboxCooldown": "This address claimed a short while ago. Wait a bit before claiming again.",
     "sandboxFaucetFailed": "Sandbox funding request failed. Retry shortly or connect a real wallet."
   },
   "sandbox": {

@@ -646,6 +646,9 @@
     "sandboxLocked": "请求处理中，请 10 秒后重试。",
     "sandboxEmpty": "Devnet 沙盒水龙头余额不足，请连接真实钱包继续。",
     "sandboxDisabled": "当前未启用沙盒领币接口，请连接真实钱包或检查服务端配置。",
+    "sandboxRateLimited": "请求过于频繁，请稍等片刻再试。",
+    "sandboxAddressLimit": "该地址的沙盒领币次数已达上限，请连接真实钱包继续。",
+    "sandboxCooldown": "该地址刚领过，请稍等一会儿再领。",
     "sandboxFaucetFailed": "沙盒领币未完成，请稍后重试或连接真实钱包。"
   },
   "sandbox": {

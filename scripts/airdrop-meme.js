@@ -78,15 +78,20 @@ function tryReadKeypair(p) {
 }
 
 function wslKeypair() {
-  const cmd = spawnSync(
-    "wsl.exe",
-    ["-u", "dev", "--", "bash", "-lc", "cat /home/dev/.config/solana/id.json"],
-    { encoding: "utf8", timeout: 15000 }
-  );
+  const wslUser = (process.env.WSL_USER || "").trim();
+  const wslWalletPath = (process.env.WSL_WALLET_PATH || "").trim();
+  if (!wslWalletPath) return null;
+  const args = [];
+  if (wslUser) args.push("-u", wslUser);
+  args.push("--", "cat", wslWalletPath);
+  const cmd = spawnSync("wsl.exe", args, { encoding: "utf8", timeout: 15000 });
   if (cmd.status !== 0) return null;
   const text = (cmd.stdout || "").trim();
   if (!text.startsWith("[")) return null;
-  return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(text)));
+  return {
+    keypair: Keypair.fromSecretKey(Uint8Array.from(JSON.parse(text))),
+    label: `wsl:${wslWalletPath}`,
+  };
 }
 
 function loadPayer() {
@@ -110,8 +115,8 @@ function loadPayer() {
 
   const fromWsl = wslKeypair();
   if (fromWsl) {
-    console.log("wallet_file", "wsl:/home/dev/.config/solana/id.json");
-    return fromWsl;
+    console.log("wallet_file", fromWsl.label);
+    return fromWsl.keypair;
   }
 
   throw new Error(

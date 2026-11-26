@@ -5,7 +5,7 @@ set -euo pipefail
 PROGRAM_ID="CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER"
 CLOSED_ID="GeLQ6ETg5VPU86bCBKAnA7pRygoJaf5uXd5g6upvzfmD"
 TOKEN_ID="2Ztk1WhiRrFqZZktipzPEQghJFNJbA8C1LL1v3LsWCiP"
-WIN_ROOT="/mnt/c/Users/30149/prediction_market"
+WIN_ROOT="${WIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 WORK="$HOME/pm_deploy"
 SO_SRC="$WIN_ROOT/target/deploy/prediction_market.so"
 KP_SRC="$WIN_ROOT/target/deploy/prediction_market-keypair.json"

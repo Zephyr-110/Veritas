@@ -4,10 +4,16 @@ on:
   push:
     paths:
       - "app/**"
+      - "scripts/**"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/frontend-tests.yml"
   pull_request:
     paths:
       - "app/**"
+      - "scripts/**"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/frontend-tests.yml"
 
 jobs:
@@ -38,6 +44,14 @@ jobs:
 
       - name: Unit & component tests
         run: npm run test:coverage
+
+      - name: Install script dependencies
+        working-directory: .
+        run: npm ci --omit=dev
+
+      - name: Script tests
+        working-directory: .
+        run: node --test scripts/settle.test.js scripts/db.test.js scripts/sandbox/tick.test.js scripts/sandbox/daily.test.js scripts/sandbox/settle-all.test.js scripts/sandbox/expiry-watch.test.js
 
       - name: Upload coverage artifact
         if: always()

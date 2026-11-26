@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LocaleProvider } from "@/i18n/provider";
+import { hasKey } from "@/i18n/store";
 
 const walletState = vi.hoisted(() => ({
   publicKey: null as PublicKey | null,
@@ -34,7 +35,7 @@ vi.mock("@/lib/sandbox-send", () => ({
 }));
 
 const { Providers } = await import("@/components/providers");
-const { SANDBOX_STORAGE_KEY, useGuestSession, useSandboxTx } = await import(
+const { SANDBOX_STORAGE_KEY, faucetErrorKey, useGuestSession, useSandboxTx } = await import(
   "@/components/guest-session"
 );
 
@@ -300,5 +301,33 @@ describe("GuestSessionProvider state machine", () => {
     );
     expect(screen.getByTestId("mode")).toHaveTextContent("none");
     expect(screen.getByRole("alert")).toHaveTextContent(/faucet reserves are depleted/i);
+  });
+
+  it("maps every known server faucet error code (except failed) to a dedicated locale key", () => {
+    const dedicatedCodes = [
+      "bad_address",
+      "ip_limit",
+      "daily_sol_cap",
+      "daily_cap",
+      "locked",
+      "empty",
+      "disabled",
+      "rate_limited",
+      "address_limit",
+      "cooldown",
+    ] as const;
+
+    for (const code of dedicatedCodes) {
+      const key = faucetErrorKey(code);
+      expect(key, `code ${code} must not fall back to generic error`).not.toBe(
+        "errors.sandboxFaucetFailed"
+      );
+      expect(hasKey(key), `missing locale key ${key} for ${code}`).toBe(true);
+    }
+
+    expect(faucetErrorKey("daily_cap")).toBe("errors.sandboxDailyCap");
+    expect(faucetErrorKey("daily_sol_cap")).toBe("errors.sandboxDailyCap");
+    expect(faucetErrorKey("failed")).toBe("errors.sandboxFaucetFailed");
+    expect(faucetErrorKey(undefined)).toBe("errors.sandboxFaucetFailed");
   });
 });

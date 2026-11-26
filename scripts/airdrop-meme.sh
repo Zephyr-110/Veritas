@@ -5,14 +5,8 @@ cd "$ROOT"
 if command -v node >/dev/null 2>&1; then
   exec node scripts/airdrop-meme.js "$@"
 fi
-for n in \
-  "/mnt/c/Users/30149/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe" \
-  "/mnt/d/????/????/node.exe" \
-  "/mnt/d/????/????/Node.js/node.exe"
-do
-  if [[ -x "$n" ]]; then
-    exec "$n" scripts/airdrop-meme.js "$@"
-  fi
-done
-echo "node not found" >&2
+if [[ -n "${NODE_EXE:-}" && -x "$NODE_EXE" ]]; then
+  exec "$NODE_EXE" scripts/airdrop-meme.js "$@"
+fi
+echo "node not found; install node on PATH or set NODE_EXE=/path/to/node" >&2
 exit 1

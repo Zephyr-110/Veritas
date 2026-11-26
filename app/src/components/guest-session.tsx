@@ -175,12 +175,13 @@ function writeStoredSandbox(
   }
 }
 
-function faucetErrorKey(code: string | undefined): string {
+export function faucetErrorKey(code: string | undefined): string {
   if (code === "bad_address") return "errors.badAddress";
   switch (code) {
     case "ip_limit":
       return "errors.sandboxIpLimit";
     case "daily_sol_cap":
+    case "daily_cap":
       return "errors.sandboxDailyCap";
     case "locked":
       return "errors.sandboxLocked";
@@ -188,6 +189,12 @@ function faucetErrorKey(code: string | undefined): string {
       return "errors.sandboxEmpty";
     case "disabled":
       return "errors.sandboxDisabled";
+    case "rate_limited":
+      return "errors.sandboxRateLimited";
+    case "address_limit":
+      return "errors.sandboxAddressLimit";
+    case "cooldown":
+      return "errors.sandboxCooldown";
     default:
       return "errors.sandboxFaucetFailed";
   }
@@ -561,7 +568,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
       update(toastId, {
         kind: "err",
         title: t("sandbox.enterFailedTitle"),
-        detail: "errors.sandboxFaucetFailed",
+        detail: t("errors.sandboxFaucetFailed"),
         href: undefined,
         sticky: false,
         durationMs: 10_000,
@@ -650,7 +657,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
       update(toastId, {
         kind: "err",
         title: t("sandbox.refillFailedTitle"),
-        detail: "errors.sandboxFaucetFailed",
+        detail: t("errors.sandboxFaucetFailed"),
         href: undefined,
         sticky: false,
         durationMs: 10_000,
@@ -726,7 +733,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
       update(toastId, {
         kind: "err",
         title: t("sandbox.resetFailedTitle"),
-        detail: "errors.sandboxFaucetFailed",
+        detail: t("errors.sandboxFaucetFailed"),
         href: undefined,
         sticky: false,
         durationMs: 10_000,
