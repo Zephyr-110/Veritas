@@ -156,7 +156,15 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
     market.prediction = param.prediction;
     market.finish_ts = 0;
 
-    market.end_ts = param.expiry as i64;
+    let end_ts = i64::try_from(param.expiry)
+        .map_err(|_| error!(ErrorCode::InvalidAmount))?;
+    require!(
+        end_ts.checked_add(MAX_SETTLE_DELAY).is_some()
+        && param.expiry.checked_add(RESOLVE_WINDOW).is_some()
+        && end_ts > ctx.accounts.clock.unix_timestamp,
+        ErrorCode::InvalidAmount
+    );
+    market.end_ts = end_ts;
     market.last_accrual_ts = ctx.accounts.clock.unix_timestamp;
     market.fee_bps = SERVICE_FEE as u16;
 
