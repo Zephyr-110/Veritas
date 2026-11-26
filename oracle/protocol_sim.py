@@ -261,8 +261,8 @@ class Protocol:
         self.no_supply += amount
         ry, rn = self.reserve_yes, self.reserve_no
         max_r = max(ry, rn)
-        yes_in = amount if ry > rn else math.floor(amount * ry / rn)
-        no_in = amount if ry < rn else math.floor(amount * rn / ry)
+        yes_in = amount if ry > rn else math.ceil(amount * ry / rn)
+        no_in = amount if ry < rn else math.ceil(amount * rn / ry)
         w.yes -= yes_in
         w.no -= no_in
         self.phys_yes += yes_in

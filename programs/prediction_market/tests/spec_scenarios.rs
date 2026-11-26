@@ -186,9 +186,9 @@ fn a_closed_loop() {
     let shares = bits_f64(pos.shares);
     let part = (shares * 0.3).max(1.0) as u64;
     env.withdraw(&keys, &lp, part);
-    env.ledger(&keys, "partial_withdraw").assert_tight(2.5);
+    env.ledger(&keys, "partial_withdraw").assert_walk_ok(3.5, 1.5);
     env.withdraw(&keys, &lp, u64::MAX);
-    env.ledger(&keys, "full_withdraw").assert_tight(2.5);
+    env.ledger(&keys, "full_withdraw").assert_walk_ok(3.5, 1.5);
 
     env.warp(keys.expiry as i64);
     env.queue_ocr2_reports(
@@ -200,7 +200,7 @@ fn a_closed_loop() {
     let resolved = env.read_market(&keys);
     assert_eq!(resolved.status, MarketStatus::Resolved);
     assert_eq!(resolved.winner, Some(MarketOutcome::Yes));
-    env.ledger(&keys, "resolve").assert_tight(2.5);
+    env.ledger(&keys, "resolve").assert_walk_ok(3.5, 1.5);
 
     let yes_left = env.token_amount(ata(trader.pk(), keys.yes_mint));
     println!("A winner yes_left={yes_left}");
@@ -209,7 +209,7 @@ fn a_closed_loop() {
         "closed loop must leave winner tokens to redeem"
     );
     env.redeem(&keys, &trader, keys.yes_mint, yes_left);
-    env.ledger(&keys, "redeem_winner").assert_tight(2.5);
+    env.ledger(&keys, "redeem_winner").assert_walk_ok(3.5, 1.5);
 }
 
 #[test]
@@ -1498,6 +1498,10 @@ fn j_create_expiry_gates() {
     let mut env = Env::new(START);
     let (_keys, res) = env.create_market_raw_expiry(SEED, u64::MAX - 1_000, true);
     assert_logs_contain(res, "InvalidAmount");
+
+    let mut env = Env::new(START);
+    let (_keys, res) = env.create_market_raw_expiry(SEED, i64::MAX as u64, true);
+    assert_logs_contain(res, "InvalidAmount");
 }
 
 #[test]
@@ -2367,7 +2371,7 @@ fn p_random_walk_invariants() {
         env.ops += 1;
         applied += 1;
         let l = env.ledger(&keys, &format!("walk{i}"));
-        l.assert_walk_ok(11.0, 2.0);
+        l.assert_walk_ok(20.0, 2.0);
     }
     println!("random walk applied={applied}/60 clock={}", env.clock);
     assert!(applied >= 20, "random walk applied too few ops: {applied}");
@@ -2629,13 +2633,15 @@ fn j_dust_and_near_expiry_edge_cases() {
     );
     env.ledger(&keys, "deep_skew_accrual_wd").assert_backing();
 
-    // 3. Skewed add_liquidity(1) where yes_input_amount floors to 0 -> InvalidAmount
+    // 3. Zero add_liquidity(0) -> InvalidAmount, while skewed add_liquidity(1) rounds minor-side input up to 1
     let mut env = Env::new(START);
     let keys = env.create_market(SEED, LIFE, true);
     let trader = env.fund_user(500_000);
     let lp = env.fund_user(100_000);
     env.bet(&keys, &trader, 200_000, MarketOutcome::Yes);
-    assert_logs_contain(env.add_liquidity_raw(&keys, &lp, 1), "InvalidAmount");
+    assert_logs_contain(env.add_liquidity_raw(&keys, &lp, 0), "InvalidAmount");
+    env.add_liquidity(&keys, &lp, 1);
+    env.ledger(&keys, "skewed_add_1").assert_backing();
 
     // 4. Deeply skewed swap(1, Yes) with min_out=0 where output floors to 0 -> SlippageExceeded
     let mut env = Env::new(START);

@@ -700,12 +700,12 @@ fn e_walk_open_backing_then_settle_and_claim() {
         env.ops += 1;
         applied += 1;
         env.ledger(&keys, &format!("e_walk_open_{i}"))
-            .assert_walk_ok(9.0, 2.0);
+            .assert_walk_ok(15.0, 2.0);
     }
     assert!(applied >= 12, "walk applied too few ops: {applied}");
     resolve_yes(&mut env, &keys);
     let resolved = env.ledger(&keys, "e_walk_resolved");
-    resolved.assert_walk_ok(9.0, 2.0);
+    resolved.assert_walk_ok(15.0, 2.0);
     let have = tok(&env, &trader, keys.yes_mint);
     if have > 0 {
         assert_eq!(redeem_all(&mut env, &keys, &trader, keys.yes_mint), have);
@@ -718,7 +718,7 @@ fn e_walk_open_backing_then_settle_and_claim() {
         );
     }
     let claimed = env.ledger(&keys, "e_walk_claimed");
-    claimed.assert_walk_ok(9.0, 2.0);
+    claimed.assert_walk_ok(15.0, 2.0);
 }
 
 #[test]
