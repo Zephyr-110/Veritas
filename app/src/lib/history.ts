@@ -69,11 +69,11 @@ async function historicalTitle(connection: Connection, program: PublicKey, row: 
 }
 
 export async function fetchRedemptions(connection: Connection, owner: PublicKey, program: PublicKey) {
-  const sigs = (await connection.getSignaturesForAddress(owner, { limit: 25 }, "confirmed")).filter(s => !s.err);
+  const sigs = (await connection.getSignaturesForAddress(owner, { limit: 40 }, "confirmed")).filter(s => !s.err);
   const rows: RedemptionRow[] = [];
   for (let i = 0; i < sigs.length; i += 4) {
     const chunk = sigs.slice(i, i + 4);
-    const txs = await fetchTxBatch(connection, chunk.map(s => s.signature));
+    const txs = await fetchTxBatch(connection, chunk.map(s => s.signature), { strict: true });
     txs.forEach((tx, j) => {
       if (tx) rows.push(...redemptionRows(tx, chunk[j].signature, owner, program));
     });

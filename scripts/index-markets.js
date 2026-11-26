@@ -152,7 +152,7 @@ function instructionGroups(tx) {
 }
 
 function extractOcr2Instructions(tx) {
-  if (!tx || !tx.meta || tx.meta.err) return [];
+  if (!tx || !tx.meta) return [];
   return instructionGroups(tx)
     .flat()
     .filter((ix) => ix.program && ix.program.equals(CHAINLINK_OCR2_PROGRAM_ID))
@@ -266,7 +266,7 @@ async function findPushSignaturesForRuling(connection, feedPk, ruling) {
       "confirmed"
     );
     const candidates = page
-      .filter((s) => !s.err && (s.blockTime == null || (s.blockTime >= from && s.blockTime <= until)))
+      .filter((s) => s.blockTime == null || (s.blockTime >= from && s.blockTime <= until))
       .sort(
         (a, b) =>
           Math.abs((a.blockTime ?? until) - ruling.post.observationsTimestamp) -
@@ -281,7 +281,7 @@ async function findPushSignaturesForRuling(connection, feedPk, ruling) {
       );
       for (const signature of sigs) {
         const tx = bySig.get(signature);
-        if (!tx || !tx.meta || tx.meta.err) continue;
+        if (!tx || !tx.meta) continue;
         for (const raw of extractOcr2Instructions(tx)) {
           const pushed = parseOcr2TransmitReport(raw, ruling.pre.configDigest);
           if (!pushed) continue;

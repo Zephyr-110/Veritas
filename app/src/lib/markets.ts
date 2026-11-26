@@ -103,7 +103,7 @@ export function pendingValueOf(
     return market.winner === "yes" ? position.pendingYes : market.winner === "no" ? position.pendingNo : 0n;
   }
   if (isVoidedStatus(market.status)) {
-    return (position.pendingYes + position.pendingNo) / 2n;
+    return position.pendingYes / 2n + position.pendingNo / 2n;
   }
   return position.pendingYes + position.pendingNo;
 }

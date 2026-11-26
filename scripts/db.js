@@ -572,7 +572,7 @@ function claimableOf(status, winner, yesAmount, noAmount) {
     return winner === "yes" ? yes : winner === "no" ? no : 0n;
   }
   if (isVoidedStatus(status)) {
-    return yes > 1n || no > 1n ? (yes + no) / 2n : 0n;
+    return yes / 2n + no / 2n;
   }
   return 0n;
 }

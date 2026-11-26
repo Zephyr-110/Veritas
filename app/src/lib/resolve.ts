@@ -69,7 +69,8 @@ export function extractOcr2Instructions(
 
 export async function fetchTxBatch(
   connection: Connection,
-  signatures: string[]
+  signatures: string[],
+  opts?: { strict?: boolean }
 ): Promise<Array<Awaited<ReturnType<Connection["getTransaction"]>>>> {
   if (!signatures.length) return [];
   try {
@@ -77,7 +78,7 @@ export async function fetchTxBatch(
       commitment: "confirmed",
       maxSupportedTransactionVersion: 0,
     });
-  } catch {
+  } catch (batchErr) {
     const out: Array<Awaited<ReturnType<Connection["getTransaction"]>>> = [];
     for (const sig of signatures) {
       try {
@@ -87,7 +88,8 @@ export async function fetchTxBatch(
             maxSupportedTransactionVersion: 0,
           })
         );
-      } catch {
+      } catch (err) {
+        if (opts?.strict) throw err ?? batchErr;
         out.push(null);
       }
       await pause(120);

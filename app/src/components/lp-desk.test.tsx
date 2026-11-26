@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { PublicKey } from "@solana/web3.js";
 import type { MarketView, UserPosition } from "@/lib/markets";
 import { quoteAddLiquidity, quoteWithdrawLiquidity } from "@/lib/quote";
-import { money } from "@/lib/display";
+import { formatFixed } from "@/lib/format";
 
 const wallet = vi.hoisted(() => ({ publicKey: null as PublicKey | null }));
 
@@ -210,7 +210,7 @@ describe("LpDesk 报价展示与指令提交", () => {
       4_000_000n
     );
     const pops = Array.from(container.querySelectorAll(".pop-num")).map((el) => el.textContent);
-    expect(pops).toEqual([money(q.yesIn, market.decimals), money(q.noIn, market.decimals)]);
+    expect(pops).toEqual([formatFixed(q.yesIn, market.decimals, 2), formatFixed(q.noIn, market.decimals, 2)]);
 
     await userEvent.click(submitBtn());
     await waitFor(() => expect(ixAddLiquidity).toHaveBeenCalledTimes(1));
@@ -247,7 +247,7 @@ describe("LpDesk 报价展示与指令提交", () => {
     expect(q.yesOut).toBe(12_150_000n);
     expect(q.noOut).toBe(18_075_000n);
     const pops = Array.from(container.querySelectorAll(".pop-num")).map((el) => el.textContent);
-    expect(pops).toEqual([money(q.yesOut, market.decimals), money(q.noOut, market.decimals)]);
+    expect(pops).toEqual([formatFixed(q.yesOut, market.decimals, 2), formatFixed(q.noOut, market.decimals, 2)]);
 
     await userEvent.click(submitBtn());
     await waitFor(() => expect(ixGetLiquidity).toHaveBeenCalledTimes(1));
@@ -267,7 +267,7 @@ describe("LpDesk 报价展示与指令提交", () => {
       position.lpShares
     );
     const maxPops = Array.from(container.querySelectorAll(".pop-num")).map((el) => el.textContent);
-    expect(maxPops).toEqual([money(full.yesOut, market.decimals), money(full.noOut, market.decimals)]);
+    expect(maxPops).toEqual([formatFixed(full.yesOut, market.decimals, 2), formatFixed(full.noOut, market.decimals, 2)]);
   });
 
   it("已终局市场（withdrawOnly）：隐藏存入选项卡，成功撤出后显示去下方结算台 1:1 兑付指引", async () => {

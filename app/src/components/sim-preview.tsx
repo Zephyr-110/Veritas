@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { COLLATERAL_SYMBOL } from "@/lib/constants";
 import { money } from "@/lib/display";
+import { isQuoteStale } from "@/lib/chainlink";
 import { FEEDS, formatFeedPrice, thresholdToHuman } from "@/lib/feeds";
 import { formatCents, formatFixed, fromUi } from "@/lib/format";
 import { inferLeffFromReserves, quoteBet } from "@/lib/quote";
@@ -25,7 +26,7 @@ export function SimOrderPreview() {
   const [amount, setAmount] = useState("2");
 
   const availableFeeds = useMemo(
-    () => FEEDS.filter((f) => Boolean(quotes[f.key]?.available && quotes[f.key].price != null)),
+    () => FEEDS.filter((f) => !isQuoteStale(quotes[f.key])),
     [quotes]
   );
 

@@ -3,9 +3,8 @@
 import { useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { COLLATERAL_SYMBOL } from "@/lib/constants";
-import { money } from "@/lib/display";
 import { formatFixed, fromUi, toUi } from "@/lib/format";
-import { quoteAddLiquidity, quoteWithdrawLiquidity } from "@/lib/quote";
+import { pmAmmAccrue, quoteAddLiquidity, quoteWithdrawLiquidity } from "@/lib/quote";
 import { ixAddLiquidity, ixGetLiquidity } from "@/lib/instructions";
 import { isFinalizedStatus, marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
 import { useProgram } from "@/hooks/use-program";
@@ -45,10 +44,13 @@ export function LpDesk({
     }
   }, [amount, market.decimals]);
 
-  const addQuote = quoteAddLiquidity(market.reserveYes, market.reserveNo, market.totalLpShares, parsed.value);
+  const accrued = useMemo(() => pmAmmAccrue(market, now), [market, now]);
+  const effectiveReserveYes = BigInt(Math.max(0, Math.floor(accrued.reserveYes)));
+  const effectiveReserveNo = BigInt(Math.max(0, Math.floor(accrued.reserveNo)));
+  const addQuote = quoteAddLiquidity(effectiveReserveYes, effectiveReserveNo, market.totalLpShares, parsed.value);
   const wdQuote = quoteWithdrawLiquidity(
-    market.reserveYes,
-    market.reserveNo,
+    effectiveReserveYes,
+    effectiveReserveNo,
     market.totalLpShares,
     parsed.value,
     position.pendingYes,
@@ -175,11 +177,11 @@ export function LpDesk({
         <div className="flex flex-wrap items-center gap-2">
           <Chip tone="yes">
             {t("common.yes")}
-            <PopNum text={money(activeTab === "add" ? addQuote.yesIn : wdQuote.yesOut, market.decimals)} />
+            <PopNum text={formatFixed(activeTab === "add" ? addQuote.yesIn : wdQuote.yesOut, market.decimals, 2)} />
           </Chip>
           <Chip tone="no">
             {t("common.no")}
-            <PopNum text={money(activeTab === "add" ? addQuote.noIn : wdQuote.noOut, market.decimals)} />
+            <PopNum text={formatFixed(activeTab === "add" ? addQuote.noIn : wdQuote.noOut, market.decimals, 2)} />
           </Chip>
         </div>
         {onlyWithdraw ? null : (

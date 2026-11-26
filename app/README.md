@@ -71,7 +71,7 @@ npm run test:coverage      # Run all suites with v8 coverage report & threshold 
 npm run test:watch         # Watch mode for local development
 ```
 
-### Coverage Overview (40 Suites · 343 Tests + 4 Opt-In Devnet Checks; plus 6 `scripts/` `node --test` Suites)
+### Coverage Overview (42 Suites · 368 Tests + 4 Opt-In Devnet Checks; plus 6 `scripts/` `node --test` Suites)
 
 | Area | What Is Verified |
 | :--- | :--- |

@@ -30,7 +30,7 @@ type Row = { market: MarketView; position: UserPosition };
 function claimableOf(market: MarketView, position: UserPosition): bigint {
   if (market.status === "resolved") return market.winner === "yes" ? position.yes : position.no;
   if (isVoidedStatus(market.status)) {
-    return position.yes > 1n || position.no > 1n ? (position.yes + position.no) / 2n : 0n;
+    return position.yes / 2n + position.no / 2n;
   }
   return 0n;
 }
@@ -473,7 +473,18 @@ export default function MePage() {
           <h2 className="section-title">
             <StableText k="me.redemptions" />
           </h2>
-          {redemptions.length ? (
+          {redemptionsQuery.isError ? (
+            <StateBlock
+              kind="error"
+              title={<StableText k="me.redeemError" />}
+              body={<StableText k="state.loadHint" block />}
+              action={
+                <Button type="button" tone="secondary" onClick={() => void redemptionsQuery.refetch()}>
+                  <StableText k="common.retry" align="center" />
+                </Button>
+              }
+            />
+          ) : redemptions.length ? (
             <div className="cards-2">
               {redemptions.map((row) => {
                 const href = explorerTx(row.signature, settings.cluster);

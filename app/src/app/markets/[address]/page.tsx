@@ -418,7 +418,7 @@ function StatusBand({
           <LiveCountdown expiry={market.expiry} now={now} className="text-[19px] font-semibold text-zinc-50" />
         </BandCell>
         <BandCell labelKey="markets.colYes">
-          <CountUp value={market.yesPrice} format={(v) => formatYesNo(v)} />
+          {formatYesNo(market.yesPrice)}
         </BandCell>
         {spotCell}
         <BandCell

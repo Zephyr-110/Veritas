@@ -49,8 +49,8 @@ After expiry, anyone can submit two raw Chainlink OCR2 `transmit` payloads (`pre
   1. **Adjacent OCR2 rounds** (`round + 1` in the same epoch, or `(e, r_max) -> (e + 1, 1)` where `r_max` is parsed from `offchain_config`), **or**
   2. **Snapshot-certified**: Certified by two consecutive entries (`next.counter == prev.counter + 1`) recorded in the market's `MarketSnapshot` PDA via `take_snapshot` when Chainlink rounds skip across expiry.
 - **Outcomes**:
-  - `post` lands within the configurable post-expiry tolerance (currently **10 seconds** in the devnet pilot, `post.ts <= end_ts + 10`) → **`Resolved`**: winning side redeems 1:1; `settled_price` and `settled_publish_time` are stored on-chain.
-  - `post` lands past the configurable tolerance (currently > **10 seconds** in devnet pilot) → **`StaleBurn`**: stale pricing is discarded; both YES and NO redeem at $\lfloor \text{amount} / 2 \rfloor$.
+  - `post` lands within the on-chain post-expiry tolerance (`MAX_SETTLE_DELAY = 10` seconds, `post.ts <= end_ts + 10`) → **`Resolved`**: winning side redeems 1:1; `settled_price` and `settled_publish_time` are stored on-chain.
+  - `post` lands past the 10-second tolerance (`post.ts > end_ts + 10`) → **`StaleBurn`**: stale pricing is discarded; both YES and NO redeem at $\lfloor \text{amount} / 2 \rfloor$.
   - No resolution within **48 hours** of expiry → anyone can call `void_market` → **`WindowBurn`**: same $\lfloor \text{amount} / 2 \rfloor$ redemption.
 
 ### 4. Claim Window & Account Cleanup
@@ -188,7 +188,7 @@ cp .env.example .env.local   # optional; defaults target Solana Devnet
 npm run dev                  # start Next.js dev server on http://localhost:3000
 npm run typecheck            # TypeScript check (tsc --noEmit)
 npm run lint                 # ESLint check (eslint .)
-npm run test:coverage        # Run all 40 Vitest suites (343 tests + 4 opt-in devnet checks) with v8 coverage gates
+npm run test:coverage        # Run all 42 Vitest suites (368 tests + 4 opt-in devnet checks) with v8 coverage gates
 ```
 
 From the repository root, `scripts/` also includes **6 `node --test` suites** (`scripts/settle.test.js`, `scripts/db.test.js`, and `scripts/sandbox/*.test.js`).
@@ -206,7 +206,7 @@ The client IDL under `app/src/idl/` is generated via `npm run gen-idl` (from `ap
 
 ## Known Limitations
 
-- **Oracle configuration rotation.** Settlement pins the Chainlink OCR2 configuration digest bound at market creation. If a feed's configuration rotates between creation and expiry, reports signed under the new configuration cannot settle the market; the market then voids at the 48-hour floor and collateral refunds at 0.5. By design, configuration drift can only ever produce a void, never a wrong winner.
+- **Oracle configuration rotation.** Settlement verifies both straddling reports against the bound `ocr2_state` account's live `latest_config_digest` and oracle roster at settlement time. If a feed's configuration rotates before expiry, reports signed under the new configuration continue to settle normally; however, if rotation occurs across expiry or before `resolve_market` executes, straddling reports signed under the superseded configuration fail `OracleDigestMismatch`, and the market voids after the 48-hour window with a 0.5 refund. By design, configuration drift can only ever produce a void, never a wrong winner.
 - **Collateral scope.** Markets accept standard SPL Token mints only; Token-2022 mints are rejected at creation so transfer-tax and hook extensions stay out of the vault accounting. The seed floor (strictly more than 1,000,000 smallest units) assumes a 6-decimal stablecoin; the contract does not enforce mint decimals or a minimum market duration.
 
 ---

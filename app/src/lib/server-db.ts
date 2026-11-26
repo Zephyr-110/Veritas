@@ -128,7 +128,7 @@ const globalScope = globalThis as typeof globalThis & {
 
 const EVIDENCE_HEAL_COOLDOWN_MS = 5 * 60 * 1000;
 const EVIDENCE_HEAL_COOLDOWN_MAX = 500;
-const WALLET_FORCE_SYNC_COOLDOWN_SEC = 10;
+const WALLET_FORCE_SYNC_COOLDOWN_SEC = 2;
 const WALLET_FORCE_SYNC_MAX = 1000;
 const SERVER_RPC_TIMEOUT_MS = 15_000;
 
@@ -869,7 +869,7 @@ function claimableOfRow(
     return winner === "yes" ? yes : winner === "no" ? no : 0n;
   }
   if (isVoidedStatus(status)) {
-    return yes > 1n || no > 1n ? (yes + no) / 2n : 0n;
+    return yes / 2n + no / 2n;
   }
   return 0n;
 }
@@ -1235,6 +1235,11 @@ export function queryWalletPositionsPage(opts: {
     lpUnclaimed: false,
   };
 
+  let sumYesAtoms = 0n;
+  let sumNoAtoms = 0n;
+  let sumClaimAtoms = 0n;
+  let summaryDecimals = 6;
+
   for (const r of summaryRows) {
     const yes = BigInt(r.yes_amount);
     const no = BigInt(r.no_amount);
@@ -1243,9 +1248,15 @@ export function queryWalletPositionsPage(opts: {
     const pendingNo = BigInt(r.pending_no);
     const status = r.status as MarketStatusName;
     const winner = (r.winner as Side | null) ?? null;
+    summaryDecimals = r.decimals;
 
-    summary.sumYes += Number(toUi(yes, r.decimals, 2));
-    summary.sumNo += Number(toUi(no, r.decimals, 2));
+    if (status === "open") {
+      sumYesAtoms += yes;
+      sumNoAtoms += no;
+    } else if (status === "resolved") {
+      if (winner === "yes") sumYesAtoms += yes;
+      else if (winner === "no") sumNoAtoms += no;
+    }
     summary.sumPending += Number(
       toUi(pendingValueOf({ status, winner }, { pendingYes, pendingNo }), r.decimals, 4)
     );
@@ -1253,13 +1264,17 @@ export function queryWalletPositionsPage(opts: {
       const claimable = claimableOfRow(status, winner, yes, no);
       if (claimable > 0n) {
         summary.claimCount += 1;
-        summary.claimTotal += Number(toUi(claimable, r.decimals, 2));
+        sumClaimAtoms += claimable;
       }
       if (lpShares > 0n || pendingYes > 0n || pendingNo > 0n) {
         summary.lpUnclaimed = true;
       }
     }
   }
+
+  summary.sumYes = Number(toUi(sumYesAtoms, summaryDecimals, 2));
+  summary.sumNo = Number(toUi(sumNoAtoms, summaryDecimals, 2));
+  summary.claimTotal = Number(toUi(sumClaimAtoms, summaryDecimals, 2));
 
   const pageRows = db
     .prepare<[string, string, number, number], WalletPositionJoinRow>(`

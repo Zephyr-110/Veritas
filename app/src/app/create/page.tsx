@@ -12,6 +12,7 @@ import {
   PREDICTION_BYTES,
 } from "@/lib/constants";
 import { countdown, encodePrediction, formatFixed, formatStamp, fromUi, randomMarketId, toUi, utf8Len } from "@/lib/format";
+import { isQuoteStale } from "@/lib/chainlink";
 import { FEEDS, feedByKey, formatFeedPrice, humanToThreshold } from "@/lib/feeds";
 import { findMarketPdas } from "@/lib/pdas";
 import { ataOf, fetchMintMeta, unpackAmount } from "@/lib/tokens";
@@ -219,7 +220,7 @@ export default function CreatePage() {
     userThreshold.current = false;
     const nextFeed = feedByKey(key);
     const q = quotes[key];
-    const hasSpot = Boolean(q?.available && q.price != null);
+    const hasSpot = Boolean(q && !isQuoteStale(q) && q.price != null);
     const nextHuman = hasSpot ? spotInputValue(q!.price!) : nextFeed.defaultHuman;
     lastAutoFeed.current = hasSpot ? key : null;
     setFeedKey(key);
@@ -233,7 +234,7 @@ export default function CreatePage() {
       return;
     }
     const q = quotes[feedKey];
-    if (q?.available && q.price != null) {
+    if (q && !isQuoteStale(q) && q.price != null) {
       setHuman(spotInputValue(q.price));
       lastAutoFeed.current = feedKey;
     }
