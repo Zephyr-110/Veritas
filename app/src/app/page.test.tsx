@@ -184,13 +184,19 @@ describe("HomePage finished marquee & token logos", () => {
 });
 
 describe("HomePage hero copy, layout order, and why cards", () => {
-  it("renders finalized hero headline & subline without mastheadTag or old subtitle", () => {
-    renderHome();
-    expect(screen.getByText("pm-AMM prediction")).toBeInTheDocument();
-    expect(screen.getByText("markets on Solana.")).toBeInTheDocument();
-    expect(screen.getByText("Settlement disputes eliminated at the protocol layer.")).toBeInTheDocument();
+  it("renders finalized hero headline & subline without masthead brand row or previous draft copy", () => {
+    const { container } = renderHome();
+    expect(container.querySelector(".mh-brand")).toBeNull();
+    expect(screen.getByText("A prediction market")).toBeInTheDocument();
+    expect(screen.getByText("with no dispute window.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "New rounds open every 15 minutes. Settlement is decided solely by the first signed Chainlink OCR2 report after expiry — no intermediary decides the outcome. A market can be opened with just over 1 USDT."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/pm-AMM prediction/i)).toBeNull();
     expect(screen.queryByText(/A fast-paced prediction market/i)).toBeNull();
-    expect(screen.queryByText(/New rounds open every 15 minutes/i)).toBeNull();
+    expect(screen.queryByText(/Settlement disputes eliminated at the protocol layer\./i)).toBeNull();
   });
 
   it("places Live this round immediately below Hero and above the settlement architecture strip", () => {
@@ -203,14 +209,15 @@ describe("HomePage hero copy, layout order, and why cards", () => {
     expect(liveHeading.compareDocumentPosition(settleHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("renders updated Solana-fit why1 copy and concise dispute-free why2 copy", () => {
+  it("renders reverted short why1 copy and keeps concise dispute-free why2 copy", () => {
     renderHome();
     expect(
-      screen.getByText(/At EVM gas prices, the fees alone would eat the pool\./)
+      screen.getByText("Open a market with just over 1 USDT. No one's approval needed.")
     ).toBeInTheDocument();
     expect(
       screen.getByText(/No voting, no dispute bond, no appeal window\./)
     ).toBeInTheDocument();
+    expect(screen.queryByText(/At EVM gas prices/)).toBeNull();
     expect(screen.queryByText(/24 cases the round sequence jumped/)).toBeNull();
   });
 });

@@ -230,7 +230,11 @@ export default function HelpPage() {
           <h2 className="section-title">
             <StableText k="help.deepTitle" />
           </h2>
-          <DeepItem id="permissionless" titleKey="help.a0Title" whyKey="help.a0" howKey="help.a0Sub" />
+          <DeepItem id="permissionless" titleKey="help.a0Title" whyKey="help.a0" howKey="help.a0Sub">
+            <p className="text-[15px] leading-relaxed text-zinc-400">
+              <StableText k="help.a0Fee" block />
+            </p>
+          </DeepItem>
           <DeepItem id="settlement" titleKey="help.a2Title" whyKey="help.a2" howKey="help.a2Sub">
             <a href={ORACLE_CENSUS_URL} className="link-accent text-sm">
               <StableText k="help.censusEvidence" />
