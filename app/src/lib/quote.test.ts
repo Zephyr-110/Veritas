@@ -204,21 +204,83 @@ describe("quote", () => {
       expect(accrued.yesPrice).toBeCloseTo(0.6, 4);
     });
 
-    it("computeDynamicFeeBps 与链上 service_fee 曲线完全一致", () => {
-      expect(computeDynamicFeeBps(1000, 1000)).toBe(50);
-      expect(computeDynamicFeeBps(750, 1000)).toBe(83);
-      expect(computeDynamicFeeBps(500, 1000)).toBe(123);
-      expect(computeDynamicFeeBps(250, 1000)).toBe(175);
-      expect(computeDynamicFeeBps(0, 1000)).toBe(300);
-      expect(computeDynamicFeeBps(2000, 1000)).toBe(50);
-      expect(computeDynamicFeeBps(-50, 1000)).toBe(300);
+    it("computeDynamicFeeBps 逐点命中 900s / 3600s / 86400s / 120s 全部验算锚点", () => {
+      const anchors: Array<[number, Array<[number, number]>]> = [
+        [
+          900,
+          [
+            [900, 50],
+            [600, 95],
+            [450, 123],
+            [300, 155],
+            [120, 208],
+            [60, 235],
+            [0, 300],
+          ],
+        ],
+        [
+          3600,
+          [
+            [3600, 50],
+            [1800, 106],
+            [618, 174],
+            [300, 208],
+            [0, 300],
+          ],
+        ],
+        [
+          86400,
+          [
+            [86400, 50],
+            [43200, 79],
+            [21600, 110],
+            [10800, 142],
+            [5065, 174],
+            [3600, 188],
+            [1800, 213],
+            [300, 259],
+            [60, 280],
+            [0, 300],
+          ],
+        ],
+        [
+          120,
+          [
+            [120, 50],
+            [60, 151],
+            [47, 174],
+            [30, 205],
+            [0, 300],
+          ],
+        ],
+      ];
+
+      for (const [totalTs, points] of anchors) {
+        for (const [remainTs, expected] of points) {
+          expect(computeDynamicFeeBps(remainTs, totalTs)).toBe(expected);
+        }
+      }
+
+      // 边界钳制与非法总时长报错
+      expect(computeDynamicFeeBps(2000, 900)).toBe(50);
+      expect(computeDynamicFeeBps(-50, 900)).toBe(300);
+      expect(() => computeDynamicFeeBps(10, 0)).toThrow("errors.math");
+      expect(() => computeDynamicFeeBps(10, -1)).toThrow("errors.math");
+
+      // 900 秒盘与旧纯比例公式逐点回归一致
+      for (let remain = 0; remain <= 900; remain += 15) {
+        const legacy = Math.floor(50 + 250 * (1 - Math.sqrt(remain / 900)));
+        expect(computeDynamicFeeBps(remain, 900)).toBe(legacy);
+      }
+
       expect(combinedFeePct(50)).toBeCloseTo(0.9975, 4);
       expect(combinedFeePct(300)).toBeCloseTo(5.91, 4);
     });
 
     it("currentMarketFeeBps 对新市场走动态费率、对旧市场回退 feeBps", () => {
-      expect(currentMarketFeeBps({ startTs: 1000, endTs: 2000, feeBps: 0 }, 1000)).toBe(50);
-      expect(currentMarketFeeBps({ startTs: 1000, endTs: 2000, feeBps: 0 }, 1750)).toBe(175);
+      expect(currentMarketFeeBps({ startTs: 1000, endTs: 1900, feeBps: 0 }, 1000)).toBe(50);
+      expect(currentMarketFeeBps({ startTs: 1000, endTs: 1900, feeBps: 0 }, 1450)).toBe(123);
+      expect(currentMarketFeeBps({ startTs: 1000, endTs: 4600, feeBps: 0 }, 2800)).toBe(106);
       expect(currentMarketFeeBps({ endTs: 2000, feeBps: 30 }, 1750)).toBe(30);
     });
   });

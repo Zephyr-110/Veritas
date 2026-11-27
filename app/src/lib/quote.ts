@@ -1,4 +1,5 @@
 import {
+  DYNAMIC_FEE_ANCHOR_SEC,
   DYNAMIC_FEE_BASE_BPS,
   DYNAMIC_FEE_RAMP_BPS,
   FEE_DENOMINATOR,
@@ -8,14 +9,24 @@ import { i80f48ToAmount, i80f48ToNumber } from "./codec";
 import type { Side } from "./types";
 
 /**
- * Mirror of on-chain `pm_math::service_fee(remain_ts, total_ts)`:
- * per-leg fee in bps = SERVICE_FEE (50) + floor(FEE_INCREMENTAL (250) * (1 - sqrt(clamp(remain, 0, total) / total))).
+ * Duration-adaptive fee surface mirror of on-chain `pm_math::service_fee(remain_ts, total_ts)`:
+ * - u = sqrt(clamp(remain_ts, 0, total_ts) / total_ts)
+ * - k = sqrt(sqrt(total_ts / 900))
+ * - fee_bps = floor(50 + 250 * (1 - u) / (1 + (k - 1) * u))
  */
 export function computeDynamicFeeBps(remainTs: number, totalTs: number): number {
-  if (!Number.isFinite(totalTs) || totalTs <= 0) return DYNAMIC_FEE_BASE_BPS;
+  if (!Number.isFinite(totalTs) || totalTs <= 0) {
+    throw new Error("errors.math");
+  }
   const clampedRemain = Math.min(Math.max(remainTs, 0), totalTs);
-  const released = Math.min(1, Math.max(0, 1 - Math.sqrt(clampedRemain / totalTs)));
-  return Math.floor(DYNAMIC_FEE_BASE_BPS + DYNAMIC_FEE_RAMP_BPS * released);
+  if (clampedRemain === totalTs) return DYNAMIC_FEE_BASE_BPS;
+  if (clampedRemain === 0) return DYNAMIC_FEE_BASE_BPS + DYNAMIC_FEE_RAMP_BPS;
+
+  const u = Math.sqrt(clampedRemain / totalTs);
+  const k = Math.sqrt(Math.sqrt(totalTs / DYNAMIC_FEE_ANCHOR_SEC));
+  const denom = 1 + (k - 1) * u;
+  const progress = Math.min(1, Math.max(0, (1 - u) / denom));
+  return Math.floor(DYNAMIC_FEE_BASE_BPS + DYNAMIC_FEE_RAMP_BPS * progress);
 }
 
 /**

@@ -4,6 +4,7 @@ export const COLLATERAL_SYMBOL = "USDT";
 export const SERVICE_FEE_BPS = 30n;
 export const DYNAMIC_FEE_BASE_BPS = 50;
 export const DYNAMIC_FEE_RAMP_BPS = 250;
+export const DYNAMIC_FEE_ANCHOR_SEC = 900;
 export const FEE_DENOMINATOR = 10000n;
 export const RESOLVE_WINDOW = 172_800;
 export const MAX_SETTLE_DELAY = 10;

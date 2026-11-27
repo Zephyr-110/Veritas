@@ -372,16 +372,16 @@ describe("TradeDesk 提交", () => {
 
   it("动态费率市场在下注区展示当前实时费率（单腿 + 双腿）", () => {
     const nowSec = Math.floor(Date.now() / 1000);
-    // 25% time remaining -> 175 bps/leg = 1.75% / leg (~3.47% total)
+    // 900s flagship market at 50% time remaining -> 123 bps/leg = 1.23% / leg
     renderDesk(
       makeMarket({
-        startTs: nowSec - 750,
-        endTs: nowSec + 250,
-        expiry: nowSec + 250,
+        startTs: nowSec - 450,
+        endTs: nowSec + 450,
+        expiry: nowSec + 450,
         feeBps: 0,
       })
     );
     expect(screen.getByText("Current fee")).toBeInTheDocument();
-    expect(screen.getByText(/1\.75% \/ leg/)).toBeInTheDocument();
+    expect(screen.getByText(/1\.23% \/ leg/)).toBeInTheDocument();
   });
 });

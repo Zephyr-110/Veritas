@@ -22,6 +22,7 @@ import {
 } from "./market-dto";
 import { claimableOf, fetchMarketSnapshot, isFinalizedStatus, pendingValueOf } from "./markets";
 import { findLpPosition, findMarketPdas } from "./pdas";
+import { currentMarketFeeBps } from "./quote";
 import { fetchTxBatch } from "./resolve";
 import { fetchRuling, findPushSignatures, witnessCounts } from "./ruling-evidence";
 import { resolveServerRpcUrl } from "./server-security";
@@ -316,7 +317,20 @@ export function closeServerDb(): void {
   globalScope.__veritasServerDb = undefined;
 }
 
-function serializeMarketRow(row: MarketDbRow): SerializedMarket {
+function serializeMarketRow(
+  row: MarketDbRow,
+  nowSec = Math.floor(Date.now() / 1000)
+): SerializedMarket {
+  const startTs =
+    row.opened_at != null && row.opened_at > 0 && row.end_ts > row.opened_at
+      ? row.opened_at
+      : row.duration_sec != null && row.duration_sec > 0
+        ? row.end_ts - row.duration_sec
+        : undefined;
+  const computedFeeBps = currentMarketFeeBps(
+    { startTs, endTs: row.end_ts, feeBps: row.fee_bps },
+    nowSec
+  );
   return {
     address: row.address,
     programId: row.program_id,
@@ -345,7 +359,7 @@ function serializeMarketRow(row: MarketDbRow): SerializedMarket {
     settleAbove: Boolean(row.settle_above),
     settledPrice: row.settled_price,
     settledPublishTime: row.settled_publish_time,
-    feeBps: row.fee_bps,
+    feeBps: computedFeeBps,
     lZero: row.l_zero,
     lastAccrualTs: row.last_accrual_ts,
     cumYesPerShare: row.cum_yes_per_share,
@@ -422,7 +436,7 @@ export function queryMarketsPage(opts: {
     )
     .get(programId);
 
-  const items = rows.map(serializeMarketRow);
+  const items = rows.map((r) => serializeMarketRow(r, nowSec));
   return {
     items,
     total,

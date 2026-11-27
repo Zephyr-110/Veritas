@@ -7,6 +7,9 @@ pub const SERVICE_FEE : u64 = 50;
 pub const FEE_INCREMENTAL: u64 = 250;
 
 #[constant]
+pub const FEE_ANCHOR_DURATION_SEC: i64 = 900;
+
+#[constant]
 pub const RESOLVE_WINDOW: u64 = 172800;
 
 #[constant]

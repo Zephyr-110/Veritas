@@ -106,6 +106,21 @@ describe("market-dto", () => {
     expect(res.position.pendingNo).toBe(8_000n);
     expect(res.position.collateral).toBe(25_000_000n);
   });
+
+  it("derives startTs and computes dynamic feeBps when SerializedMarket.feeBps is 0", () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const dto = makeSerializedMarket({
+      openedAt: nowSec - 1800,
+      endTs: nowSec + 1800,
+      expiry: nowSec + 1800,
+      durationSec: 3600,
+      feeBps: 0,
+    });
+    const view = deserializeMarket(dto);
+    expect(view.startTs).toBe(nowSec - 1800);
+    // 3600s market at 50% remaining -> 106 bps anchor
+    expect(view.feeBps).toBe(106);
+  });
 });
 
 function makeEvidence(overrides: Partial<SettlementEvidenceDto> = {}): SettlementEvidenceDto {

@@ -3,6 +3,7 @@ import { areReportsAdjacent } from "./chainlink";
 import type { DurationFilter } from "./display";
 import { bytesFromHex } from "./format";
 import { findMarketPdas } from "./pdas";
+import { currentMarketFeeBps } from "./quote";
 import type { MarketView, UserPosition } from "./markets";
 import type { FeedKey, MarketPdas, MarketStatusName, Side } from "./types";
 
@@ -190,6 +191,16 @@ export function deserializeMarket(dto: SerializedMarket): MarketView {
   const id = dto.idHex ? bytesFromHex(dto.idHex) : new Array<number>(16).fill(0);
   const yesMint = new PublicKey(dto.yesMint);
   const noMint = new PublicKey(dto.noMint);
+  const startTs =
+    dto.openedAt != null && dto.openedAt > 0 && dto.endTs > dto.openedAt
+      ? dto.openedAt
+      : dto.durationSec != null && dto.durationSec > 0
+        ? dto.endTs - dto.durationSec
+        : undefined;
+  const feeBps =
+    dto.feeBps > 0
+      ? dto.feeBps
+      : currentMarketFeeBps({ startTs, endTs: dto.endTs, feeBps: dto.feeBps });
 
   return {
     address,
@@ -203,6 +214,7 @@ export function deserializeMarket(dto: SerializedMarket): MarketView {
     status: dto.status,
     winner: dto.winner,
     expiry: dto.expiry,
+    startTs,
     endTs: dto.endTs,
     finishTs: dto.finishTs,
     bump: dto.bump,
@@ -224,7 +236,7 @@ export function deserializeMarket(dto: SerializedMarket): MarketView {
     settleAbove: dto.settleAbove,
     settledPrice: BigInt(dto.settledPrice),
     settledPublishTime: dto.settledPublishTime,
-    feeBps: dto.feeBps,
+    feeBps,
     lZero: BigInt(dto.lZero),
     lastAccrualTs: dto.lastAccrualTs,
     cumYesPerShare: BigInt(dto.cumYesPerShare),

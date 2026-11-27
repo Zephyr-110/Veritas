@@ -335,15 +335,16 @@ describe("LpDesk 报价展示与指令提交", () => {
 
   it("LP 面板同样展示当前交易费率（含动态费率市场）", () => {
     const nowSec = Math.floor(Date.now() / 1000);
+    // 900s flagship market at 50% time remaining -> 123 bps/leg = 1.23% / leg
     renderDesk(
       makeMarket({
-        startTs: nowSec - 750,
-        endTs: nowSec + 250,
-        expiry: nowSec + 250,
+        startTs: nowSec - 450,
+        endTs: nowSec + 450,
+        expiry: nowSec + 450,
         feeBps: 0,
       })
     );
     expect(screen.getByText("Current trade fee")).toBeInTheDocument();
-    expect(screen.getByText(/1\.75% \/ leg/)).toBeInTheDocument();
+    expect(screen.getByText(/1\.23% \/ leg/)).toBeInTheDocument();
   });
 });

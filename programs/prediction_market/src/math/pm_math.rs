@@ -9,7 +9,7 @@ use fixed::types::I80F48;
 
 use super::lut;
 use crate::error::ErrorCode as PmAmmError;
-use crate::{FEE_INCREMENTAL, SERVICE_FEE};
+use crate::{FEE_ANCHOR_DURATION_SEC, FEE_INCREMENTAL, SERVICE_FEE};
 // ============================================================================
 // Constants
 // ============================================================================
@@ -630,27 +630,59 @@ pub fn suggest_l_zero_for_budget(budget_usdc: u64, duration_secs: i64) -> Result
 }
 
 pub fn service_fee(remain_ts: I80F48, total_ts: I80F48) -> Result<u64> {
-    if total_ts <= I80F48::from_num(0) {
+    if total_ts <= I80F48::ZERO {
         return Err(PmAmmError::MathOverflow.into());
     }
 
-    let released = I80F48::from_num(1)
-        .checked_sub(sqrt_fixed(
-            remain_ts
-                .clamp(I80F48::from_num(0), total_ts)
-                .checked_div(total_ts)
+    let clamped_remain = remain_ts.clamp(I80F48::ZERO, total_ts);
+    if clamped_remain == total_ts {
+        return Ok(SERVICE_FEE);
+    }
+    if clamped_remain == I80F48::ZERO {
+        return Ok(SERVICE_FEE + FEE_INCREMENTAL);
+    }
+
+    // u = sqrt(clamp(remain_ts, 0, total_ts) / total_ts)
+    let ratio = clamped_remain
+        .checked_div(total_ts)
+        .ok_or(PmAmmError::MathOverflow)?;
+    let u = sqrt_fixed(ratio)?.clamp(I80F48::ZERO, I80F48::ONE);
+
+    // k = sqrt(sqrt(total_ts / 900))
+    let anchor = I80F48::from_num(FEE_ANCHOR_DURATION_SEC);
+    let duration_ratio = total_ts
+        .checked_div(anchor)
+        .ok_or(PmAmmError::MathOverflow)?;
+    let k = sqrt_fixed(sqrt_fixed(duration_ratio)?)?;
+
+    // progress = (1 - u) / (1 + (k - 1) * u)
+    let one_minus_u = I80F48::ONE
+        .checked_sub(u)
+        .ok_or(PmAmmError::MathOverflow)?;
+    let k_minus_one = k
+        .checked_sub(I80F48::ONE)
+        .ok_or(PmAmmError::MathOverflow)?;
+    let denom = I80F48::ONE
+        .checked_add(
+            k_minus_one
+                .checked_mul(u)
                 .ok_or(PmAmmError::MathOverflow)?,
-        )?)
+        )
+        .ok_or(PmAmmError::MathOverflow)?;
+    let progress = one_minus_u
+        .checked_div(denom)
         .ok_or(PmAmmError::MathOverflow)?
         .clamp(I80F48::ZERO, I80F48::ONE);
 
-    let fee = I80F48::from_num(SERVICE_FEE).checked_add(
-        I80F48::from_num(FEE_INCREMENTAL)
-            .checked_mul(released)
-            .ok_or(PmAmmError::MathOverflow)?,
-    );
+    let fee = I80F48::from_num(SERVICE_FEE)
+        .checked_add(
+            I80F48::from_num(FEE_INCREMENTAL)
+                .checked_mul(progress)
+                .ok_or(PmAmmError::MathOverflow)?,
+        )
+        .ok_or(PmAmmError::MathOverflow)?;
 
-    Ok(fee.ok_or(PmAmmError::MathOverflow)?.to_num::<u64>())
+    Ok(fee.to_num::<u64>())
 }
 
 // ============================================================================
@@ -1678,22 +1710,62 @@ mod tests {
 
     #[test]
     fn test_service_fee_ramp_and_bounds() {
-        let total = f(1000.0);
-        // At open (100% remaining): base fee = 50 bps
-        assert_eq!(service_fee(total, total).unwrap(), 50);
-        // At 75% remaining: 50 + floor(250 * (1 - sqrt(0.75))) = 50 + 33 = 83 bps
-        assert_eq!(service_fee(f(750.0), total).unwrap(), 83);
-        // At 50% remaining: 50 + floor(250 * (1 - sqrt(0.5))) = 50 + 73 = 123 bps
-        assert_eq!(service_fee(f(500.0), total).unwrap(), 123);
-        // At 25% remaining: 50 + floor(250 * (1 - 0.5)) = 50 + 125 = 175 bps
-        assert_eq!(service_fee(f(250.0), total).unwrap(), 175);
-        // At expiry (0 remaining): 50 + 250 = 300 bps
-        assert_eq!(service_fee(ZERO, total).unwrap(), 300);
+        let anchors: &[(i64, &[(i64, u64)])] = &[
+            (
+                900,
+                &[
+                    (900, 50),
+                    (600, 95),
+                    (450, 123),
+                    (300, 155),
+                    (120, 208),
+                    (60, 235),
+                    (0, 300),
+                ],
+            ),
+            (
+                3600,
+                &[(3600, 50), (1800, 106), (618, 174), (300, 208), (0, 300)],
+            ),
+            (
+                86400,
+                &[
+                    (86400, 50),
+                    (43200, 79),
+                    (21600, 110),
+                    (10800, 142),
+                    (5065, 174),
+                    (3600, 188),
+                    (1800, 213),
+                    (300, 259),
+                    (60, 280),
+                    (0, 300),
+                ],
+            ),
+            (
+                120,
+                &[(120, 50), (60, 151), (47, 174), (30, 205), (0, 300)],
+            ),
+        ];
+
+        for &(total_sec, points) in anchors {
+            let total = I80F48::from_num(total_sec);
+            for &(remain_sec, expected) in points {
+                let got = service_fee(I80F48::from_num(remain_sec), total).unwrap();
+                assert_eq!(
+                    got, expected,
+                    "service_fee(remain={remain_sec}, total={total_sec}) = {got}, expected {expected}"
+                );
+            }
+        }
+
         // Out-of-range remain_ts clamps cleanly
-        assert_eq!(service_fee(f(2000.0), total).unwrap(), 50);
-        assert_eq!(service_fee(f(-100.0), total).unwrap(), 300);
+        let anchor = I80F48::from_num(900);
+        assert_eq!(service_fee(I80F48::from_num(2000), anchor).unwrap(), 50);
+        assert_eq!(service_fee(I80F48::from_num(-100), anchor).unwrap(), 300);
+
         // Non-positive total_ts returns error
-        assert!(service_fee(f(10.0), ZERO).is_err());
-        assert!(service_fee(f(10.0), f(-1.0)).is_err());
+        assert!(service_fee(I80F48::from_num(10), ZERO).is_err());
+        assert!(service_fee(I80F48::from_num(10), I80F48::from_num(-1)).is_err());
     }
 }
