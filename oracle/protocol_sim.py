@@ -1,6 +1,6 @@
 """Protocol-level simulator. Fees and checkpoint rules come from the spec prompt.
 
-Fee: each leg 30 / 10000.
+Fee: duration-adaptive dynamic fee per leg (50..300 bps, anchored at 900s).
 In-leg fee accrues to the token sold into the pool.
 Out-leg fee accrues to the token paid out of the pool.
 Withdraw: pending and working, pro-rata by exit shares.
@@ -17,12 +17,24 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pm_amm_math as m  # noqa: E402
 
-FEE_BPS = 30.0
+FEE_BPS = 50.0
+FEE_RAMP_BPS = 250.0
+FEE_ANCHOR_SEC = 900.0
 FEE_DEN = 10000.0
 
 
-def _fee(amount: float) -> float:
-    return amount * FEE_BPS / FEE_DEN
+def dynamic_fee_bps(remain_ts: float, total_ts: float) -> float:
+    if total_ts <= 0:
+        raise ValueError("MathOverflow")
+    clamped = min(max(remain_ts, 0.0), total_ts)
+    if clamped == total_ts:
+        return FEE_BPS
+    if clamped == 0.0:
+        return FEE_BPS + FEE_RAMP_BPS
+    u = math.sqrt(clamped / total_ts)
+    k = math.sqrt(math.sqrt(total_ts / FEE_ANCHOR_SEC))
+    progress = min(1.0, max(0.0, (1.0 - u) / (1.0 + (k - 1.0) * u)))
+    return float(math.floor(FEE_BPS + FEE_RAMP_BPS * progress))
 
 
 @dataclass
@@ -160,6 +172,12 @@ class Protocol:
         out["output"] = 0.0
         return out
 
+    def current_fee_bps(self) -> float:
+        return dynamic_fee_bps(self.end_ts - self.now, self.end_ts - self.start_ts)
+
+    def _fee(self, amount: float) -> float:
+        return amount * self.current_fee_bps() / FEE_DEN
+
     def _credit_fees(self, in_token: str, out_token: str, in_fee: float, out_fee: float) -> None:
         per_in = in_fee / self.total_shares
         per_out = out_fee / self.total_shares
@@ -181,7 +199,7 @@ class Protocol:
         w.no += amount
         self.yes_supply += amount
         self.no_supply += amount
-        in_fee = _fee(amount)
+        in_fee = self._fee(amount)
         net_in = amount - in_fee
         le = self.l_eff()
         if side == "yes":
@@ -189,7 +207,7 @@ class Protocol:
             w.no -= amount
             self.phys_no += amount
             sw = m.swap_no_to_yes(self.reserve_yes, self.reserve_no, le, net_in)
-            out_fee = _fee(sw["output"])
+            out_fee = self._fee(sw["output"])
             paid = math.floor(sw["output"] - out_fee)
             w.yes += paid
             self.phys_yes -= paid
@@ -200,7 +218,7 @@ class Protocol:
             w.yes -= amount
             self.phys_yes += amount
             sw = m.swap_yes_to_no(self.reserve_yes, self.reserve_no, le, net_in)
-            out_fee = _fee(sw["output"])
+            out_fee = self._fee(sw["output"])
             paid = math.floor(sw["output"] - out_fee)
             w.no += paid
             self.phys_no -= paid
@@ -218,14 +236,14 @@ class Protocol:
         """side is the token the user wants to receive."""
         self.accrue()
         w = self.wallet(wallet)
-        in_fee = _fee(amount)
+        in_fee = self._fee(amount)
         net_in = amount - in_fee
         le = self.l_eff()
         if side == "yes":
             w.no -= amount
             self.phys_no += amount
             sw = m.swap_no_to_yes(self.reserve_yes, self.reserve_no, le, net_in)
-            out_fee = _fee(sw["output"])
+            out_fee = self._fee(sw["output"])
             paid = math.floor(sw["output"] - out_fee)
             w.yes += paid
             self.phys_yes -= paid
@@ -236,7 +254,7 @@ class Protocol:
             w.yes -= amount
             self.phys_yes += amount
             sw = m.swap_yes_to_no(self.reserve_yes, self.reserve_no, le, net_in)
-            out_fee = _fee(sw["output"])
+            out_fee = self._fee(sw["output"])
             paid = math.floor(sw["output"] - out_fee)
             w.no += paid
             self.phys_no -= paid
