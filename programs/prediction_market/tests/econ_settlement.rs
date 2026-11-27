@@ -851,7 +851,9 @@ fn e_multi_lp_fairness_with_fees_and_accrual_vs_python() {
         1e-5,
         "multi_lp cum_no",
     );
-    env.ledger(&keys, "multi_lp_house_add").assert_ok();
+    // Multi-op sequence (9 ops): each floor payout / ceil deposit leaves up to 1 micro-unit
+    // of safe pool-favorable surplus (zero deficit, exact 1:1 solvency).
+    env.ledger(&keys, "multi_lp_house_add").assert_walk_ok(5.0, 1.5);
 
     env.warp(START + LIFE * 9 / 10);
 
@@ -891,7 +893,7 @@ fn e_multi_lp_fairness_with_fees_and_accrual_vs_python() {
         2.0,
         "multi_lp house full no",
     );
-    env.ledger(&keys, "multi_lp_all_exited").assert_ok();
+    env.ledger(&keys, "multi_lp_all_exited").assert_walk_ok(6.0, 1.5);
 }
 
 #[test]
