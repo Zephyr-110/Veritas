@@ -330,7 +330,9 @@
     "winPayout": "If {side} wins: {amount}",
     "estValue": "Est. {amount}",
     "lostZero": "Lost · Value 0",
-    "poolShare": "{pct} of pool"
+    "poolShare": "{pct} of pool",
+    "currentFee": "Current trade fee",
+    "feeValue": "{leg}% / leg (~{combined}% total)"
   },
   "trade": {
     "title": "Trade",
@@ -356,7 +358,8 @@
     "simSubmitBuyYes": "Connect wallet to Buy YES (Sim)",
     "simSubmitBuyNo": "Connect wallet to Buy NO (Sim)",
     "simSubmitSwap": "Connect wallet to Swap (Sim)",
-    "sandboxSwapCta": "Connect real wallet to swap"
+    "sandboxSwapCta": "Connect real wallet to swap",
+    "currentFee": "Current fee"
   },
   "tradeDisable": {
     "connect": "Connect a wallet to trade",
@@ -388,7 +391,8 @@
     "sandboxAddSubmit": "Connect real wallet to add liquidity",
     "sandboxWithdrawSubmit": "Connect real wallet to withdraw liquidity",
     "sandboxNote": "Sandbox keys stay local to this browser with capped test funds — adding or withdrawing liquidity requires a persistent real wallet so LP positions and accrued pending are not lost on browser reset.",
-    "riskNote": "Risk warning: providing liquidity is not risk-free — adverse selection can cause losses (see the risk note in Docs)."
+    "riskNote": "Risk warning: providing liquidity is not risk-free — adverse selection can cause losses (see the risk note in Docs).",
+    "currentFee": "Current trade fee"
   },
   "lpDisable": {
     "connect": "Connect a wallet first",

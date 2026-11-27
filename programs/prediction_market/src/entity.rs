@@ -26,11 +26,11 @@ pub struct Market {
     pub last_accrual_ts: i64, // 上次 accrual 时间戳
     pub cum_yes_per_share: i128, // Yes 累计器
     pub cum_no_per_share: i128, // No 累计器
-    pub fee_bps:u16,
 
     pub reserve_yes: i128,
     pub reserve_no: i128,
     pub total_lp_shares: i128,
+    pub start_ts: i64,
     pub end_ts: i64,
 
     pub ocr2_state: Pubkey, // 该市场绑定的 Chainlink feed state账户
@@ -101,6 +101,15 @@ impl Market {
 
     pub fn resolved(&self) -> bool {
         matches!(self.status, MarketStatus::Resolved | MarketStatus::WindowBurn | MarketStatus::StaleBurn)
+    }
+
+    pub fn current_fee_bps(&self, now: i64) -> Result<u64> {
+        let remain_ts = self.end_ts.checked_sub(now).ok_or(ErrorCode::MathOverflow)?;
+        let total_ts = self.end_ts.checked_sub(self.start_ts).ok_or(ErrorCode::MathOverflow)?;
+        crate::math::pm_math::service_fee(
+            I80F48::from_num(remain_ts),
+            I80F48::from_num(total_ts),
+        )
     }
 }
 

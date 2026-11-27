@@ -332,4 +332,18 @@ describe("LpDesk 报价展示与指令提交", () => {
     // Also verify chips have no USDT suffix
     expect(pops.every((p) => !p?.includes("USDT"))).toBe(true);
   });
+
+  it("LP 面板同样展示当前交易费率（含动态费率市场）", () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    renderDesk(
+      makeMarket({
+        startTs: nowSec - 750,
+        endTs: nowSec + 250,
+        expiry: nowSec + 250,
+        feeBps: 0,
+      })
+    );
+    expect(screen.getByText("Current trade fee")).toBeInTheDocument();
+    expect(screen.getByText(/1\.75% \/ leg/)).toBeInTheDocument();
+  });
 });

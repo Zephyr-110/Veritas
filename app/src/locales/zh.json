@@ -330,7 +330,9 @@
     "winPayout": "若 {side} 胜可得 {amount}",
     "estValue": "估值 {amount}",
     "lostZero": "已输 · 价值 0",
-    "poolShare": "占池 {pct}"
+    "poolShare": "占池 {pct}",
+    "currentFee": "当前下注费率",
+    "feeValue": "单腿 {leg}%（双腿约 {combined}%）"
   },
   "trade": {
     "title": "交易",
@@ -356,7 +358,8 @@
     "simSubmitBuyYes": "连接钱包提交买入 YES（模拟预览）",
     "simSubmitBuyNo": "连接钱包提交买入 NO（模拟预览）",
     "simSubmitSwap": "连接钱包提交换仓（模拟预览）",
-    "sandboxSwapCta": "连接真实钱包以换仓"
+    "sandboxSwapCta": "连接真实钱包以换仓",
+    "currentFee": "当前费率"
   },
   "tradeDisable": {
     "connect": "连接钱包后才能交易",
@@ -388,7 +391,8 @@
     "sandboxAddSubmit": "连接真实钱包以提供流动性",
     "sandboxWithdrawSubmit": "连接真实钱包以提取流动性",
     "sandboxNote": "沙盒私钥仅存于当前浏览器且额度有限，为避免清理缓存导致做市仓位与待领收益遗失，做市（存入与提取）需连接真实钱包。",
-    "riskNote": "提示：做市并非无风险，被更灵通的人抢先成交会带来亏损（见机制与帮助页的风险说明）。"
+    "riskNote": "提示：做市并非无风险，被更灵通的人抢先成交会带来亏损（见机制与帮助页的风险说明）。",
+    "currentFee": "当前交易费率"
   },
   "lpDisable": {
     "connect": "请先连接钱包",

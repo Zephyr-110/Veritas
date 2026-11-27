@@ -1,6 +1,43 @@
-import { FEE_DENOMINATOR, SERVICE_FEE_BPS } from "./constants";
+import {
+  DYNAMIC_FEE_BASE_BPS,
+  DYNAMIC_FEE_RAMP_BPS,
+  FEE_DENOMINATOR,
+  SERVICE_FEE_BPS,
+} from "./constants";
 import { i80f48ToAmount, i80f48ToNumber } from "./codec";
 import type { Side } from "./types";
+
+/**
+ * Mirror of on-chain `pm_math::service_fee(remain_ts, total_ts)`:
+ * per-leg fee in bps = SERVICE_FEE (50) + floor(FEE_INCREMENTAL (250) * (1 - sqrt(clamp(remain, 0, total) / total))).
+ */
+export function computeDynamicFeeBps(remainTs: number, totalTs: number): number {
+  if (!Number.isFinite(totalTs) || totalTs <= 0) return DYNAMIC_FEE_BASE_BPS;
+  const clampedRemain = Math.min(Math.max(remainTs, 0), totalTs);
+  const released = Math.min(1, Math.max(0, 1 - Math.sqrt(clampedRemain / totalTs)));
+  return Math.floor(DYNAMIC_FEE_BASE_BPS + DYNAMIC_FEE_RAMP_BPS * released);
+}
+
+/**
+ * Returns the active per-leg fee in bps for a market at `nowSec`.
+ * Uses the on-chain dynamic ramp when `startTs` is present (v2 415-byte layout),
+ * and falls back to the persisted `feeBps` (or 30 bps default) for legacy 409-byte markets.
+ */
+export function currentMarketFeeBps(
+  market: { startTs?: number; endTs: number; feeBps?: number },
+  nowSec = Math.floor(Date.now() / 1000)
+): number {
+  if (market.startTs && market.startTs > 0 && market.endTs > market.startTs) {
+    return computeDynamicFeeBps(market.endTs - nowSec, market.endTs - market.startTs);
+  }
+  return market.feeBps && market.feeBps > 0 ? market.feeBps : Number(SERVICE_FEE_BPS);
+}
+
+/** Effective combined two-leg fee percentage (e.g. 50 bps/leg -> 0.9975%). */
+export function combinedFeePct(perLegBps: number): number {
+  const r = perLegBps / 10_000;
+  return (1 - (1 - r) * (1 - r)) * 100;
+}
 
 const INV_SQRT_2PI = 1 / Math.sqrt(2 * Math.PI);
 const SQRT_2 = Math.SQRT2;
@@ -231,15 +268,17 @@ export function quoteSwapOut(
   outputPool: bigint,
   inputPool: bigint,
   amountIn: bigint,
-  lEff?: number
+  lEff?: number,
+  feeBps = Number(SERVICE_FEE_BPS)
 ): bigint {
   if (outputPool <= 0n || inputPool <= 0n || amountIn <= 0n) return 0n;
   if (lEff != null && Number.isFinite(lEff) && lEff > 0) {
-    const step = pmAmmSwapStep(Number(outputPool), Number(inputPool), Number(amountIn), lEff);
+    const step = pmAmmSwapStep(Number(outputPool), Number(inputPool), Number(amountIn), lEff, feeBps);
     return BigInt(Math.max(0, Math.floor(step.outAfterFee)));
   }
+  const feeBpsBig = BigInt(Math.max(0, Math.floor(feeBps)));
   const amountInAfterFee =
-    (amountIn * (FEE_DENOMINATOR - SERVICE_FEE_BPS)) / FEE_DENOMINATOR;
+    (amountIn * (FEE_DENOMINATOR - feeBpsBig)) / FEE_DENOMINATOR;
   const denominator = inputPool + amountInAfterFee;
   if (denominator <= 0n) return 0n;
   const keep = (outputPool * inputPool) / denominator;
@@ -251,11 +290,12 @@ export function quoteBet(
   noReserve: bigint,
   collateralAmount: bigint,
   side: Side,
-  lEff?: number
+  lEff?: number,
+  feeBps = Number(SERVICE_FEE_BPS)
 ): { swapOut: bigint; totalOut: bigint } {
   const outputPool = side === "yes" ? yesReserve : noReserve;
   const inputPool = side === "yes" ? noReserve : yesReserve;
-  const swapOut = quoteSwapOut(outputPool, inputPool, collateralAmount, lEff);
+  const swapOut = quoteSwapOut(outputPool, inputPool, collateralAmount, lEff, feeBps);
   return { swapOut, totalOut: collateralAmount + swapOut };
 }
 

@@ -2,6 +2,8 @@ export const PROGRAM_ID_DEFAULT = "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER"
 export const USDT_PUBKEY = "CtiAxpKmXtK2bupa59GN6GPYXQiPPYUfSqnY1pgMD7QG";
 export const COLLATERAL_SYMBOL = "USDT";
 export const SERVICE_FEE_BPS = 30n;
+export const DYNAMIC_FEE_BASE_BPS = 50;
+export const DYNAMIC_FEE_RAMP_BPS = 250;
 export const FEE_DENOMINATOR = 10000n;
 export const RESOLVE_WINDOW = 172_800;
 export const MAX_SETTLE_DELAY = 10;
@@ -32,6 +34,7 @@ export const ORACLE_CENSUS_URL = `${GITHUB_REPO}/blob/master/docs/oracle-census-
 export const DEMO_VIDEO_URL = (process.env.NEXT_PUBLIC_DEMO_VIDEO_URL ?? "").trim();
 
 export const MARKET_ACCOUNT_SIZE = 409;
+export const MARKET_ACCOUNT_SIZE_V2 = 415;
 export const MARKET_DISCRIMINATOR = [219, 190, 213, 55, 0, 227, 198, 154] as const;
 export const LP_POSITION_DISCRIMINATOR = [105, 241, 37, 200, 224, 2, 252, 90] as const;
 export const MARKET_SNAPSHOT_DISCRIMINATOR = [107, 32, 221, 188, 130, 114, 104, 28] as const;

@@ -164,9 +164,9 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
         && end_ts > ctx.accounts.clock.unix_timestamp,
         ErrorCode::InvalidAmount
     );
+    market.start_ts = ctx.accounts.clock.unix_timestamp;
     market.end_ts = end_ts;
     market.last_accrual_ts = ctx.accounts.clock.unix_timestamp;
-    market.fee_bps = SERVICE_FEE as u16;
 
     market.ocr2_state = ctx.accounts.ocr2_state.key();
     market.decimals = decimals;

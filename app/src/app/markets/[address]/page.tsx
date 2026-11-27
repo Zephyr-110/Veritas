@@ -14,7 +14,7 @@ import { COLLATERAL_SYMBOL, RESOLVE_WINDOW } from "@/lib/constants";
 import { claimableOf, isFinalizedStatus, marketPhase, pendingValueOf, type MarketView, type UserPosition } from "@/lib/markets";
 import { resolveBackTarget, type BackTarget } from "@/lib/nav-history";
 import { isQuoteStale } from "@/lib/chainlink";
-import { pmAmmAccrue } from "@/lib/quote";
+import { combinedFeePct, currentMarketFeeBps, pmAmmAccrue } from "@/lib/quote";
 import { TradeDesk } from "@/components/trade-desk";
 import { LiquidityCard, PriceChartCard } from "@/components/market-visuals";
 import { chartPair } from "@/lib/chart";
@@ -201,7 +201,7 @@ export default function MarketDetailPage() {
             />
           </Reveal>
           <Reveal className="flex-1">
-            <PoolFactsCard market={market} humanThreshold={humanThreshold} />
+            <PoolFactsCard market={market} humanThreshold={humanThreshold} now={now} />
           </Reveal>
         </div>
         <aside className="desk-rail stack-4 lg:col-start-2 lg:row-start-1 lg:row-span-2">
@@ -220,12 +220,19 @@ export default function MarketDetailPage() {
   );
 }
 
-function PoolFactsCard({ market, humanThreshold }: { market: MarketView; humanThreshold: string }) {
+function PoolFactsCard({ market, humanThreshold, now }: { market: MarketView; humanThreshold: string; now: number }) {
+  const t = useT();
+  const liveFeeBps = currentMarketFeeBps(market, now > 0 ? now : market.lastAccrualTs);
+  const feeText = t("market.feeValue", {
+    leg: (liveFeeBps / 100).toFixed(2),
+    combined: combinedFeePct(liveFeeBps).toFixed(2),
+  });
   return (
     <Card className="stack-3 h-full">
       <div className="section-title">
         <StableText k="market.history" />
       </div>
+      <Kv k={<StableText k="market.currentFee" />} v={feeText} />
       <Kv k={<StableText k="market.yesReserve" />} v={`${formatFixed(market.reserveYes, market.decimals, 2)} YES`} />
       <Kv k={<StableText k="market.noReserve" />} v={`${formatFixed(market.reserveNo, market.decimals, 2)} NO`} />
       <Kv k={<StableText k="market.depth" />} v={money(market.vault, market.decimals)} />

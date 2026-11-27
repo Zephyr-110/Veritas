@@ -369,4 +369,19 @@ describe("TradeDesk 提交", () => {
     await userEvent.click(screen.getByRole("button", { name: "Show balances" }));
     expect(screen.getByText("Balance 12.50 USDT")).toBeInTheDocument();
   });
+
+  it("动态费率市场在下注区展示当前实时费率（单腿 + 双腿）", () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    // 25% time remaining -> 175 bps/leg = 1.75% / leg (~3.47% total)
+    renderDesk(
+      makeMarket({
+        startTs: nowSec - 750,
+        endTs: nowSec + 250,
+        expiry: nowSec + 250,
+        feeBps: 0,
+      })
+    );
+    expect(screen.getByText("Current fee")).toBeInTheDocument();
+    expect(screen.getByText(/1\.75% \/ leg/)).toBeInTheDocument();
+  });
 });

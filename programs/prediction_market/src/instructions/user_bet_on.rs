@@ -175,8 +175,9 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
 
     let swap_in_amount = param.collateral_amount;
     // 入腿手续费
+    let fee_bps = market.current_fee_bps(ctx.accounts.clock.unix_timestamp)?;
     let in_service_fee = I80F48::from_num(swap_in_amount)
-        .checked_mul(I80F48::from_num(market.fee_bps)).ok_or(ErrorCode::MathOverflow)?
+        .checked_mul(I80F48::from_num(fee_bps)).ok_or(ErrorCode::MathOverflow)?
         .checked_div(I80F48::from_num(10_000)).ok_or(ErrorCode::MathOverflow)?;
     // 用户的真实属于自己的入池
     let net_in = I80F48::from_num(swap_in_amount)
@@ -224,7 +225,7 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
         )?;
         // ③ 计算手续费
         let out_service_fee = result.output
-            .checked_mul(I80F48::from_num(market.fee_bps)).ok_or(ErrorCode::MathOverflow)?
+            .checked_mul(I80F48::from_num(fee_bps)).ok_or(ErrorCode::MathOverflow)?
             .checked_div(I80F48::from_num(10_000)).ok_or(ErrorCode::MathOverflow)?;
         // ④ 计算要换的 Token 的数量
         let return_amount = result.output
@@ -293,7 +294,7 @@ pub fn user_bet_on(ctx: Context<UserBetOn>, param: UserBetOnParams, ) -> Result<
         )?;
         // ③ 计算手续费
         let out_service_fee = result.output
-            .checked_mul(I80F48::from_num(market.fee_bps)).ok_or(ErrorCode::MathOverflow)?
+            .checked_mul(I80F48::from_num(fee_bps)).ok_or(ErrorCode::MathOverflow)?
             .checked_div(I80F48::from_num(10_000)).ok_or(ErrorCode::MathOverflow)?;
         // ④ 计算要换的 Token 的数量
         let return_amount = result.output

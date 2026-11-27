@@ -13,6 +13,9 @@ import {
   pmAmmQuoteBet,
   pmAmmAccrue,
   pmAmmLeff,
+  computeDynamicFeeBps,
+  currentMarketFeeBps,
+  combinedFeePct,
 } from "@/lib/quote";
 import { i80f48ToAmount } from "@/lib/codec";
 
@@ -199,6 +202,24 @@ describe("quote", () => {
       expect(accrued.reserveYes).toBeCloseTo(yes * 0.5, -1);
       expect(accrued.reserveNo).toBeCloseTo(no * 0.5, -1);
       expect(accrued.yesPrice).toBeCloseTo(0.6, 4);
+    });
+
+    it("computeDynamicFeeBps 与链上 service_fee 曲线完全一致", () => {
+      expect(computeDynamicFeeBps(1000, 1000)).toBe(50);
+      expect(computeDynamicFeeBps(750, 1000)).toBe(83);
+      expect(computeDynamicFeeBps(500, 1000)).toBe(123);
+      expect(computeDynamicFeeBps(250, 1000)).toBe(175);
+      expect(computeDynamicFeeBps(0, 1000)).toBe(300);
+      expect(computeDynamicFeeBps(2000, 1000)).toBe(50);
+      expect(computeDynamicFeeBps(-50, 1000)).toBe(300);
+      expect(combinedFeePct(50)).toBeCloseTo(0.9975, 4);
+      expect(combinedFeePct(300)).toBeCloseTo(5.91, 4);
+    });
+
+    it("currentMarketFeeBps 对新市场走动态费率、对旧市场回退 feeBps", () => {
+      expect(currentMarketFeeBps({ startTs: 1000, endTs: 2000, feeBps: 0 }, 1000)).toBe(50);
+      expect(currentMarketFeeBps({ startTs: 1000, endTs: 2000, feeBps: 0 }, 1750)).toBe(175);
+      expect(currentMarketFeeBps({ endTs: 2000, feeBps: 30 }, 1750)).toBe(30);
     });
   });
 });

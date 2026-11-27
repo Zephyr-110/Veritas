@@ -62,7 +62,7 @@ fn quote_swap_out(env: &Env, keys: &MarketKeys, amount_in: u64, want: MarketOutc
     let mut market = env.read_market(keys);
     let accrual = compute_accrual(&market, env.clock).unwrap();
     apply_accrual(&mut market, &accrual);
-    let fee = I80F48::from_num(market.fee_bps);
+    let fee = I80F48::from_num(market.current_fee_bps(env.clock).unwrap());
     let den = I80F48::from_num(10_000);
     let amt = I80F48::from_num(amount_in);
     let in_fee = amt.checked_mul(fee).unwrap().checked_div(den).unwrap();
@@ -132,7 +132,12 @@ fn a_closed_loop() {
     assert_eq!(created.winner, None);
     assert_eq!(created.finish_ts, 0);
     assert_eq!(created.status, MarketStatus::Open);
-    assert_eq!(created.fee_bps, 30, "create must persist SERVICE_FEE");
+    assert_eq!(created.start_ts, START, "create must persist start_ts");
+    assert_eq!(
+        created.current_fee_bps(START).unwrap(),
+        prediction_market::SERVICE_FEE,
+        "opening fee must equal SERVICE_FEE"
+    );
     env.ledger(&keys, "create").assert_tight(2.5);
 
     let lp = env.fund_user(3_000_000);

@@ -78,7 +78,8 @@ fn assert_trades_dead(env: &mut Env, keys: &MarketKeys, trader: &Actor, lp: &Act
 
 #[test]
 fn s_constants_locked() {
-    assert_eq!(prediction_market::SERVICE_FEE, 30);
+    assert_eq!(prediction_market::SERVICE_FEE, 50);
+    assert_eq!(prediction_market::FEE_INCREMENTAL, 250);
     assert_eq!(prediction_market::RESOLVE_WINDOW, 172_800);
     assert_eq!(prediction_market::MAX_SETTLE_DELAY, 10);
     assert_eq!(prediction_market::CLAIM_WINDOW, 2_592_000);

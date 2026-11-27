@@ -3,6 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import {
   LP_POSITION_DISCRIMINATOR,
   MARKET_ACCOUNT_SIZE,
+  MARKET_ACCOUNT_SIZE_V2,
   MARKET_DISCRIMINATOR,
   MARKET_SNAPSHOT_DISCRIMINATOR,
 } from "./constants";
@@ -31,6 +32,7 @@ export type DecodedMarket = {
   reserveYes: bigint;
   reserveNo: bigint;
   totalLpShares: bigint;
+  startTs: bigint;
   endTs: bigint;
   ocr2State: PublicKey;
   threshold: bigint;
@@ -131,7 +133,9 @@ function optionSide(c: Cursor): Side | null {
 }
 
 export function decodeMarket(data: Buffer): DecodedMarket {
-  if (data.length !== MARKET_ACCOUNT_SIZE || !sameDisc(data, MARKET_DISCRIMINATOR)) {
+  const isV2 = data.length === MARKET_ACCOUNT_SIZE_V2;
+  const isLegacy = data.length === MARKET_ACCOUNT_SIZE;
+  if ((!isLegacy && !isV2) || !sameDisc(data, MARKET_DISCRIMINATOR)) {
     throw new Error("errors.decode");
   }
   const c = new Cursor(data, 8);
@@ -151,10 +155,11 @@ export function decodeMarket(data: Buffer): DecodedMarket {
   const lastAccrualTs = c.i64();
   const cumYesPerShare = c.i128();
   const cumNoPerShare = c.i128();
-  const feeBps = c.u16();
+  const feeBps = isLegacy ? c.u16() : 0;
   const reserveYes = c.i128();
   const reserveNo = c.i128();
   const totalLpShares = c.i128();
+  const startTs = isV2 ? c.i64() : 0n;
   const endTs = c.i64();
   const ocr2State = c.pubkey();
   const threshold = c.i64();
@@ -186,6 +191,7 @@ export function decodeMarket(data: Buffer): DecodedMarket {
     reserveYes,
     reserveNo,
     totalLpShares,
+    startTs,
     endTs,
     ocr2State,
     threshold,

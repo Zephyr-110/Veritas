@@ -41,6 +41,7 @@ export type MarketView = {
   status: MarketStatusName;
   winner: Side | null;
   expiry: number;
+  startTs?: number;
   endTs: number;
   finishTs: number;
   bump: number;
@@ -182,6 +183,7 @@ function buildView(
     status: account.status,
     winner: account.winner,
     expiry: Number(account.expiry),
+    startTs: account.startTs > 0n ? Number(account.startTs) : undefined,
     endTs: Number(account.endTs),
     finishTs: Number(account.finishTs),
     bump: account.bump,

@@ -1,7 +1,10 @@
 use anchor_lang::prelude::*;
 
 #[constant]
-pub const SERVICE_FEE : u64 = 30;
+pub const SERVICE_FEE : u64 = 50;
+
+#[constant]
+pub const FEE_INCREMENTAL: u64 = 250;
 
 #[constant]
 pub const RESOLVE_WINDOW: u64 = 172800;

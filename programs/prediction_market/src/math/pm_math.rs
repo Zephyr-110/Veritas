@@ -9,7 +9,7 @@ use fixed::types::I80F48;
 
 use super::lut;
 use crate::error::ErrorCode as PmAmmError;
-
+use crate::{FEE_INCREMENTAL, SERVICE_FEE};
 // ============================================================================
 // Constants
 // ============================================================================
@@ -627,6 +627,30 @@ pub fn suggest_l_zero_for_budget(budget_usdc: u64, duration_secs: i64) -> Result
     let phi_0 = INV_SQRT_2PI; // phi(0) = 1/sqrt(2*pi)
 
     Ok(budget / (phi_0 * sqrt_t))
+}
+
+pub fn service_fee(remain_ts: I80F48, total_ts: I80F48) -> Result<u64> {
+    if total_ts <= I80F48::from_num(0) {
+        return Err(PmAmmError::MathOverflow.into());
+    }
+
+    let released = I80F48::from_num(1)
+        .checked_sub(sqrt_fixed(
+            remain_ts
+                .clamp(I80F48::from_num(0), total_ts)
+                .checked_div(total_ts)
+                .ok_or(PmAmmError::MathOverflow)?,
+        )?)
+        .ok_or(PmAmmError::MathOverflow)?
+        .clamp(I80F48::ZERO, I80F48::ONE);
+
+    let fee = I80F48::from_num(SERVICE_FEE).checked_add(
+        I80F48::from_num(FEE_INCREMENTAL)
+            .checked_mul(released)
+            .ok_or(PmAmmError::MathOverflow)?,
+    );
+
+    Ok(fee.ok_or(PmAmmError::MathOverflow)?.to_num::<u64>())
 }
 
 // ============================================================================
@@ -1650,5 +1674,26 @@ mod tests {
                 .unwrap();
         assert!(res_yes_no.output >= ZERO, "output must be non-negative");
         assert!(res_yes_no.y_new <= y_lo, "y_new must not inflate past y");
+    }
+
+    #[test]
+    fn test_service_fee_ramp_and_bounds() {
+        let total = f(1000.0);
+        // At open (100% remaining): base fee = 50 bps
+        assert_eq!(service_fee(total, total).unwrap(), 50);
+        // At 75% remaining: 50 + floor(250 * (1 - sqrt(0.75))) = 50 + 33 = 83 bps
+        assert_eq!(service_fee(f(750.0), total).unwrap(), 83);
+        // At 50% remaining: 50 + floor(250 * (1 - sqrt(0.5))) = 50 + 73 = 123 bps
+        assert_eq!(service_fee(f(500.0), total).unwrap(), 123);
+        // At 25% remaining: 50 + floor(250 * (1 - 0.5)) = 50 + 125 = 175 bps
+        assert_eq!(service_fee(f(250.0), total).unwrap(), 175);
+        // At expiry (0 remaining): 50 + 250 = 300 bps
+        assert_eq!(service_fee(ZERO, total).unwrap(), 300);
+        // Out-of-range remain_ts clamps cleanly
+        assert_eq!(service_fee(f(2000.0), total).unwrap(), 50);
+        assert_eq!(service_fee(f(-100.0), total).unwrap(), 300);
+        // Non-positive total_ts returns error
+        assert!(service_fee(f(10.0), ZERO).is_err());
+        assert!(service_fee(f(10.0), f(-1.0)).is_err());
     }
 }

@@ -7,7 +7,7 @@ import { COLLATERAL_SYMBOL, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
 import { formatCents, formatFixed, fromUi, toUi } from "@/lib/format";
 import { money } from "@/lib/display";
 import { thresholdToHuman } from "@/lib/feeds";
-import { applySlippage, pmAmmAccrue, quoteBet, quoteSwapOut } from "@/lib/quote";
+import { applySlippage, combinedFeePct, currentMarketFeeBps, pmAmmAccrue, quoteBet, quoteSwapOut } from "@/lib/quote";
 import { ixSwap, ixUserBetOn } from "@/lib/instructions";
 import { marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
 import { useProgram } from "@/hooks/use-program";
@@ -74,7 +74,12 @@ export function TradeDesk({
   const effNo = accrued ? BigInt(Math.max(1, Math.round(accrued.reserveNo))) : market.reserveNo;
   const effL = accrued && accrued.lEff > 0 ? accrued.lEff : undefined;
 
-  const betQuote = quoteBet(effYes, effNo, parsed.value, side, effL);
+  const liveFeeBps = currentMarketFeeBps(market, now > 0 ? now : market.lastAccrualTs);
+  const feeText = t("market.feeValue", {
+    leg: (liveFeeBps / 100).toFixed(2),
+    combined: combinedFeePct(liveFeeBps).toFixed(2),
+  });
+  const betQuote = quoteBet(effYes, effNo, parsed.value, side, effL, liveFeeBps);
   const baseYesPrice = accrued ? accrued.yesPrice : market.yesPrice;
   const curSideCents = (side === "yes" ? baseYesPrice : 1 - baseYesPrice) * 100;
   const avgCents =
@@ -84,7 +89,8 @@ export function TradeDesk({
     side === "yes" ? effYes : effNo,
     side === "yes" ? effNo : effYes,
     parsed.value,
-    effL
+    effL,
+    liveFeeBps
   );
   const sellBalance = side === "yes" ? position.no : position.yes;
   const sideLabel = side === "yes" ? t("common.yes") : t("common.no");
@@ -347,6 +353,10 @@ export function TradeDesk({
             v={<PopNum text={money(outShares, market.decimals)} />}
           />
         ) : null}
+        <Kv
+          k={<StableText k="trade.currentFee" />}
+          v={<PopNum text={feeText} />}
+        />
         {tab === "swap" ? (
           <p className="text-xs leading-5 text-zinc-500">
             <StableText k="trade.swapHint" block />

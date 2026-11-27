@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { COLLATERAL_SYMBOL } from "@/lib/constants";
 import { formatFixed, fromUi, toUi } from "@/lib/format";
-import { pmAmmAccrue, quoteAddLiquidity, quoteWithdrawLiquidity } from "@/lib/quote";
+import { combinedFeePct, currentMarketFeeBps, pmAmmAccrue, quoteAddLiquidity, quoteWithdrawLiquidity } from "@/lib/quote";
 import { ixAddLiquidity, ixGetLiquidity } from "@/lib/instructions";
 import { isFinalizedStatus, marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
 import { useProgram } from "@/hooks/use-program";
@@ -66,6 +66,11 @@ export function LpDesk({
     market.totalLpShares > 0n
       ? position.pendingNo + (releasedNo * position.lpShares) / market.totalLpShares
       : position.pendingNo;
+  const liveFeeBps = currentMarketFeeBps(market, now > 0 ? now : market.lastAccrualTs);
+  const feeText = t("market.feeValue", {
+    leg: (liveFeeBps / 100).toFixed(2),
+    combined: combinedFeePct(liveFeeBps).toFixed(2),
+  });
   const addQuote = quoteAddLiquidity(effectiveReserveYes, effectiveReserveNo, market.totalLpShares, parsed.value);
   const wdQuote = quoteWithdrawLiquidity(
     effectiveReserveYes,
@@ -154,6 +159,10 @@ export function LpDesk({
             <span className="num ml-1.5 text-zinc-100">
               {formatFixed(accruedPendingYes, market.decimals, 4)} / {formatFixed(accruedPendingNo, market.decimals, 4)}
             </span>
+          </span>
+          <span className="text-zinc-500">
+            <StableText k="lp.currentFee" />
+            <span className="num ml-1.5 text-zinc-100">{feeText}</span>
           </span>
         </div>
         {onlyWithdraw ? null : (
