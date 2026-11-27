@@ -94,6 +94,8 @@ const DEFAULT_SETTLE_MAX_TOTAL_PROCS = 12;
 const DEFAULT_SETTLE_STALE_MAX_AGE_SEC = 600;
 const DEFAULT_RPC_FETCH_TIMEOUT_MS = 15_000;
 const SELF_SETTLE_SLOT_PREFIX = "settle-slot-";
+const DEFAULT_SEED_MIN_USDT = 120;
+const DEFAULT_SEED_MAX_USDT = 180;
 
 const ASSET_CATALOG = {
   btc: {
@@ -160,7 +162,9 @@ Environment variables:
   COLLATERAL_MINT              Collateral mint (default: ${DEFAULT_COLLATERAL_MINT})
   SANDBOX_ASSETS               Comma-separated staggered feeds (default: ${DEFAULT_ASSETS})
   SANDBOX_DURATION_SEC         Market duration in seconds (default: 900 = 15 min)
-  SANDBOX_SEED_USDT            Initial seed liquidity in USDT (default: 150)
+  SANDBOX_SEED_USDT            Target mean seed liquidity in USDT (default: 150)
+  SANDBOX_SEED_MIN_USDT        Minimum randomized seed in USDT (default: 0.8 * SANDBOX_SEED_USDT = 120)
+  SANDBOX_SEED_MAX_USDT        Maximum randomized seed in USDT (default: 1.2 * SANDBOX_SEED_USDT = 180)
   SANDBOX_BET_USDT             Opening bot bet size in USDT (default: 2)
   SANDBOX_TITLE                Optional title override when using a single asset
   SANDBOX_STATE_PATH           State JSON file path (default: scripts/sandbox/state.json)
@@ -260,10 +264,27 @@ function defaultTitleForAsset(symbol, durationSec) {
   return `${symbol} at or above opening price in ${durationSec} sec?`;
 }
 
+function pickSeedUsdt(cfg, rng = Math.random) {
+  const min = Math.max(1.01, Number(cfg?.seedMinUsdt ?? DEFAULT_SEED_MIN_USDT));
+  const max = Math.max(min, Number(cfg?.seedMaxUsdt ?? DEFAULT_SEED_MAX_USDT));
+  if (max <= min) return Number(min.toFixed(2));
+  const raw = min + rng() * (max - min);
+  return Math.min(max, Math.max(min, Math.round(raw * 100) / 100));
+}
+
 function getConfig() {
   const durationSec = Math.max(30, Math.round(envNum("SANDBOX_DURATION_SEC", 900)));
   const assets = parseAssets(envStr(["SANDBOX_ASSETS"], DEFAULT_ASSETS));
   const titleOverride = envStr(["SANDBOX_TITLE"], "");
+  const seedUsdt = Math.max(1.01, envNum("SANDBOX_SEED_USDT", 150));
+  const seedMinUsdt = Math.max(
+    1.01,
+    envNum("SANDBOX_SEED_MIN_USDT", Number((seedUsdt * 0.8).toFixed(2)))
+  );
+  const seedMaxUsdt = Math.max(
+    seedMinUsdt,
+    envNum("SANDBOX_SEED_MAX_USDT", Number((seedUsdt * 1.2).toFixed(2)))
+  );
   return {
     rpcUrl: envStr(["SOLANA_RPC", "RPC_URL"], DEFAULT_RPC),
     walletPath: envStr(
@@ -275,7 +296,9 @@ function getConfig() {
     assets,
     statePath: envStr(["SANDBOX_STATE_PATH"], path.join(__dirname, "state.json")),
     durationSec,
-    seedUsdt: Math.max(1.01, envNum("SANDBOX_SEED_USDT", 150)),
+    seedUsdt,
+    seedMinUsdt,
+    seedMaxUsdt,
     betUsdt: Math.max(0.01, envNum("SANDBOX_BET_USDT", 2)),
     titleOverride,
     settleMaxPerTick: Math.max(1, Math.round(envNum("SANDBOX_SETTLE_MAX_PER_TICK", 4))),
@@ -1435,10 +1458,11 @@ async function runTick() {
   } else {
     const mintMeta = await fetchMintMeta(connection, cfg.collateralMint);
     const scale = 10 ** mintMeta.decimals;
-    const seedAtoms = BigInt(Math.round(cfg.seedUsdt * scale));
+    const minSeedAtoms = BigInt(Math.round(cfg.seedMinUsdt * scale));
+    const maxSeedAtoms = BigInt(Math.round(cfg.seedMaxUsdt * scale));
     const betAtoms = BigInt(Math.round(cfg.betUsdt * scale));
-    if (seedAtoms <= 1_000_000n) {
-      throw new Error("SANDBOX_SEED_USDT must produce > 1,000,000 raw collateral units");
+    if (minSeedAtoms <= 1_000_000n) {
+      throw new Error("SANDBOX_SEED_MIN_USDT must produce > 1,000,000 raw collateral units");
     }
 
     const creatorCollateralAta = ataOf(cfg.collateralMint, payer.publicKey, mintMeta.tokenProgram);
@@ -1450,7 +1474,7 @@ async function runTick() {
     // If SOL or collateral is tight because resolved markets haven't been reclaimed yet, reclaim once on-demand.
     if (
       cfg.recycleFunds &&
-      (usdtBal.amount < seedAtoms + betAtoms || solLamports < cfg.minSolLamports)
+      (usdtBal.amount < maxSeedAtoms + betAtoms || solLamports < cfg.minSolLamports)
     ) {
       await recycleFinalizedEntries(connection, program, payer, cfg, state);
       [solLamports, usdtBal] = await Promise.all([
@@ -1474,6 +1498,9 @@ async function runTick() {
         console.log(`[tick] Daily cap (${cfg.dailyMaxMarkets}) reached for ${today}; skipping ${asset.key}.`);
         break;
       }
+
+      const marketSeedUsdt = pickSeedUsdt(cfg);
+      const seedAtoms = BigInt(Math.round(marketSeedUsdt * scale));
 
       if (usdtBal.amount < seedAtoms + betAtoms) {
         console.warn(
@@ -1530,7 +1557,7 @@ async function runTick() {
       state.dailyCounts[today] = todayCount + 1;
       saveState(cfg.statePath, state);
       console.log(
-        `[create] (${asset.symbol}) ${marketAddr} expiry=${expiry} threshold=${feed.answer.toString()} tx=${createSig}`
+        `[create] (${asset.symbol}) ${marketAddr} seed=${marketSeedUsdt.toFixed(2)} USDT expiry=${expiry} threshold=${feed.answer.toString()} tx=${createSig}`
       );
       await persistCreatedMarketToDb(connection, cfg.programId, pdas.market, nowSec);
 
@@ -1647,4 +1674,8 @@ module.exports = {
   DEFAULT_SETTLE_MAX_TOTAL_PROCS,
   DEFAULT_SETTLE_STALE_MAX_AGE_SEC,
   SELF_SETTLE_SLOT_PREFIX,
+  DEFAULT_SEED_MIN_USDT,
+  DEFAULT_SEED_MAX_USDT,
+  getConfig,
+  pickSeedUsdt,
 };

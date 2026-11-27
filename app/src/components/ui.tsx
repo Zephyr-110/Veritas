@@ -33,6 +33,7 @@ import { tPair, type Vars } from "@/i18n/store";
 import { PulseAreaMark } from "./logo-marks";
 import { useRefresh, useSettings, useToasts } from "./providers";
 import { useGuestSession } from "./guest-session";
+import { MASKED_BALANCE, useBalanceVisibility } from "@/hooks/use-balance-visibility";
 
 export function cx(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(" ");
@@ -1046,6 +1047,7 @@ export function SandboxCapsule() {
     exitSandbox,
   } = useGuestSession();
   const { settings } = useSettings();
+  const { hidden: hideBalances } = useBalanceVisibility();
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -1078,8 +1080,16 @@ export function SandboxCapsule() {
   if (!isSandbox || !sandboxPublicKey) return null;
 
   const addr = sandboxPublicKey.toBase58();
-  const usdtText = balance ? formatFixed(balance.usdtAtoms, balance.usdtDecimals, 2) : "—";
-  const solText = balance ? (balance.solLamports / 1e9).toFixed(4) : "—";
+  const usdtText = hideBalances
+    ? MASKED_BALANCE
+    : balance
+      ? formatFixed(balance.usdtAtoms, balance.usdtDecimals, 2)
+      : "—";
+  const solText = hideBalances
+    ? MASKED_BALANCE
+    : balance
+      ? (balance.solLamports / 1e9).toFixed(4)
+      : "—";
   const solscanHref = explorerAccount(addr, settings.cluster);
 
   return (

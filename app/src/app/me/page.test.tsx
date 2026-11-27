@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ReactNode } from "react";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PublicKey } from "@solana/web3.js";
 import { FEEDS } from "@/lib/feeds";
 import { toUi } from "@/lib/format";
 import type { WalletPositionsSummaryDto } from "@/lib/market-dto";
 import { claimableOf, isFinalizedStatus, pendingValueOf, type MarketView, type UserPosition } from "@/lib/markets";
+import { resetBalanceVisibilityForTests } from "@/hooks/use-balance-visibility";
 import { LocaleProvider } from "@/i18n/provider";
 
 const NOW = 1_767_225_600;
@@ -119,6 +121,52 @@ vi.mock("@/components/providers", () => ({
   }),
 }));
 
+const walletBalanceMock = vi.hoisted(() => ({
+  data: { usdtAtoms: 25_000_000n, usdtDecimals: 6, solLamports: 1_500_000_000 } as {
+    usdtAtoms: bigint;
+    usdtDecimals: number;
+    solLamports: number;
+  } | null,
+  isSandbox: false,
+}));
+
+vi.mock("@/hooks/use-wallet-balance", () => ({
+  useWalletBalance: () => ({
+    data: walletBalanceMock.data,
+    loading: false,
+    refreshing: false,
+    stale: false,
+    updatedAt: NOW * 1000,
+    error: null,
+    isSandbox: walletBalanceMock.isSandbox,
+    refetch: vi.fn(),
+  }),
+}));
+
+const feedsMock = vi.hoisted(() => ({
+  ready: true,
+  quotes: {
+    btc: {
+      key: "btc",
+      price: 75_000,
+      publishTime: Math.floor(Date.now() / 1000),
+      receivedAt: Date.now(),
+      available: true,
+    },
+  } as Record<string, { key: string; price: number; publishTime: number; receivedAt: number; available: boolean }>,
+}));
+
+vi.mock("@/hooks/use-feeds", () => ({
+  useFeeds: () => ({
+    quotes: feedsMock.quotes,
+    ready: feedsMock.ready,
+    error: null,
+    lastUpdated: NOW,
+    lastReceivedAt: Date.now(),
+    retry: vi.fn(),
+  }),
+}));
+
 const { default: MePage } = await import("@/app/me/page");
 
 function makeMarket(seed: number, overrides: Partial<MarketView> = {}): MarketView {
@@ -202,6 +250,10 @@ function renderMePage() {
 beforeEach(() => {
   positionState.rows = [];
   fetchRedemptions.mockReset().mockResolvedValue([]);
+  window.localStorage.clear();
+  resetBalanceVisibilityForTests();
+  walletBalanceMock.data = { usdtAtoms: 25_000_000n, usdtDecimals: 6, solLamports: 1_500_000_000 };
+  walletBalanceMock.isSandbox = false;
 });
 
 afterEach(() => cleanup());
@@ -346,5 +398,81 @@ describe("MePage Claim 跳转分流", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(screen.queryByText("No redemption signatures in the recent history window.")).toBeNull();
+  });
+
+  it("表头合计与持仓行共用列线，展示已输价值0、赢方兑付、进行中领先/胜可得/估值与 LP 占池比例", async () => {
+    const lostMarket = makeMarket(11, {
+      title: "Lost Side Market",
+      status: "resolved",
+      winner: "yes",
+      expiry: NOW - 600,
+      endTs: NOW - 600,
+      finishTs: NOW - 300,
+    });
+    const liveMarket = makeMarket(12, {
+      title: "Live Lead Market",
+      status: "open",
+      yesPrice: 0.6,
+      noPrice: 0.4,
+      totalLpShares: 100_000_000n,
+      expiry: NOW + 600,
+      endTs: NOW + 600,
+    });
+    positionState.rows = [
+      {
+        market: lostMarket,
+        position: makePosition({ no: 19_320_000n }),
+      },
+      {
+        market: liveMarket,
+        position: makePosition({ yes: 10_000_000n, lpShares: 5_000_000n }),
+      },
+    ];
+
+    renderMePage();
+
+    await screen.findByText("Lost Side Market");
+    const header = screen.getByTestId("me-positions-header");
+    const lostRow = screen.getByText("Lost Side Market").closest("a")!;
+    expect(header.className).toContain("lg:grid-cols-");
+    expect(lostRow.className).toContain("lg:grid-cols-");
+
+    // Resolved losing share is explicitly marked Lost · Value 0
+    expect(screen.getAllByText("Lost · Value 0").length).toBeGreaterThanOrEqual(1);
+    // Live position shows leading side, win payout, estimate, and LP pool share %
+    expect(screen.getByText("YES ahead")).toBeInTheDocument();
+    expect(screen.getByText("Win payout 10.00 USDT")).toBeInTheDocument();
+    expect(screen.getByText("Est. ~6.00 USDT")).toBeInTheDocument();
+    expect(screen.getByText("5.00% of pool")).toBeInTheDocument();
+  });
+
+  it("顶部账户总览显示真实 USDT/SOL 与估值合计，并支持余额隐藏开关", async () => {
+    const liveMarket = makeMarket(13, {
+      title: "Overview Market",
+      status: "open",
+      yesPrice: 0.5,
+      noPrice: 0.5,
+      expiry: NOW + 600,
+      endTs: NOW + 600,
+    });
+    positionState.rows = [
+      {
+        market: liveMarket,
+        position: makePosition({ yes: 10_000_000n }),
+      },
+    ];
+
+    renderMePage();
+    await screen.findByText("Overview Market");
+
+    const overview = screen.getByTestId("me-account-overview");
+    expect(overview.textContent).toContain("25.00");
+    expect(overview.textContent).toContain("~5.00");
+    expect(overview.textContent).toContain("~30.00");
+    expect(screen.getByTestId("me-overview-sol-row").textContent).toContain("1.5000 SOL");
+
+    await userEvent.click(screen.getByRole("button", { name: "Hide balances" }));
+    expect(overview.textContent).toContain("••••");
+    expect(screen.getByTestId("me-overview-sol-row").textContent).toContain("•••• SOL");
   });
 });

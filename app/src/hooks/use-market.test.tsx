@@ -51,6 +51,7 @@ const unpackAmount = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({
   usePathname: () => `/markets/${MARKET_KEY.toBase58()}`,
   useParams: () => ({ address: MARKET_KEY.toBase58() }),
+  useRouter: () => ({ back: vi.fn(), push: vi.fn() }),
 }));
 
 vi.mock("@/hooks/use-feeds", () => ({ useFeeds: () => ({ quotes: {}, ready: false }) }));

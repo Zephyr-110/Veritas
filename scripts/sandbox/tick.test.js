@@ -4,13 +4,17 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { Keypair } = require("@solana/web3.js");
 const {
+  DEFAULT_SEED_MAX_USDT,
+  DEFAULT_SEED_MIN_USDT,
   DEFAULT_SETTLE_MAX_TOTAL_PROCS,
   DEFAULT_SETTLE_SLOTS,
   RESOLVE_WINDOW_SEC,
   SELF_SETTLE_SLOT_PREFIX,
   classifySettleProcess,
   defaultTitleForAsset,
+  getConfig,
   parseAssets,
+  pickSeedUsdt,
   reapStaleSettleProcesses,
   resolveAssetForEntry,
   scheduleExpiredSettlements,
@@ -255,4 +259,28 @@ test("classifySettleProcess and reapStaleSettleProcesses strictly target old ord
     out.remainingProcs.map((p) => p.pid),
     [102, 103, 104]
   );
+});
+
+test("pickSeedUsdt randomizes within 120-180 USDT by default with ~150 mean and respects bounds", () => {
+  assert.equal(DEFAULT_SEED_MIN_USDT, 120);
+  assert.equal(DEFAULT_SEED_MAX_USDT, 180);
+
+  const cfg = getConfig();
+  assert.equal(cfg.seedMinUsdt, 120);
+  assert.equal(cfg.seedMaxUsdt, 180);
+
+  assert.equal(pickSeedUsdt(cfg, () => 0), 120);
+  assert.equal(pickSeedUsdt(cfg, () => 0.5), 150);
+  assert.equal(pickSeedUsdt(cfg, () => 1), 180);
+
+  const samples = [];
+  for (let i = 0; i < 200; i += 1) {
+    const v = pickSeedUsdt(cfg);
+    assert.ok(v >= 120 && v <= 180, `seed ${v} out of [120, 180]`);
+    samples.push(v);
+  }
+  const uniqueCount = new Set(samples).size;
+  assert.ok(uniqueCount > 20, `expected randomized seeds, got only ${uniqueCount} distinct values`);
+  const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+  assert.ok(mean > 135 && mean < 165, `expected mean near 150, got ${mean}`);
 });

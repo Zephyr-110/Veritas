@@ -59,7 +59,10 @@
     "empty": "None",
     "retry": "Retry",
     "action": "Action",
-    "balance": "Balance {amount}"
+    "balance": "Balance {amount}",
+    "testBalance": "Test balance {amount}",
+    "hideBalances": "Hide balances",
+    "showBalances": "Show balances"
   },
   "odds": {
     "line": "YES {yes}% · NO {no}%"
@@ -279,6 +282,9 @@
   },
   "market": {
     "back": "← Markets",
+    "backToMe": "← Portfolio",
+    "backToHome": "← Home",
+    "backPrev": "← Back",
     "notFound": "Market not found.",
     "backToMarkets": "Back to markets",
     "inPool": "Vault",
@@ -319,7 +325,12 @@
     "feedNote": "Chainlink OCR2 state · used for settlement",
     "positionSpotLead": "Spot {spot} · {side} currently ahead of Target Price",
     "awaitingPoll": "Expired — polling on-chain settlement status automatically…",
-    "redeemableLabel": "Redeemable"
+    "redeemableLabel": "Redeemable",
+    "myPosition": "My position",
+    "winPayout": "If {side} wins: {amount}",
+    "estValue": "Est. {amount}",
+    "lostZero": "Lost · Value 0",
+    "poolShare": "{pct} of pool"
   },
   "trade": {
     "title": "Trade",
@@ -518,7 +529,22 @@
     "sumPending": "Pending total",
     "sumMakerPending": "Maker pending",
     "sumRedeemable": "Redeemable",
-    "lpRequiresReal": "Requires real wallet"
+    "lpRequiresReal": "Requires real wallet",
+    "overviewTitle": "Account overview",
+    "acctAvailable": "Available (USDT)",
+    "acctTestBalance": "Test balance (USDT)",
+    "acctRedeemable": "Claimable (USDT)",
+    "acctMakerPending": "LP pending (USDT)",
+    "acctPositionEst": "Position value (USDT)",
+    "acctEstTag": "Est.",
+    "acctTotal": "Total (USDT)",
+    "acctSol": "SOL balance",
+    "lostZero": "Lost · Value 0",
+    "rowRedeemable": "Redeemable {amount}",
+    "rowAhead": "{side} ahead",
+    "rowWinPayout": "Win payout {amount}",
+    "rowEstValue": "Est. {amount}",
+    "rowPoolShare": "{pct} of pool"
   },
   "help": {
     "title": "Veritas: a fast, permissionless prediction market",

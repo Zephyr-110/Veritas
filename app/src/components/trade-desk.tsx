@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { Eye, EyeOff } from "lucide-react";
 import { COLLATERAL_SYMBOL, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
 import { formatCents, formatFixed, fromUi, toUi } from "@/lib/format";
 import { money } from "@/lib/display";
@@ -11,6 +12,8 @@ import { ixSwap, ixUserBetOn } from "@/lib/instructions";
 import { marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
 import { useProgram } from "@/hooks/use-program";
 import { useNow } from "@/hooks/use-now";
+import { useWalletBalance } from "@/hooks/use-wallet-balance";
+import { maskAmount, useBalanceVisibility } from "@/hooks/use-balance-visibility";
 import type { Side } from "@/lib/types";
 import { useT } from "@/i18n/provider";
 import { Button, Card, Field, Kv, PopNum, SegTabs, StableText, TextInput, openWalletModal, useTx } from "./ui";
@@ -34,11 +37,15 @@ export function TradeDesk({
     useGuestSession();
   const { busy, run } = useTx();
   const { busy: sandboxBusy, runSandbox } = useSandboxTx();
+  const walletBalance = useWalletBalance();
+  const { hidden: hideBalances, toggle: toggleBalances } = useBalanceVisibility();
   const now = useNow();
   const t = useT();
   const phase = marketPhase(market, now);
   const sim = !effectivePublicKey;
   const anyBusy = busy || sandboxBusy;
+  const effectiveCollateral = walletBalance.data ? walletBalance.data.usdtAtoms : position.collateral;
+  const effectiveCollateralDecimals = walletBalance.data ? walletBalance.data.usdtDecimals : market.decimals;
 
   const [tab, setTab] = useState<"bet" | "swap">("bet");
   const [side, setSide] = useState<Side>("yes");
@@ -222,22 +229,65 @@ export function TradeDesk({
         />
       </Field>
       {sim ? null : (
-        <div className="-mt-2 flex items-center justify-end gap-2 text-xs text-zinc-500">
+        <div className="-mt-2 flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-xs text-zinc-500">
           {positionStale ? (
             <span className="border border-[var(--warn)]/40 px-1.5 py-0.5 text-[10px] font-medium text-[var(--warn)]">
               <StableText k="freshness.cachedTag" />
             </span>
           ) : null}
-          <StableText
-            k="common.balance"
-            vars={{
-              amount:
-                tab === "bet"
-                  ? `${formatFixed(position.collateral, market.decimals, 2)} ${COLLATERAL_SYMBOL}`
-                  : `${formatFixed(sellBalance, market.decimals, 2)} ${otherLabel}`,
-            }}
-            align="end"
-          />
+          {tab === "bet" ? (
+            <span
+              key={maskAmount(
+                formatFixed(effectiveCollateral, effectiveCollateralDecimals, 2),
+                hideBalances,
+                COLLATERAL_SYMBOL
+              )}
+              className="pop-num num inline-flex flex-wrap items-center justify-end gap-x-2"
+            >
+              <StableText
+                k={isSandbox ? "common.testBalance" : "common.balance"}
+                vars={{
+                  amount: maskAmount(
+                    formatFixed(effectiveCollateral, effectiveCollateralDecimals, 2),
+                    hideBalances,
+                    COLLATERAL_SYMBOL
+                  ),
+                }}
+                align="end"
+              />
+              {!isSandbox && walletBalance.data ? (
+                <span className="text-zinc-400">
+                  · {maskAmount((walletBalance.data.solLamports / 1e9).toFixed(4), hideBalances, "SOL")}
+                </span>
+              ) : null}
+            </span>
+          ) : (
+            <span
+              key={maskAmount(formatFixed(sellBalance, market.decimals, 2), hideBalances, otherLabel)}
+              className="pop-num num"
+            >
+              <StableText
+                k="common.balance"
+                vars={{
+                  amount: maskAmount(
+                    formatFixed(sellBalance, market.decimals, 2),
+                    hideBalances,
+                    otherLabel
+                  ),
+                }}
+                align="end"
+              />
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={toggleBalances}
+            aria-label={t(hideBalances ? "common.showBalances" : "common.hideBalances")}
+            title={t(hideBalances ? "common.showBalances" : "common.hideBalances")}
+            className="inline-flex h-5 w-5 items-center justify-center text-zinc-500 transition-colors hover:text-white"
+          >
+            {hideBalances ? <EyeOff className="h-3.5 w-3.5" aria-hidden /> : <Eye className="h-3.5 w-3.5" aria-hidden />}
+          </button>
         </div>
       )}
       {!sim && tab === "bet" && position.collateral === 0n ? (

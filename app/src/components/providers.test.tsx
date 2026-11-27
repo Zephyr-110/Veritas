@@ -4,6 +4,10 @@ import { act, render, screen, cleanup } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import { markTxRefresh } from "@/hooks/use-markets";
 
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/markets",
+}));
+
 vi.mock("@solana/wallet-adapter-react", () => ({
   ConnectionProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
   WalletProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -55,6 +59,7 @@ describe("Providers refresh invalidation", () => {
     expect(spy).toHaveBeenCalledWith({ queryKey: ["positions"], refetchType: "all" });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["redemptions"], refetchType: "all" });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["sandbox-balance"], refetchType: "all" });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["wallet-balance"], refetchType: "all" });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["ruling-db"], refetchType: "all" });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["ruling"], refetchType: "all" });
     expect(typeof markTxRefresh).toBe("function");

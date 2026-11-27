@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMarket } from "@/hooks/use-market";
@@ -11,7 +11,8 @@ import { localizeError } from "@/lib/errors";
 import { feedByState, formatFeedPrice, thresholdToHuman } from "@/lib/feeds";
 import { countdown, explorerAccount, formatCents, formatFixed, formatUnix, formatYesNo, marketIdHex, shorten } from "@/lib/format";
 import { COLLATERAL_SYMBOL, RESOLVE_WINDOW } from "@/lib/constants";
-import { claimableOf, isFinalizedStatus, marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
+import { claimableOf, isFinalizedStatus, marketPhase, pendingValueOf, type MarketView, type UserPosition } from "@/lib/markets";
+import { resolveBackTarget, type BackTarget } from "@/lib/nav-history";
 import { isQuoteStale } from "@/lib/chainlink";
 import { pmAmmAccrue } from "@/lib/quote";
 import { TradeDesk } from "@/components/trade-desk";
@@ -29,6 +30,43 @@ import { MarketDetailSkeleton } from "@/components/skeletons";
 import { useLocale, useT } from "@/i18n/provider";
 
 type Spot = { price: number; publishTime: number | null } | null;
+
+function formatPoolSharePct(lpShares: bigint, totalLpShares: bigint): string | null {
+  if (lpShares <= 0n || totalLpShares <= 0n) return null;
+  const pct = (Number(lpShares) / Number(totalLpShares)) * 100;
+  if (!Number.isFinite(pct) || pct <= 0) return null;
+  if (pct < 0.01) return "<0.01%";
+  return `${pct.toFixed(pct >= 10 ? 1 : 2)}%`;
+}
+
+function MarketBackLink({ address }: { address: string }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const [back, setBack] = useState<BackTarget>({
+    href: "/markets",
+    labelKey: "market.back",
+    canRouterBack: false,
+  });
+
+  useEffect(() => {
+    setBack(resolveBackTarget(pathname || `/markets/${address}`));
+  }, [address, pathname]);
+
+  return (
+    <Link
+      href={back.href}
+      onClick={(e) => {
+        if (back.canRouterBack) {
+          e.preventDefault();
+          router.back();
+        }
+      }}
+      className="link-accent text-[15px]"
+    >
+      <StableText k={back.labelKey} />
+    </Link>
+  );
+}
 
 export default function MarketDetailPage() {
   const params = useParams<{ address: string }>();
@@ -111,9 +149,7 @@ export default function MarketDetailPage() {
     <div className="stack-6 fade-in">
       <div className="enter-up">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <Link href="/markets" className="link-accent text-[15px]">
-            <StableText k="market.back" />
-          </Link>
+          <MarketBackLink address={address} />
           <DataFreshness
             updatedAt={updatedAt}
             refreshing={refreshing}
@@ -137,6 +173,10 @@ export default function MarketDetailPage() {
         staleSpotPublishTime={staleSpotPublishTime}
         humanThreshold={humanThreshold}
       />
+
+      {effectivePublicKey ? (
+        <MyPositionStrip market={market} position={position} now={now} />
+      ) : null}
 
       {market.status === "resolved" && <RulingEvidence market={market} />}
       <div className="split split-detail">
@@ -467,6 +507,116 @@ function StatusBand({
   );
 }
 
+function MyPositionStrip({
+  market,
+  position,
+  now,
+}: {
+  market: MarketView;
+  position: UserPosition;
+  now: number;
+}) {
+  const hasAny =
+    hasBet(position) || position.lpShares > 0n || position.pendingYes > 0n || position.pendingNo > 0n;
+  if (!hasAny) return null;
+
+  const hasPmAmm = Boolean(market.lZero && market.lZero > 0n);
+  const accrued =
+    market.status === "open" && hasPmAmm
+      ? pmAmmAccrue(market, now > 0 ? now : market.lastAccrualTs)
+      : null;
+  const liveYesPrice = accrued ? accrued.yesPrice : market.yesPrice;
+  const liveNoPrice = 1 - liveYesPrice;
+  const voided = isMarketVoided(market);
+  const lpPct = formatPoolSharePct(position.lpShares, market.totalLpShares);
+  const pendingTotal = pendingValueOf(market, position);
+
+  const renderSide = (side: "yes" | "no", shares: bigint, price: number) => {
+    if (shares <= 0n) return null;
+    const sideLabel = side === "yes" ? "YES" : "NO";
+    const isLost = market.status === "resolved" && market.winner !== null && market.winner !== side;
+    const isWon = market.status === "resolved" && market.winner === side;
+    const estNum = (Number(shares) / 10 ** market.decimals) * price;
+    const estStr = Number.isFinite(estNum) ? `~${estNum.toFixed(2)} ${COLLATERAL_SYMBOL}` : "";
+
+    return (
+      <div key={side} className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 text-xs">
+        <span
+          className={`font-semibold ${
+            isLost ? "text-zinc-500" : side === "yes" ? "text-[var(--yes)]" : "text-[var(--no)]"
+          }`}
+        >
+          {sideLabel}
+        </span>
+        <span className={`num font-medium ${isLost ? "text-zinc-500 line-through" : "text-white"}`}>
+          {formatFixed(shares, market.decimals, 2)}
+        </span>
+        {market.status === "open" ? (
+          <>
+            <span className="text-zinc-400">
+              <StableText
+                k="market.winPayout"
+                vars={{ side: sideLabel, amount: money(shares, market.decimals) }}
+              />
+            </span>
+            {estStr ? (
+              <span className="num text-zinc-400">
+                <StableText k="market.estValue" vars={{ amount: estStr }} />
+              </span>
+            ) : null}
+          </>
+        ) : isWon ? (
+          <span className="num font-medium text-[var(--yes)]">
+            <StableText k="me.rowRedeemable" vars={{ amount: money(shares, market.decimals) }} />
+          </span>
+        ) : isLost ? (
+          <span className="text-zinc-500">
+            <StableText k="market.lostZero" />
+          </span>
+        ) : voided ? (
+          <span className="num text-zinc-300">
+            <StableText k="me.rowRedeemable" vars={{ amount: money(shares / 2n, market.decimals) }} />
+          </span>
+        ) : null}
+      </div>
+    );
+  };
+
+  return (
+    <div
+      data-testid="my-position-strip"
+      onMouseMove={onSpot}
+      className="surface flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-3"
+    >
+      <span className="section-title shrink-0">
+        <StableText k="market.myPosition" />
+      </span>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
+        {renderSide("yes", position.yes, liveYesPrice)}
+        {renderSide("no", position.no, liveNoPrice)}
+        {position.lpShares > 0n || pendingTotal > 0n ? (
+          <div className="flex flex-wrap items-baseline gap-x-2 text-xs">
+            <span className="font-semibold text-zinc-300">LP</span>
+            <span className="num font-medium text-white">
+              {formatFixed(position.lpShares, market.decimals, 2)}
+            </span>
+            {lpPct ? (
+              <span className="text-zinc-400">
+                <StableText k="market.poolShare" vars={{ pct: lpPct }} />
+              </span>
+            ) : null}
+            {pendingTotal > 0n ? (
+              <span className="num text-zinc-400">
+                <StableText k="me.lpPending" /> {formatFixed(pendingTotal, market.decimals, 4)}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function PositionCard({
   market,
   position,
@@ -507,6 +657,9 @@ function PositionCard({
   };
 
   const finalizedClaimable = claimableOf(market, position);
+  const yesLost = market.status === "resolved" && market.winner === "no";
+  const noLost = market.status === "resolved" && market.winner === "yes";
+  const lpPct = formatPoolSharePct(position.lpShares, market.totalLpShares);
 
   const isExpiredOpen = market.status === "open" && now > 0 && now >= market.expiry;
 
@@ -537,10 +690,16 @@ function PositionCard({
               k={<StableText k="common.yes" />}
               v={
                 <span className="inline-flex flex-wrap items-baseline justify-end gap-2">
-                  <span>{formatFixed(position.yes, market.decimals, 2)}</span>
+                  <span className={yesLost ? "text-zinc-500 line-through" : undefined}>
+                    {formatFixed(position.yes, market.decimals, 2)}
+                  </span>
                   {market.status === "open" ? (
                     <span className="text-xs font-normal text-zinc-400">
                       {estValueOf(position.yes, liveYesPrice)} · {formatCents(liveYesPrice)}
+                    </span>
+                  ) : yesLost ? (
+                    <span className="text-xs font-normal text-zinc-500">
+                      <StableText k="market.lostZero" />
                     </span>
                   ) : null}
                 </span>
@@ -552,10 +711,16 @@ function PositionCard({
               k={<StableText k="common.no" />}
               v={
                 <span className="inline-flex flex-wrap items-baseline justify-end gap-2">
-                  <span>{formatFixed(position.no, market.decimals, 2)}</span>
+                  <span className={noLost ? "text-zinc-500 line-through" : undefined}>
+                    {formatFixed(position.no, market.decimals, 2)}
+                  </span>
                   {market.status === "open" ? (
                     <span className="text-xs font-normal text-zinc-400">
                       {estValueOf(position.no, liveNoPrice)} · {formatCents(liveNoPrice)}
+                    </span>
+                  ) : noLost ? (
+                    <span className="text-xs font-normal text-zinc-500">
+                      <StableText k="market.lostZero" />
                     </span>
                   ) : null}
                 </span>
@@ -587,7 +752,19 @@ function PositionCard({
             />
           ) : null}
           {position.lpShares > 0n ? (
-            <Kv k={<StableText k="lp.yourShares" />} v={formatFixed(position.lpShares, market.decimals, 2)} />
+            <Kv
+              k={<StableText k="lp.yourShares" />}
+              v={
+                <span className="inline-flex items-baseline gap-2">
+                  <span>{formatFixed(position.lpShares, market.decimals, 2)}</span>
+                  {lpPct ? (
+                    <span className="text-xs font-normal text-zinc-400">
+                      <StableText k="market.poolShare" vars={{ pct: lpPct }} />
+                    </span>
+                  ) : null}
+                </span>
+              }
+            />
           ) : null}
           {position.pendingYes > 0n ? (
             <Kv k={<StableText k="lp.pendingYes" />} v={formatFixed(position.pendingYes, market.decimals, 4)} />

@@ -59,7 +59,10 @@
     "empty": "无",
     "retry": "重试",
     "action": "操作",
-    "balance": "余额 {amount}"
+    "balance": "余额 {amount}",
+    "testBalance": "测试余额 {amount}",
+    "hideBalances": "隐藏余额",
+    "showBalances": "显示余额"
   },
   "odds": {
     "line": "YES {yes}% · NO {no}%"
@@ -279,6 +282,9 @@
   },
   "market": {
     "back": "← 市场",
+    "backToMe": "← 我的",
+    "backToHome": "← 主页",
+    "backPrev": "← 返回",
     "notFound": "未找到该市场。",
     "backToMarkets": "返回市场",
     "inPool": "金库",
@@ -319,7 +325,12 @@
     "feedNote": "Chainlink OCR2 状态账户 · 用于结算",
     "positionSpotLead": "现价 {spot} · 当前 {side} 领先判定价格",
     "awaitingPoll": "已到期 · 正在自动轮询链上结算状态…",
-    "redeemableLabel": "可兑付"
+    "redeemableLabel": "可兑付",
+    "myPosition": "我的持仓",
+    "winPayout": "若 {side} 胜可得 {amount}",
+    "estValue": "估值 {amount}",
+    "lostZero": "已输 · 价值 0",
+    "poolShare": "占池 {pct}"
   },
   "trade": {
     "title": "交易",
@@ -518,7 +529,22 @@
     "sumPending": "待领合计",
     "sumMakerPending": "做市待领",
     "sumRedeemable": "兑付待领",
-    "lpRequiresReal": "需连真钱包"
+    "lpRequiresReal": "需连真钱包",
+    "overviewTitle": "账户总览",
+    "acctAvailable": "可用余额 (USDT)",
+    "acctTestBalance": "测试余额 (USDT)",
+    "acctRedeemable": "兑付待领 (USDT)",
+    "acctMakerPending": "做市待领 (USDT)",
+    "acctPositionEst": "持仓估值 (USDT)",
+    "acctEstTag": "估值",
+    "acctTotal": "合计 (USDT)",
+    "acctSol": "SOL 余额",
+    "lostZero": "已输 · 价值 0",
+    "rowRedeemable": "可兑付 {amount}",
+    "rowAhead": "{side} 领先",
+    "rowWinPayout": "胜可得 {amount}",
+    "rowEstValue": "估值 {amount}",
+    "rowPoolShare": "占池 {pct}"
   },
   "help": {
     "title": "Veritas：快速、无需许可的预测市场",

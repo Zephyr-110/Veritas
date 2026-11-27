@@ -12,6 +12,7 @@ const wallet = vi.hoisted(() => ({ publicKey: null as PublicKey | null }));
 
 vi.mock("@solana/wallet-adapter-react", () => ({
   useWallet: () => ({ publicKey: wallet.publicKey, connected: !!wallet.publicKey }),
+  useConnection: () => ({ connection: undefined }),
 }));
 
 vi.mock("@/hooks/use-program", () => ({
@@ -355,5 +356,17 @@ describe("TradeDesk 提交", () => {
       minOut: expected,
     });
     expect(ixBet).not.toHaveBeenCalled();
+  });
+
+  it("余额显示开关可隐藏与恢复下注区余额", async () => {
+    window.localStorage.clear();
+    renderDesk(makeMarket(), makePosition({ collateral: 12_500_000n }));
+    expect(screen.getByText("Balance 12.50 USDT")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Hide balances" }));
+    expect(screen.getByText("Balance •••• USDT")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Show balances" }));
+    expect(screen.getByText("Balance 12.50 USDT")).toBeInTheDocument();
   });
 });

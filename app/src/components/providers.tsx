@@ -12,6 +12,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { usePathname } from "next/navigation";
 import { ConnectionProvider, WalletProvider } from "@solana/wallet-adapter-react";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
@@ -23,6 +24,7 @@ import {
   DEFAULT_RPC,
   STORAGE_KEY,
 } from "@/lib/constants";
+import { recordNavigation } from "@/lib/nav-history";
 import { parsePubkey } from "@/lib/program";
 import type { AppSettings, ClusterName, ToastItem, ToastKind } from "@/lib/types";
 import { LocaleProvider, useT } from "@/i18n/provider";
@@ -111,8 +113,18 @@ const RefreshContext = createContext<RefreshCtx | null>(null);
 
 export function useSettings(): SettingsCtx {
   const ctx = useContext(SettingsContext);
-  if (!ctx) throw new Error("useSettings must be used inside Providers");
+  if (!ctx) return { settings: fallbackSettings, setSettings: () => {} };
   return ctx;
+}
+
+function NavHistoryTracker() {
+  const pathname = usePathname();
+  useEffect(() => {
+    if (!pathname) return;
+    const search = typeof window !== "undefined" ? window.location.search : "";
+    recordNavigation(pathname, search);
+  }, [pathname]);
+  return null;
 }
 
 export function useToasts(): ToastCtx {
@@ -247,6 +259,7 @@ function SettingsInner({ children }: { children: ReactNode }) {
       void queryClient.invalidateQueries({ queryKey: ["positions"], refetchType: "all" });
       void queryClient.invalidateQueries({ queryKey: ["redemptions"], refetchType: "all" });
       void queryClient.invalidateQueries({ queryKey: ["sandbox-balance"], refetchType: "all" });
+      void queryClient.invalidateQueries({ queryKey: ["wallet-balance"], refetchType: "all" });
       void queryClient.invalidateQueries({ queryKey: ["ruling-db"], refetchType: "all" });
       void queryClient.invalidateQueries({ queryKey: ["ruling"], refetchType: "all" });
       if (includeLists) {
@@ -284,6 +297,7 @@ function SettingsInner({ children }: { children: ReactNode }) {
             <WalletProvider wallets={wallets} autoConnect onError={onWalletError}>
               <WalletModalProvider>
                 <GuestSessionProvider>
+                  <NavHistoryTracker />
                   {children}
                   <ToastViewport toasts={toasts} dismiss={dismiss} />
                 </GuestSessionProvider>
