@@ -1069,7 +1069,7 @@ fn b1_deep_skew_vs_python() {
     );
     assert!(compared > 0);
     assert!(saw_small_swap && saw_large_swap, "B1 must compare both swap sizes");
-    assert!(max_bet_out <= 1.0, "B1 bet output err {max_bet_out} > 1");
+    assert!(max_bet_out == 0.0, "B1 bet output err {max_bet_out} != 0");
     assert!(
         max_bet_res <= 0.002,
         "B1 bet reserve-step err {max_bet_res} > 0.002"
@@ -1086,19 +1086,19 @@ fn b1_deep_skew_vs_python() {
         small_swap_res <= 1.5,
         "B1 small swap reserve-step err {small_swap_res} > 1.5"
     );
-    // Tail swap pays ~4e5. Float vs I80F48 gap is ~21..30 tokens (< 1e-4 relative),
-    // not chain-vs-quote (which is asserted == 0 above). Small swap is split out above.
+    // Tail swap pays ~4e5; python float vs I80F48 gap stays tight when both
+    // sides swap the same integer u64 amount.
     assert!(
-        large_swap_abs <= 40.0,
-        "B1 large swap output err {large_swap_abs} > 40"
+        large_swap_abs <= 22.0,
+        "B1 large swap output err {large_swap_abs} > 22"
     );
     assert!(
-        large_swap_rel <= 1e-4,
-        "B1 large swap relative err {large_swap_rel} > 1e-4"
+        large_swap_rel <= 8e-5,
+        "B1 large swap relative err {large_swap_rel} > 8e-5"
     );
     assert!(
-        large_res_rel <= 1e-4,
-        "B1 large swap reserve-step relative err {large_res_rel} > 1e-4"
+        large_res_rel <= 8e-5,
+        "B1 large swap reserve-step relative err {large_res_rel} > 8e-5"
     );
     assert!(
         max_wd_res_delta <= 2.0,

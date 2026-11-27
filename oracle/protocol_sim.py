@@ -405,8 +405,8 @@ def plan_deep_skew(req: dict) -> dict:
         n += 1
     if p.price() < 0.99:
         raise RuntimeError(f"deep_skew failed to reach 0.99, price={p.price()} n={n}")
-    # interleave swap and accrue
-    swap_amt = min(20_000.0, p.wallet("trader").yes * 0.05, max(p.reserve_yes * 0.05, 1.0))
+    # interleave swap and accrue (use integer token amounts matching on-chain u64)
+    swap_amt = float(math.floor(min(20_000.0, p.wallet("trader").yes * 0.05, max(p.reserve_yes * 0.05, 1.0))))
     if swap_amt > 1:
         p.swap("trader", swap_amt, "no")
         ops.append({"op": "swap", "wallet": "trader", "amount": swap_amt, "side": "no"})
@@ -416,9 +416,10 @@ def plan_deep_skew(req: dict) -> dict:
     p.withdraw("house", 1.0)
     ops.append({"op": "withdraw", "wallet": "house", "shares": 1})
     if p.wallet("trader").no > 1:
-        amt = min(10_000.0, p.wallet("trader").no * 0.5)
-        p.swap("trader", amt, "yes")
-        ops.append({"op": "swap", "wallet": "trader", "amount": amt, "side": "yes"})
+        amt = float(math.floor(min(10_000.0, p.wallet("trader").no * 0.5)))
+        if amt >= 1:
+            p.swap("trader", amt, "yes")
+            ops.append({"op": "swap", "wallet": "trader", "amount": amt, "side": "yes"})
     out = run({"seed": seed, "duration": duration, "start_ts": start_ts, "ops": ops})
     out["ops"] = ops
     return out
