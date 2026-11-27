@@ -22,7 +22,6 @@ import {
 } from "./market-dto";
 import { claimableOf, fetchMarketSnapshot, isFinalizedStatus, pendingValueOf } from "./markets";
 import { findLpPosition, findMarketPdas } from "./pdas";
-import { currentMarketFeeBps } from "./quote";
 import { fetchTxBatch } from "./resolve";
 import { fetchRuling, findPushSignatures, witnessCounts } from "./ruling-evidence";
 import { resolveServerRpcUrl } from "./server-security";
@@ -45,6 +44,7 @@ type MarketDbRow = {
   yes_mint: string;
   no_mint: string;
   opened_at: number | null;
+  start_ts: number | null;
   expiry: number;
   end_ts: number;
   finish_ts: number;
@@ -180,6 +180,7 @@ function initServerSchema(db: Database.Database): void {
       yes_mint TEXT NOT NULL,
       no_mint TEXT NOT NULL,
       opened_at INTEGER,
+      start_ts INTEGER,
       expiry INTEGER NOT NULL,
       end_ts INTEGER NOT NULL,
       finish_ts INTEGER NOT NULL DEFAULT 0,
@@ -280,6 +281,11 @@ function initServerSchema(db: Database.Database): void {
       PRIMARY KEY (wallet, program_id)
     );
   `);
+
+  const marketCols = db.prepare("PRAGMA table_info(markets)").all() as Array<{ name: string }>;
+  if (!marketCols.some((c) => c.name === "start_ts")) {
+    db.exec("ALTER TABLE markets ADD COLUMN start_ts INTEGER");
+  }
 }
 
 function applyServerPragmas(db: Database.Database): void {
@@ -317,20 +323,11 @@ export function closeServerDb(): void {
   globalScope.__veritasServerDb = undefined;
 }
 
-function serializeMarketRow(
-  row: MarketDbRow,
-  nowSec = Math.floor(Date.now() / 1000)
-): SerializedMarket {
+function serializeMarketRow(row: MarketDbRow): SerializedMarket {
   const startTs =
-    row.opened_at != null && row.opened_at > 0 && row.end_ts > row.opened_at
-      ? row.opened_at
-      : row.duration_sec != null && row.duration_sec > 0
-        ? row.end_ts - row.duration_sec
-        : undefined;
-  const computedFeeBps = currentMarketFeeBps(
-    { startTs, endTs: row.end_ts, feeBps: row.fee_bps },
-    nowSec
-  );
+    row.start_ts != null && row.start_ts > 0 && row.end_ts > row.start_ts
+      ? row.start_ts
+      : null;
   return {
     address: row.address,
     programId: row.program_id,
@@ -347,6 +344,7 @@ function serializeMarketRow(
     yesMint: row.yes_mint,
     noMint: row.no_mint,
     openedAt: row.opened_at,
+    startTs,
     expiry: row.expiry,
     endTs: row.end_ts,
     finishTs: row.finish_ts,
@@ -359,7 +357,7 @@ function serializeMarketRow(
     settleAbove: Boolean(row.settle_above),
     settledPrice: row.settled_price,
     settledPublishTime: row.settled_publish_time,
-    feeBps: computedFeeBps,
+    feeBps: startTs != null ? 0 : row.fee_bps,
     lZero: row.l_zero,
     lastAccrualTs: row.last_accrual_ts,
     cumYesPerShare: row.cum_yes_per_share,
@@ -436,7 +434,7 @@ export function queryMarketsPage(opts: {
     )
     .get(programId);
 
-  const items = rows.map((r) => serializeMarketRow(r, nowSec));
+  const items = rows.map((r) => serializeMarketRow(r));
   return {
     items,
     total,

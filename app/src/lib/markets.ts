@@ -15,7 +15,6 @@ import {
 import {
   CLAIM_WINDOW,
   LP_POSITION_DISCRIMINATOR,
-  MARKET_ACCOUNT_SIZE,
   MARKET_DISCRIMINATOR,
   RESOLVE_WINDOW,
   SNAPSHOT_WINDOW,
@@ -221,7 +220,6 @@ export async function fetchMarkets(
   const rows = await connection.getProgramAccounts(program.programId, {
     commitment: "confirmed",
     filters: [
-      { dataSize: MARKET_ACCOUNT_SIZE },
       { memcmp: { offset: 0, bytes: utils.bytes.bs58.encode(disc) } },
     ],
   });

@@ -79,19 +79,32 @@ export function TradeDesk({
     leg: (liveFeeBps / 100).toFixed(2),
     combined: combinedFeePct(liveFeeBps).toFixed(2),
   });
-  const betQuote = quoteBet(effYes, effNo, parsed.value, side, effL, liveFeeBps);
+  let betQuote: { swapOut: bigint; totalOut: bigint } = { swapOut: 0n, totalOut: 0n };
+  let betQuoteError: string | null = null;
+  try {
+    betQuote = quoteBet(effYes, effNo, parsed.value, side, effL, liveFeeBps);
+  } catch (err) {
+    betQuoteError = err instanceof Error ? err.message : "errors.invalidPrice";
+  }
   const baseYesPrice = accrued ? accrued.yesPrice : market.yesPrice;
   const curSideCents = (side === "yes" ? baseYesPrice : 1 - baseYesPrice) * 100;
   const avgCents =
     betQuote.totalOut > 0n && parsed.value > 0n ? (Number(parsed.value) / Number(betQuote.totalOut)) * 100 : null;
   const impactPct = avgCents != null && curSideCents > 0 ? (avgCents / curSideCents - 1) * 100 : null;
-  const swapOut = quoteSwapOut(
-    side === "yes" ? effYes : effNo,
-    side === "yes" ? effNo : effYes,
-    parsed.value,
-    effL,
-    liveFeeBps
-  );
+  let swapOut = 0n;
+  let swapQuoteError: string | null = null;
+  try {
+    swapOut = quoteSwapOut(
+      side === "yes" ? effYes : effNo,
+      side === "yes" ? effNo : effYes,
+      parsed.value,
+      effL,
+      liveFeeBps
+    );
+  } catch (err) {
+    swapQuoteError = err instanceof Error ? err.message : "errors.invalidPrice";
+  }
+  const activeQuoteError = tab === "bet" ? betQuoteError : swapQuoteError;
   const sellBalance = side === "yes" ? position.no : position.yes;
   const sideLabel = side === "yes" ? t("common.yes") : t("common.no");
   const otherLabel = side === "yes" ? t("common.no") : t("common.yes");
@@ -106,8 +119,10 @@ export function TradeDesk({
         ? { key: "tradeDisable.invalid" }
         : parsed.value <= 0n
           ? { key: "tradeDisable.enter" }
-          : sim
-            ? null
+          : activeQuoteError
+            ? { key: activeQuoteError }
+            : sim
+              ? null
             : tab === "bet" && parsed.value > position.collateral
               ? { key: "tradeDisable.noCollateral", vars: { symbol: COLLATERAL_SYMBOL } }
               : tab === "swap" && parsed.value > sellBalance

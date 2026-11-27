@@ -48,6 +48,7 @@ const DEFAULT_PROGRAM_ID = "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER";
 const CHAINLINK_OCR2_PROGRAM_ID = new PublicKey("cjg3oHmg9uuPsP8D6g29NWvhySJkdYdAo9D25PRbKXJ");
 
 const MARKET_ACCOUNT_SIZE = 409;
+const MARKET_ACCOUNT_SIZE_V2 = 415;
 const MARKET_DISCRIMINATOR = [219, 190, 213, 55, 0, 227, 198, 154];
 const MARKET_SNAPSHOT_DISCRIMINATOR = [107, 32, 221, 188, 130, 114, 104, 28];
 const OCR2_STATE_DISCRIMINATOR = [216, 146, 107, 94, 104, 75, 182, 177];
@@ -209,7 +210,9 @@ class Cursor {
 }
 
 function decodeMarket(data) {
-  if (data.length !== MARKET_ACCOUNT_SIZE || !sameDisc(data, MARKET_DISCRIMINATOR)) {
+  const isV2 = Boolean(data) && data.length === MARKET_ACCOUNT_SIZE_V2;
+  const isLegacy = Boolean(data) && data.length === MARKET_ACCOUNT_SIZE;
+  if ((!isLegacy && !isV2) || !sameDisc(data, MARKET_DISCRIMINATOR)) {
     throw new Error("Account is not a valid PredictionMarket Market account");
   }
   const c = new Cursor(data, 8);
@@ -233,10 +236,11 @@ function decodeMarket(data) {
   c.i64(); // lastAccrualTs
   c.i128(); // cumYesPerShare
   c.i128(); // cumNoPerShare
-  c.u16(); // feeBps
+  const feeBps = isLegacy ? c.u16() : 0;
   c.i128(); // reserveYes
   c.i128(); // reserveNo
   c.i128(); // totalLpShares
+  const startTs = isV2 ? Number(c.i64()) : null;
   const endTs = Number(c.i64());
   const ocr2State = c.pubkey();
   const threshold = c.i64();
@@ -261,6 +265,8 @@ function decodeMarket(data) {
     marketCollateralBump,
     title,
     finishTs,
+    feeBps,
+    startTs,
     endTs,
     ocr2State,
     threshold,
@@ -1166,6 +1172,9 @@ if (require.main === module) main().catch((err) => {
 });
 
 module.exports = {
+  MARKET_ACCOUNT_SIZE,
+  MARKET_ACCOUNT_SIZE_V2,
+  decodeMarket,
   parseOcr2Transmit,
   areReportsAdjacent,
   pickStraddlingPair,

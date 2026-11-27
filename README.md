@@ -38,7 +38,7 @@ Instead of a static constant-product curve, the pool uses the pm-AMM invariant (
 
 $$L_{\text{eff}} = L_0 \sqrt{T - t}$$
 
-As expiry $T$ approaches, effective pool depth shrinks smoothly and released inventory accrues to LPs via per-share cumulative checkpoints (`cum_yes_per_share`, `cum_no_per_share`). Swaps apply a **30 bps per leg (~0.6% combined)** fee that accrues 100% to active LPs with zero protocol take.
+As expiry $T$ approaches, effective pool depth shrinks smoothly and released inventory accrues to LPs via per-share cumulative checkpoints (`cum_yes_per_share`, `cum_no_per_share`). Swaps apply a **dynamic per-leg fee** starting at **0.50% (50 bps)** when a market opens and rising toward **3.00% (300 bps)** as expiry approaches — anchored on the 15-minute market (shorter markets climb faster, longer markets slower) — accruing 100% to active LPs with zero protocol take.
 
 ### 3. Trustless Chainlink OCR2 Settlement & Snapshot Backstop
 Every market binds to an allowlisted Chainlink OCR2 `State` account (`decimals == 8`), a target `threshold`, a comparison direction (`settle_above`), and an expiry (`end_ts`).
@@ -103,7 +103,9 @@ create_market (creates Market + MarketSnapshot PDAs, binds OCR2 State)
 
 | Constant | Value | Meaning |
 | :--- | :--- | :--- |
-| `SERVICE_FEE` | `30` bps | Per-leg swap fee (~0.6% combined across both legs), 100% to LPs, zero protocol take. |
+| `SERVICE_FEE` (base) | `50` bps | Per-leg swap fee when a market opens |
+| `FEE_INCREMENTAL` | `250` bps | Additional per-leg fee reached at expiry (total cap 300 bps) |
+| `FEE_ANCHOR_DURATION_SEC` | `900` s | The duration the fee climb is anchored on; shorter markets climb faster, longer ones slower, endpoints unchanged |
 | `RESOLVE_WINDOW` | `172,800` s | 48-hour post-expiry window for permissionless `resolve_market`. |
 | `MAX_SETTLE_DELAY` | `10` s | On-chain protocol constant (requires a program upgrade to change) for post-expiry delay before triggering `StaleBurn`. |
 | `SNAPSHOT_WINDOW` | `±10` s | Open window `(end_ts - 10, end_ts + 10)` for `take_snapshot`. |
@@ -188,7 +190,7 @@ cp .env.example .env.local   # optional; defaults target Solana Devnet
 npm run dev                  # start Next.js dev server on http://localhost:3000
 npm run typecheck            # TypeScript check (tsc --noEmit)
 npm run lint                 # ESLint check (eslint .)
-npm run test:coverage        # Run all 42 Vitest suites (368 tests + 4 opt-in devnet checks) with v8 coverage gates
+npm run test:coverage        # Run all 44 Vitest suites (390 tests + 4 opt-in devnet checks) with v8 coverage gates
 ```
 
 From the repository root, `scripts/` also includes **6 `node --test` suites** (`scripts/settle.test.js`, `scripts/db.test.js`, and `scripts/sandbox/*.test.js`).

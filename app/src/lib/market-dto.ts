@@ -1,5 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import { areReportsAdjacent } from "./chainlink";
+import { SERVICE_FEE_BPS } from "./constants";
 import type { DurationFilter } from "./display";
 import { bytesFromHex } from "./format";
 import { findMarketPdas } from "./pdas";
@@ -25,6 +26,7 @@ export type SerializedMarket = {
   yesMint: string;
   noMint: string;
   openedAt: number | null;
+  startTs?: number | null;
   expiry: number;
   endTs: number;
   finishTs: number;
@@ -192,15 +194,15 @@ export function deserializeMarket(dto: SerializedMarket): MarketView {
   const yesMint = new PublicKey(dto.yesMint);
   const noMint = new PublicKey(dto.noMint);
   const startTs =
-    dto.openedAt != null && dto.openedAt > 0 && dto.endTs > dto.openedAt
-      ? dto.openedAt
-      : dto.durationSec != null && dto.durationSec > 0
-        ? dto.endTs - dto.durationSec
-        : undefined;
+    dto.startTs != null && dto.startTs > 0 && dto.endTs > dto.startTs
+      ? dto.startTs
+      : undefined;
   const feeBps =
-    dto.feeBps > 0
-      ? dto.feeBps
-      : currentMarketFeeBps({ startTs, endTs: dto.endTs, feeBps: dto.feeBps });
+    startTs != null
+      ? currentMarketFeeBps({ startTs, endTs: dto.endTs })
+      : dto.feeBps > 0
+        ? dto.feeBps
+        : Number(SERVICE_FEE_BPS);
 
   return {
     address,

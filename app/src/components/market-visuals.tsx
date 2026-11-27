@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchCandles, type Candle } from "@/lib/chart";
 import { formatCents } from "@/lib/format";
 import type { MarketView } from "@/lib/markets";
-import { pmAmmAccrue, pmAmmQuoteBet } from "@/lib/quote";
+import { currentMarketFeeBps, pmAmmAccrue, pmAmmQuoteBet } from "@/lib/quote";
 import { useNow } from "@/hooks/use-now";
 import { Card, StableText } from "@/components/ui";
 import { useT } from "@/i18n/provider";
@@ -268,6 +268,7 @@ export function LiquidityCard({ market }: { market: MarketView }) {
     const poolU = (accrued.reserveYes + accrued.reserveNo) / (2 * unit);
     const maxX = Math.min(500, Math.max(4, (vaultU > 0 ? vaultU : poolU) * 2));
     const N = 40;
+    const liveFeeBps = currentMarketFeeBps(market, ts);
     const points: { amount: number; price: number }[] = [];
     for (let i = 0; i <= N; i += 1) {
       const amount = (maxX * i) / N;
@@ -275,15 +276,19 @@ export function LiquidityCard({ market }: { market: MarketView }) {
         points.push({ amount: 0, price: accrued.yesPrice });
         continue;
       }
-      const q = pmAmmQuoteBet(
-        accrued.reserveYes,
-        accrued.reserveNo,
-        accrued.lEff,
-        amount * unit,
-        "yes",
-        market.feeBps
-      );
-      points.push({ amount, price: q.postYesPrice });
+      try {
+        const q = pmAmmQuoteBet(
+          accrued.reserveYes,
+          accrued.reserveNo,
+          accrued.lEff,
+          amount * unit,
+          "yes",
+          liveFeeBps
+        );
+        points.push({ amount, price: q.postYesPrice });
+      } catch {
+        break;
+      }
     }
     const yesPct = (accrued.reserveYes / (accrued.reserveYes + accrued.reserveNo)) * 100;
     return { points, maxX, yesPct, current: points[0].price };

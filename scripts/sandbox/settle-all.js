@@ -37,6 +37,7 @@ const DEFAULT_RPC = "https://api.devnet.solana.com";
 const DEFAULT_PROGRAM_ID = "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER";
 
 const MARKET_ACCOUNT_SIZE = 409;
+const MARKET_ACCOUNT_SIZE_V2 = 415;
 const MARKET_DISCRIMINATOR = [219, 190, 213, 55, 0, 227, 198, 154];
 const STATUS_OFFSET = 129;
 const CREATOR_OFFSET = 16;
@@ -179,7 +180,9 @@ function decodeTitle(bytes) {
 }
 
 function decodeMarket(data) {
-  if (!data || data.length !== MARKET_ACCOUNT_SIZE || !sameDisc(data, MARKET_DISCRIMINATOR)) {
+  const isV2 = Boolean(data) && data.length === MARKET_ACCOUNT_SIZE_V2;
+  const isLegacy = Boolean(data) && data.length === MARKET_ACCOUNT_SIZE;
+  if ((!isLegacy && !isV2) || !sameDisc(data, MARKET_DISCRIMINATOR)) {
     return null;
   }
   const c = new Cursor(data, 8);
@@ -198,10 +201,11 @@ function decodeMarket(data) {
   c.i64(); // lastAccrualTs
   c.i128(); // cumYesPerShare
   c.i128(); // cumNoPerShare
-  c.u16(); // feeBps
+  const feeBps = isLegacy ? c.u16() : 0;
   c.i128(); // reserveYes
   c.i128(); // reserveNo
   c.i128(); // totalLpShares
+  const startTs = isV2 ? Number(c.i64()) : null;
   const endTs = Number(c.i64());
   const ocr2State = c.pubkey();
   const threshold = c.i64();
@@ -217,6 +221,8 @@ function decodeMarket(data) {
     noMint,
     status,
     ...terms,
+    feeBps,
+    startTs,
     endTs,
     ocr2State,
     threshold,
@@ -270,8 +276,16 @@ function runSettleScript(settleScriptPath, marketAddress, cfg) {
   return res.status === 0;
 }
 
-function buildSyntheticMarketBuffer({ statusByte = 0, expiry = 1_700_000_000, endTs = 1_700_000_000, title = "BTC/USD test" } = {}) {
-  const buf = Buffer.alloc(MARKET_ACCOUNT_SIZE);
+function buildSyntheticMarketBuffer({
+  statusByte = 0,
+  expiry = 1_700_000_000,
+  startTs = null,
+  endTs = 1_700_000_000,
+  feeBps = 30,
+  title = "BTC/USD test",
+  v2 = false,
+} = {}) {
+  const buf = Buffer.alloc(v2 ? MARKET_ACCOUNT_SIZE_V2 : MARKET_ACCOUNT_SIZE);
   Buffer.from(MARKET_DISCRIMINATOR).copy(buf, 0);
   let off = 8;
   buf.writeBigUInt64LE(BigInt(expiry), off); off += 8;
@@ -292,10 +306,17 @@ function buildSyntheticMarketBuffer({ statusByte = 0, expiry = 1_700_000_000, en
   off += 8;  // lastAccrualTs
   off += 16; // cumYesPerShare
   off += 16; // cumNoPerShare
-  off += 2;  // feeBps
+  if (!v2) {
+    buf.writeUInt16LE(feeBps, off);
+    off += 2;  // feeBps
+  }
   off += 16; // reserveYes
   off += 16; // reserveNo
   off += 16; // totalLpShares
+  if (v2) {
+    buf.writeBigInt64LE(BigInt(startTs ?? endTs - 900), off);
+    off += 8;  // startTs
+  }
   buf.writeBigInt64LE(BigInt(endTs), off);
   return buf;
 }
@@ -309,12 +330,17 @@ function runSelfCheck(cfg) {
 
   const endTs = 1_750_000_000;
   const openBuf = buildSyntheticMarketBuffer({ statusByte: 0, expiry: endTs, endTs, title: "SOL/USD 15 min test" });
+  const openV2Buf = buildSyntheticMarketBuffer({ statusByte: 0, expiry: endTs, startTs: endTs - 900, endTs, title: "BTC/USD 15 min v2", v2: true });
   const resolvedBuf = buildSyntheticMarketBuffer({ statusByte: 1, expiry: endTs, endTs, title: "ETH/USD resolved" });
 
   const openDecoded = decodeMarket(openBuf);
+  const openV2Decoded = decodeMarket(openV2Buf);
   const resolvedDecoded = decodeMarket(resolvedBuf);
-  if (!openDecoded || openDecoded.status !== "open" || openDecoded.endTs !== endTs || openDecoded.title !== "SOL/USD 15 min test") {
-    throw new Error("Synthetic open market decode failed");
+  if (!openDecoded || openDecoded.status !== "open" || openDecoded.endTs !== endTs || openDecoded.feeBps !== 30 || openDecoded.startTs !== null || openDecoded.title !== "SOL/USD 15 min test") {
+    throw new Error("Synthetic v1 open market decode failed");
+  }
+  if (!openV2Decoded || openV2Decoded.status !== "open" || openV2Decoded.endTs !== endTs || openV2Decoded.startTs !== endTs - 900 || openV2Decoded.title !== "BTC/USD 15 min v2") {
+    throw new Error("Synthetic v2 open market decode failed");
   }
   if (!resolvedDecoded || resolvedDecoded.status !== "resolved") {
     throw new Error("Synthetic resolved market decode failed");
@@ -336,7 +362,6 @@ function runSelfCheck(cfg) {
 
 function marketFilters(status, creator) {
   const filters = [
-    { dataSize: MARKET_ACCOUNT_SIZE },
     { memcmp: { offset: 0, bytes: marketDiscriminatorBase58() } },
     { memcmp: { offset: STATUS_OFFSET, bytes: utils.bytes.bs58.encode(Buffer.from([status])) } },
   ];
@@ -572,4 +597,11 @@ if (require.main === module) main().catch((err) => {
   process.exit(1);
 });
 
-module.exports = { classifyOpenMarket, runMaintenance };
+module.exports = {
+  MARKET_ACCOUNT_SIZE,
+  MARKET_ACCOUNT_SIZE_V2,
+  classifyOpenMarket,
+  decodeMarket,
+  marketFilters,
+  runMaintenance,
+};

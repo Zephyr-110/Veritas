@@ -2898,10 +2898,6 @@
             "type": "i128"
           },
           {
-            "name": "fee_bps",
-            "type": "u16"
-          },
-          {
             "name": "reserve_yes",
             "type": "i128"
           },
@@ -2912,6 +2908,10 @@
           {
             "name": "total_lp_shares",
             "type": "i128"
+          },
+          {
+            "name": "start_ts",
+            "type": "i64"
           },
           {
             "name": "end_ts",
@@ -3100,6 +3100,16 @@
       "value": "2592000"
     },
     {
+      "name": "FEE_ANCHOR_DURATION_SEC",
+      "type": "i64",
+      "value": "900"
+    },
+    {
+      "name": "FEE_INCREMENTAL",
+      "type": "u64",
+      "value": "250"
+    },
+    {
       "name": "MAX_SETTLE_DELAY",
       "type": "i64",
       "value": "10"
@@ -3112,7 +3122,7 @@
     {
       "name": "SERVICE_FEE",
       "type": "u64",
-      "value": "30"
+      "value": "50"
     }
   ]
 }

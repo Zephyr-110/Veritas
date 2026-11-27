@@ -339,10 +339,10 @@ const idl = {
           { name: "last_accrual_ts", type: "i64" },
           { name: "cum_yes_per_share", type: "i128" },
           { name: "cum_no_per_share", type: "i128" },
-          { name: "fee_bps", type: "u16" },
           { name: "reserve_yes", type: "i128" },
           { name: "reserve_no", type: "i128" },
           { name: "total_lp_shares", type: "i128" },
+          { name: "start_ts", type: "i64" },
           { name: "end_ts", type: "i64" },
           { name: "ocr2_state", type: "pubkey" },
           { name: "threshold", type: "i64" },
@@ -421,9 +421,11 @@ const idl = {
   ],
   constants: [
     { name: "CLAIM_WINDOW", type: "u64", value: "2592000" },
+    { name: "FEE_ANCHOR_DURATION_SEC", type: "i64", value: "900" },
+    { name: "FEE_INCREMENTAL", type: "u64", value: "250" },
     { name: "MAX_SETTLE_DELAY", type: "i64", value: "10" },
     { name: "RESOLVE_WINDOW", type: "u64", value: "172800" },
-    { name: "SERVICE_FEE", type: "u64", value: "30" },
+    { name: "SERVICE_FEE", type: "u64", value: "50" },
   ],
 };
 

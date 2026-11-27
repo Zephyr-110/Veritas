@@ -146,12 +146,15 @@ describe("use-markets hooks", () => {
     await waitFor(() => expect(pageHook.current.markets).toHaveLength(2));
     expect(pageHook.current.total).toBe(3);
     expect(pageHook.current.hasMore).toBe(true);
+    // Freshness prefers server indexedAt over local query.dataUpdatedAt
+    expect(pageHook.current.updatedAt).toBe(1_800_000_000 * 1000);
 
     const { result: infHook } = renderHook(
       () => useMarketsInfinite({ section: "ended", duration: "all", pageSize: 2 }),
       { wrapper }
     );
     await waitFor(() => expect(infHook.current.markets).toHaveLength(2));
+    expect(infHook.current.updatedAt).toBe(1_800_000_000 * 1000);
     await act(async () => {
       await infHook.current.loadMore();
     });

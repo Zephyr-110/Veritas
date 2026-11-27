@@ -154,7 +154,7 @@ export function useMarketsPage({
     indexedAt: data?.indexedAt ?? null,
     loading: isEnabled ? query.isPending : false,
     refreshing: isEnabled ? query.isFetching && !query.isPending : false,
-    updatedAt: query.dataUpdatedAt || (data?.indexedAt ? data.indexedAt * 1000 : null),
+    updatedAt: data?.indexedAt ? data.indexedAt * 1000 : query.dataUpdatedAt || null,
     isStaleError: Boolean(query.error && query.data),
     error: query.error ? parseTxError(query.error) : null,
     reload: async () => {
@@ -208,7 +208,7 @@ export function useMarketsInfinite({
       query.isFetching &&
       !query.isPending &&
       !query.isFetchingNextPage,
-    updatedAt: query.dataUpdatedAt || (firstPage?.indexedAt ? firstPage.indexedAt * 1000 : null),
+    updatedAt: firstPage?.indexedAt ? firstPage.indexedAt * 1000 : query.dataUpdatedAt || null,
     isStaleError: Boolean(query.error && query.data),
     error: query.error ? parseTxError(query.error) : null,
     loadMore: async () => {
@@ -320,7 +320,7 @@ export function useWalletPositionsPage({
       query.isFetching &&
       !query.isPending &&
       !query.isFetchingNextPage,
-    updatedAt: query.dataUpdatedAt || (firstPage?.syncedAt ? firstPage.syncedAt * 1000 : null),
+    updatedAt: firstPage?.syncedAt ? firstPage.syncedAt * 1000 : query.dataUpdatedAt || null,
     isStaleError: Boolean(query.error && query.data),
     error: query.error ? parseTxError(query.error) : null,
     loadMore: async () => {

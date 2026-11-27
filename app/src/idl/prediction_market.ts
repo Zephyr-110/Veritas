@@ -2904,10 +2904,6 @@ export type PredictionMarket = {
             "type": "i128"
           },
           {
-            "name": "feeBps",
-            "type": "u16"
-          },
-          {
             "name": "reserveYes",
             "type": "i128"
           },
@@ -2918,6 +2914,10 @@ export type PredictionMarket = {
           {
             "name": "totalLpShares",
             "type": "i128"
+          },
+          {
+            "name": "startTs",
+            "type": "i64"
           },
           {
             "name": "endTs",
@@ -3106,6 +3106,16 @@ export type PredictionMarket = {
       "value": "2592000"
     },
     {
+      "name": "FEE_ANCHOR_DURATION_SEC",
+      "type": "i64",
+      "value": "900"
+    },
+    {
+      "name": "FEE_INCREMENTAL",
+      "type": "u64",
+      "value": "250"
+    },
+    {
       "name": "MAX_SETTLE_DELAY",
       "type": "i64",
       "value": "10"
@@ -3118,7 +3128,7 @@ export type PredictionMarket = {
     {
       "name": "SERVICE_FEE",
       "type": "u64",
-      "value": "30"
+      "value": "50"
     }
   ]
 };

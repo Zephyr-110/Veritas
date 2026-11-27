@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { COLLATERAL_SYMBOL } from "@/lib/constants";
+import { COLLATERAL_SYMBOL, DYNAMIC_FEE_BASE_BPS } from "@/lib/constants";
 import { money } from "@/lib/display";
 import { isQuoteStale } from "@/lib/chainlink";
 import { FEEDS, formatFeedPrice, thresholdToHuman } from "@/lib/feeds";
@@ -48,10 +48,13 @@ export function SimOrderPreview() {
     []
   );
 
-  const quoteOut = useMemo(
-    () => quoteBet(SIM_SEED_ATOMS, SIM_SEED_ATOMS, parsed.value, side, simLeff),
-    [parsed.value, side, simLeff]
-  );
+  const quoteOut = useMemo(() => {
+    try {
+      return quoteBet(SIM_SEED_ATOMS, SIM_SEED_ATOMS, parsed.value, side, simLeff, DYNAMIC_FEE_BASE_BPS);
+    } catch {
+      return { swapOut: 0n, totalOut: 0n };
+    }
+  }, [parsed.value, side, simLeff]);
 
   if (!ready) {
     return (

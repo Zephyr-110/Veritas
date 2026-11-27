@@ -395,3 +395,166 @@ test("claimableOf floors voided YES and NO independently and indexer extracts fa
   );
   assert.deepEqual(pushes, { pre: "sig-ok-pre-push", post: "sig-failed-post-push" });
 });
+
+test("dual-layout 409 (v1) and 415 (v2) Market buffers decode consistently across db, settle, settle-all, tick, and indexer", async (t) => {
+  const settleLib = require("./settle");
+  const settleAllLib = require("./sandbox/settle-all");
+  const tickLib = require("./sandbox/tick");
+  const indexerLib = require("./index-markets");
+
+  function makeV2MarketBuffer({
+    expiry = 1_800_000_900n,
+    startTs = 1_800_000_000n,
+    endTs = 1_800_000_900n,
+    creator = Keypair.generate().publicKey,
+    id = Array.from({ length: 16 }, (_, i) => i + 21),
+    yesMint = Keypair.generate().publicKey,
+    noMint = Keypair.generate().publicKey,
+    collateralMint = Keypair.generate().publicKey,
+    statusByte = 0,
+    title = "ETH/USD at or above opening price in 15 min?",
+    ocr2State = new PublicKey(dbLib.FEEDS[1].state),
+    threshold = 3_200_00000000n,
+  } = {}) {
+    const buf = Buffer.alloc(dbLib.MARKET_ACCOUNT_SIZE_V2);
+    Buffer.from(dbLib.MARKET_DISCRIMINATOR).copy(buf, 0);
+    let off = 8;
+    buf.writeBigUInt64LE(expiry, off); off += 8;
+    creator.toBuffer().copy(buf, off); off += 32;
+    Buffer.from(id).copy(buf, off); off += 16;
+    buf.writeUInt8(254, off); off += 1;
+    yesMint.toBuffer().copy(buf, off); off += 32;
+    noMint.toBuffer().copy(buf, off); off += 32;
+    buf.writeUInt8(statusByte, off); off += 1;
+    collateralMint.toBuffer().copy(buf, off); off += 32;
+    buf.writeUInt8(0, off); off += 1; // winner = None
+    buf.writeUInt8(253, off); off += 1; // marketCollateralBump
+    const titleBuf = Buffer.from(title, "utf8");
+    titleBuf.copy(buf, off, 0, Math.min(64, titleBuf.length));
+    off += 64;
+    buf.writeBigUInt64LE(0n, off); off += 8; // finishTs
+    const lZero = 100n << 48n;
+    buf.writeBigUInt64LE(lZero & ((1n << 64n) - 1n), off);
+    buf.writeBigInt64LE(lZero >> 64n, off + 8);
+    off += 16;
+    buf.writeBigInt64LE(startTs, off); off += 8; // lastAccrualTs
+    off += 16; // cumYesPerShare
+    off += 16; // cumNoPerShare
+    // v2: no fee_bps (u16)
+    const r = 150_000_000n << 48n;
+    for (let i = 0; i < 3; i += 1) {
+      buf.writeBigUInt64LE(r & ((1n << 64n) - 1n), off);
+      buf.writeBigInt64LE(r >> 64n, off + 8);
+      off += 16;
+    }
+    buf.writeBigInt64LE(startTs, off); off += 8; // v2 startTs
+    buf.writeBigInt64LE(endTs, off); off += 8;
+    ocr2State.toBuffer().copy(buf, off); off += 32;
+    buf.writeBigInt64LE(threshold, off); off += 8;
+    buf.writeUInt8(8, off); off += 1; // priceDecimals
+    buf.writeUInt8(1, off); off += 1; // settleAbove
+    buf.writeBigInt64LE(0n, off); off += 8; // settledPrice
+    buf.writeBigInt64LE(0n, off); // settledPublishTime
+    return buf;
+  }
+
+  const v1Buf = makeSyntheticMarketBuffer({
+    expiry: 1_800_000_900n,
+    endTs: 1_800_000_900n,
+    threshold: 95_000_00000000n,
+  });
+  const v2Buf = makeV2MarketBuffer({
+    expiry: 1_800_001_800n,
+    startTs: 1_800_000_900n,
+    endTs: 1_800_001_800n,
+    threshold: 3_200_00000000n,
+  });
+  assert.equal(v1Buf.length, 409);
+  assert.equal(v2Buf.length, 415);
+
+  // 1. db.js
+  const dbV1 = dbLib.decodeMarketFull(v1Buf);
+  const dbV2 = dbLib.decodeMarketFull(v2Buf);
+  assert.equal(dbV1.endTs, 1_800_000_900n);
+  assert.equal(dbV1.threshold, 95_000_00000000n);
+  assert.equal(dbV1.feeBps, 30);
+  assert.equal(dbV1.startTs, null);
+  assert.equal(dbV2.endTs, 1_800_001_800n);
+  assert.equal(dbV2.threshold, 3_200_00000000n);
+  assert.equal(dbV2.startTs, 1_800_000_900n);
+  assert.equal(dbV2.feeBps, 0);
+
+  // 2. settle.js
+  const sV1 = settleLib.decodeMarket(v1Buf);
+  const sV2 = settleLib.decodeMarket(v2Buf);
+  assert.equal(sV1.endTs, 1_800_000_900);
+  assert.equal(sV1.threshold, 95_000_00000000n);
+  assert.equal(sV1.feeBps, 30);
+  assert.equal(sV1.startTs, null);
+  assert.equal(sV2.endTs, 1_800_001_800);
+  assert.equal(sV2.threshold, 3_200_00000000n);
+  assert.equal(sV2.startTs, 1_800_000_900);
+  assert.equal(sV2.feeBps, 0);
+
+  // 3. sandbox/settle-all.js
+  const saV1 = settleAllLib.decodeMarket(v1Buf);
+  const saV2 = settleAllLib.decodeMarket(v2Buf);
+  assert.equal(saV1.endTs, 1_800_000_900);
+  assert.equal(saV1.threshold, 95_000_00000000n);
+  assert.equal(saV1.feeBps, 30);
+  assert.equal(saV1.startTs, null);
+  assert.equal(saV2.endTs, 1_800_001_800);
+  assert.equal(saV2.threshold, 3_200_00000000n);
+  assert.equal(saV2.startTs, 1_800_000_900);
+  assert.equal(saV2.feeBps, 0);
+
+  // 4. sandbox/tick.js
+  const tV1 = tickLib.decodeMarket(v1Buf);
+  const tV2 = tickLib.decodeMarket(v2Buf);
+  assert.equal(tV1.endTs, 1_800_000_900);
+  assert.equal(tV1.threshold, 95_000_00000000n);
+  assert.equal(tV1.feeBps, 30);
+  assert.equal(tV1.startTs, null);
+  assert.equal(tV2.endTs, 1_800_001_800);
+  assert.equal(tV2.threshold, 3_200_00000000n);
+  assert.equal(tV2.startTs, 1_800_000_900);
+  assert.equal(tV2.feeBps, 0);
+
+  // 5. Indexer dual-size scan persists v2 start_ts and leaves v1 start_ts NULL
+  const dbPath = makeTempDbPath("dual-layout-reindex");
+  t.after(() => cleanupDb(dbPath));
+  const v1Pk = Keypair.generate().publicKey;
+  const v2Pk = Keypair.generate().publicKey;
+  let capturedFilters = null;
+  const fakeConnection = {
+    rpcEndpoint: "https://api.devnet.solana.com",
+    async getProgramAccounts(_pid, opts) {
+      capturedFilters = opts.filters;
+      return [
+        { pubkey: v1Pk, account: { data: v1Buf } },
+        { pubkey: v2Pk, account: { data: v2Buf } },
+      ];
+    },
+    async getMultipleAccountsInfo(keys) {
+      return keys.map(() => null);
+    },
+  };
+  const summary = await indexerLib.reindexFull(fakeConnection, dbLib.DEFAULT_PROGRAM_ID, {
+    dbPath,
+    withEvidence: false,
+  });
+  assert.equal(summary.totalScanned, 2);
+  assert.equal(summary.upserted, 2);
+  assert.ok(!capturedFilters.some((f) => "dataSize" in f), "indexer must not hardcode dataSize=409");
+
+  const db = dbLib.openDb(dbPath, { readonly: true });
+  t.after(() => { if (db.open) db.close(); });
+  const rowV1 = db.prepare("SELECT start_ts, fee_bps, end_ts FROM markets WHERE address = ?").get(v1Pk.toBase58());
+  const rowV2 = db.prepare("SELECT start_ts, fee_bps, end_ts FROM markets WHERE address = ?").get(v2Pk.toBase58());
+  assert.equal(rowV1.start_ts, null);
+  assert.equal(rowV1.fee_bps, 30);
+  assert.equal(rowV1.end_ts, 1_800_000_900);
+  assert.equal(rowV2.start_ts, 1_800_000_900);
+  assert.equal(rowV2.fee_bps, 0);
+  assert.equal(rowV2.end_ts, 1_800_001_800);
+});

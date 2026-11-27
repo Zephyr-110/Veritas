@@ -81,7 +81,7 @@ describe("SimOrderPreview", () => {
     expect(screen.getByText("150.00")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "10" }));
-    expect(container.textContent).toContain("30 bps per leg (~0.6% combined)");
+    expect(container.textContent).toContain("dynamic — 0.50% per leg at open, rising toward 3.00% near expiry");
     expect(screen.getByText(/^\d{2}\.\d¢$/)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /Connect wallet to execute on-chain \(Sim\)/i }));

@@ -37,7 +37,6 @@ function marketDiscriminatorBase58() {
 
 function openMarketFilters() {
   return [
-    { dataSize: dbLib.MARKET_ACCOUNT_SIZE },
     { memcmp: { offset: 0, bytes: marketDiscriminatorBase58() } },
     { memcmp: { offset: STATUS_OFFSET, bytes: utils.bytes.bs58.encode(Buffer.from([0])) } },
   ];
@@ -45,7 +44,6 @@ function openMarketFilters() {
 
 function allMarketFilters() {
   return [
-    { dataSize: dbLib.MARKET_ACCOUNT_SIZE },
     { memcmp: { offset: 0, bytes: marketDiscriminatorBase58() } },
   ];
 }

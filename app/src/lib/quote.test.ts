@@ -59,19 +59,31 @@ describe("quote", () => {
       expect(quoteAddLiquidity(100n, 100n, 0n, 10n)).toEqual(z);
       expect(quoteAddLiquidity(100n, 100n, 100n, 0n)).toEqual(z);
     });
-    it("与合约 add_liquidity 语义一致：reserve 大的一侧吃满，另一侧按比例", () => {
-      // 对照 programs/prediction_market/src/instructions/add_liquidity.rs:
-      //   yes_input_amount = reserve_yes > reserve_no ? collateral_amount : collateral*reserve_yes/reserve_no
-      //   no_input_amount  = reserve_yes < reserve_no ? collateral_amount : collateral*reserve_no/reserve_yes
+    it("与合约 add_liquidity (bd24f67) 语义一致：reserve 大的一侧吃满，轻侧对商向上取整", () => {
+      // 对照 programs/prediction_market/src/instructions/add_liquidity.rs:188-200:
+      //   yes_input_amount = reserve_yes > reserve_no ? collateral_amount : ceil(collateral*reserve_yes/reserve_no)
+      //   no_input_amount  = reserve_yes < reserve_no ? collateral_amount : ceil(collateral*reserve_no/reserve_yes)
       //   add_shares       = total_lp_shares * collateral_amount / max(reserve_yes, reserve_no)
       const collateral = 10n * ONE_USDT; // 10 USDT
       const q = quoteAddLiquidity(300n, 100n, 100n, collateral);
 
       expect(q.yesIn).toBe(collateral); // reserve_yes 更大 → 吃满
-      expect(q.noIn).toBe((collateral * 100n) / 300n); // 整数除法向下取整
-      expect(q.lpOut).toBe((collateral * 100n) / 300n); // 同一公式
+      expect(q.noIn).toBe((collateral * 100n + 299n) / 300n); // 3_333_334n（向上取整）
+      expect(q.lpOut).toBe((collateral * 100n) / 300n);
       expect(q.leftoverYes).toBe(0n);
       expect(q.leftoverNo).toBe(collateral - q.noIn);
+
+      // 对称方向：NO 更大，YES 为轻侧，向上取整
+      const q2 = quoteAddLiquidity(100n, 300n, 100n, collateral);
+      expect(q2.noIn).toBe(collateral);
+      expect(q2.yesIn).toBe((collateral * 100n + 299n) / 300n);
+      expect(q2.leftoverNo).toBe(0n);
+      expect(q2.leftoverYes).toBe(collateral - q2.yesIn);
+
+      // 极端小额 1 micro-unit 轻侧向上取整为 1（防止 0 入池）
+      const dust = quoteAddLiquidity(100n, 300n, 100n, 1n);
+      expect(dust.yesIn).toBe(1n);
+      expect(dust.noIn).toBe(1n);
     });
 
     it("两侧相等时按 1:1 入池，无残留", () => {
@@ -177,6 +189,22 @@ describe("quote", () => {
       expect(q.totalOut).toBe(50_000_000n + q.swapOut);
       expect(q.postYesPrice).toBeGreaterThan(0.5);
       expect(q.postYesPrice).toBeLessThan(1);
+    });
+
+    it("超出求解域 [-6, 6] 的超大单在四个方向全部抛出 errors.invalidPrice（镜像 d7c6b08）", () => {
+      const lEff = 1_000_000;
+      const { yes, no } = pmAmmReservesFromPrice(0.5, lEff);
+      const yesBig = BigInt(Math.round(yes));
+      const noBig = BigInt(Math.round(no));
+      // 超过 Z_SEARCH_MAX = 6 对应最大储备（~6 * lEff）的大单
+      const huge = 7_000_000;
+      const hugeBig = BigInt(huge);
+      expect(() => pmAmmQuoteBet(yes, no, lEff, huge, "yes", 50)).toThrow("errors.invalidPrice");
+      expect(() => pmAmmQuoteBet(yes, no, lEff, huge, "no", 50)).toThrow("errors.invalidPrice");
+      expect(() => quoteBet(yesBig, noBig, hugeBig, "yes", lEff, 50)).toThrow("errors.invalidPrice");
+      expect(() => quoteBet(yesBig, noBig, hugeBig, "no", lEff, 50)).toThrow("errors.invalidPrice");
+      expect(() => quoteSwapOut(yesBig, noBig, hugeBig, lEff, 50)).toThrow("errors.invalidPrice");
+      expect(() => quoteSwapOut(noBig, yesBig, hugeBig, lEff, 50)).toThrow("errors.invalidPrice");
     });
 
     it("pmAmmAccrue 随剩余时间 sqrt(T - t) 衰减有效流动性并保持价格不变", () => {

@@ -15,6 +15,7 @@ function getDatabaseClass() {
 
 const DEFAULT_PROGRAM_ID = "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER";
 const MARKET_ACCOUNT_SIZE = 409;
+const MARKET_ACCOUNT_SIZE_V2 = 415;
 const MARKET_DISCRIMINATOR = [219, 190, 213, 55, 0, 227, 198, 154];
 const LP_POSITION_DISCRIMINATOR = [105, 241, 37, 200, 224, 2, 252, 90];
 const MARKET_SNAPSHOT_DISCRIMINATOR = [107, 32, 221, 188, 130, 114, 104, 28];
@@ -148,6 +149,7 @@ function initSchema(db) {
       yes_mint TEXT NOT NULL,
       no_mint TEXT NOT NULL,
       opened_at INTEGER,
+      start_ts INTEGER,
       expiry INTEGER NOT NULL,
       end_ts INTEGER NOT NULL,
       finish_ts INTEGER NOT NULL DEFAULT 0,
@@ -248,6 +250,11 @@ function initSchema(db) {
       PRIMARY KEY (wallet, program_id)
     );
   `);
+
+  const marketCols = db.prepare("PRAGMA table_info(markets)").all();
+  if (!marketCols.some((c) => c.name === "start_ts")) {
+    db.exec("ALTER TABLE markets ADD COLUMN start_ts INTEGER");
+  }
 }
 
 function openDb(dbPath, { readonly = false, skipInit = false } = {}) {
@@ -342,7 +349,9 @@ function decodePrediction(bytes) {
 
 function decodeMarketFull(data) {
   const buf = Buffer.from(data);
-  if (buf.length !== MARKET_ACCOUNT_SIZE || !sameDisc(buf, MARKET_DISCRIMINATOR)) {
+  const isV2 = buf.length === MARKET_ACCOUNT_SIZE_V2;
+  const isLegacy = buf.length === MARKET_ACCOUNT_SIZE;
+  if ((!isLegacy && !isV2) || !sameDisc(buf, MARKET_DISCRIMINATOR)) {
     throw new Error("Invalid PredictionMarket Market account");
   }
   const c = new Cursor(buf, 8);
@@ -370,10 +379,11 @@ function decodeMarketFull(data) {
   const lastAccrualTs = c.i64();
   const cumYesPerShare = c.i128();
   const cumNoPerShare = c.i128();
-  const feeBps = c.u16();
+  const feeBps = isLegacy ? c.u16() : 0;
   const reserveYes = c.i128();
   const reserveNo = c.i128();
   const totalLpShares = c.i128();
+  const startTs = isV2 ? c.i64() : null;
   const endTs = c.i64();
   const ocr2State = c.pubkey();
   const threshold = c.i64();
@@ -405,6 +415,7 @@ function decodeMarketFull(data) {
     reserveYes,
     reserveNo,
     totalLpShares,
+    startTs,
     endTs,
     ocr2State,
     threshold,
@@ -610,12 +621,18 @@ function buildMarketRow({
   const durationSec = marketDurationSec(title);
   const durationBucket = marketDurationBucket(title);
   const endTs = Number(account.endTs);
+  const startTs =
+    account.startTs != null && BigInt(account.startTs) > 0n
+      ? Number(account.startTs)
+      : null;
   const inferredOpen =
     openedAt != null
       ? Number(openedAt)
-      : durationSec != null && endTs > durationSec
-        ? endTs - durationSec
-        : null;
+      : startTs != null
+        ? startTs
+        : durationSec != null && endTs > durationSec
+          ? endTs - durationSec
+          : null;
   const rYes = i80f48ToAmount(account.reserveYes);
   const rNo = i80f48ToAmount(account.reserveNo);
   const reserveYes = rYes > 0n ? rYes : 0n;
@@ -645,6 +662,7 @@ function buildMarketRow({
     yes_mint: account.yesMint.toBase58(),
     no_mint: account.noMint.toBase58(),
     opened_at: inferredOpen,
+    start_ts: startTs,
     expiry: Number(account.expiry),
     end_ts: endTs,
     finish_ts: Number(account.finishTs),
@@ -678,7 +696,7 @@ const UPSERT_MARKET_SQL = `
   INSERT INTO markets (
     address, program_id, id_hex, bump, creator, title, feed_key, feed_symbol,
     ocr2_state, collateral_mint, token_program, decimals, yes_mint, no_mint,
-    opened_at, expiry, end_ts, finish_ts, duration_sec, duration_bucket,
+    opened_at, start_ts, expiry, end_ts, finish_ts, duration_sec, duration_bucket,
     status, winner, threshold, price_decimals, settle_above, settled_price,
     settled_publish_time, fee_bps, l_zero, last_accrual_ts, cum_yes_per_share,
     cum_no_per_share, reserve_yes, reserve_no, total_lp_shares, yes_pool,
@@ -686,7 +704,7 @@ const UPSERT_MARKET_SQL = `
   ) VALUES (
     @address, @program_id, @id_hex, @bump, @creator, @title, @feed_key, @feed_symbol,
     @ocr2_state, @collateral_mint, @token_program, @decimals, @yes_mint, @no_mint,
-    @opened_at, @expiry, @end_ts, @finish_ts, @duration_sec, @duration_bucket,
+    @opened_at, @start_ts, @expiry, @end_ts, @finish_ts, @duration_sec, @duration_bucket,
     @status, @winner, @threshold, @price_decimals, @settle_above, @settled_price,
     @settled_publish_time, @fee_bps, @l_zero, @last_accrual_ts, @cum_yes_per_share,
     @cum_no_per_share, @reserve_yes, @reserve_no, @total_lp_shares, @yes_pool,
@@ -707,6 +725,7 @@ const UPSERT_MARKET_SQL = `
     yes_mint = excluded.yes_mint,
     no_mint = excluded.no_mint,
     opened_at = COALESCE(markets.opened_at, excluded.opened_at),
+    start_ts = COALESCE(excluded.start_ts, markets.start_ts),
     expiry = excluded.expiry,
     end_ts = excluded.end_ts,
     finish_ts = excluded.finish_ts,
@@ -935,6 +954,7 @@ module.exports = {
   FEEDS,
   LP_POSITION_DISCRIMINATOR,
   MARKET_ACCOUNT_SIZE,
+  MARKET_ACCOUNT_SIZE_V2,
   MARKET_DISCRIMINATOR,
   MARKET_SNAPSHOT_DISCRIMINATOR,
   applyPragmas,

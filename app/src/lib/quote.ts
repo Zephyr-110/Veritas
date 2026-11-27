@@ -136,15 +136,25 @@ export function normalInvCdf(rawP: number): number {
   return u;
 }
 
+const Z_SEARCH_MIN = -6;
+const Z_SEARCH_MAX = 6;
+
 function gY(u: number): number {
   return u * normalCdf(u) + normalPdf(u);
 }
 
-function solveUForG(target: number, lo = -8, hi = 8): number {
-  const glo = gY(lo);
+/**
+ * Mirror of on-chain `pm_math::find_x_from_y` / `find_y_from_x` domain check (d7c6b08):
+ * targets outside `[0, gY(Z_SEARCH_MAX)]` are unreachable on the bounded `[-6, 6]`
+ * solver domain and must reject with `errors.invalidPrice` rather than silently clamping.
+ */
+function solveUForG(target: number, lo = Z_SEARCH_MIN, hi = Z_SEARCH_MAX): number {
   const ghi = gY(hi);
+  if (!Number.isFinite(target) || target < 0 || target > ghi) {
+    throw new Error("errors.invalidPrice");
+  }
+  const glo = gY(lo);
   if (target <= glo) return lo;
-  if (target >= ghi) return hi;
   for (let i = 0; i < 64; i += 1) {
     const mid = 0.5 * (lo + hi);
     if (gY(mid) < target) lo = mid;
@@ -319,8 +329,15 @@ export function quoteAddLiquidity(
   if (yesReserve <= 0n || noReserve <= 0n || lpSupply <= 0n || collateralAmount <= 0n) {
     return { yesIn: 0n, noIn: 0n, lpOut: 0n, leftoverYes: 0n, leftoverNo: 0n };
   }
-  const yesIn = yesReserve > noReserve ? collateralAmount : (collateralAmount * yesReserve) / noReserve;
-  const noIn = yesReserve < noReserve ? collateralAmount : (collateralAmount * noReserve) / yesReserve;
+  // Mirror on-chain `add_liquidity.rs` (bd24f67): minor side rounds quotient up via ceil.
+  const yesIn =
+    yesReserve > noReserve
+      ? collateralAmount
+      : (collateralAmount * yesReserve + noReserve - 1n) / noReserve;
+  const noIn =
+    yesReserve < noReserve
+      ? collateralAmount
+      : (collateralAmount * noReserve + yesReserve - 1n) / yesReserve;
   const maxReserve = yesReserve > noReserve ? yesReserve : noReserve;
   const lpOut = (collateralAmount * lpSupply) / maxReserve;
   return {

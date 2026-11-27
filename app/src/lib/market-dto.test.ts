@@ -107,19 +107,35 @@ describe("market-dto", () => {
     expect(res.position.collateral).toBe(25_000_000n);
   });
 
-  it("derives startTs and computes dynamic feeBps when SerializedMarket.feeBps is 0", () => {
+  it("uses real startTs for v2 dynamic fee and ignores stale dto.feeBps snapshot", () => {
     const nowSec = Math.floor(Date.now() / 1000);
     const dto = makeSerializedMarket({
+      startTs: nowSec - 1800,
       openedAt: nowSec - 1800,
       endTs: nowSec + 1800,
       expiry: nowSec + 1800,
       durationSec: 3600,
-      feeBps: 0,
+      feeBps: 50, // stale server snapshot must be ignored for v2
     });
     const view = deserializeMarket(dto);
     expect(view.startTs).toBe(nowSec - 1800);
-    // 3600s market at 50% remaining -> 106 bps anchor
+    // 3600s market at 50% remaining -> 106 bps anchor (live-computed, not frozen 50)
     expect(view.feeBps).toBe(106);
+  });
+
+  it("keeps v1 markets on flat 30 bps without fabricating startTs from openedAt or durationSec", () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const dto = makeSerializedMarket({
+      startTs: null,
+      openedAt: nowSec - 1800,
+      endTs: nowSec + 1800,
+      expiry: nowSec + 1800,
+      durationSec: 3600,
+      feeBps: 30,
+    });
+    const view = deserializeMarket(dto);
+    expect(view.startTs).toBeUndefined();
+    expect(view.feeBps).toBe(30);
   });
 });
 

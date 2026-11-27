@@ -133,6 +133,7 @@ const ASSET_CATALOG = {
 };
 
 const MARKET_ACCOUNT_SIZE = 409;
+const MARKET_ACCOUNT_SIZE_V2 = 415;
 const MARKET_DISCRIMINATOR = [219, 190, 213, 55, 0, 227, 198, 154];
 const LP_POSITION_DISCRIMINATOR = [105, 241, 37, 200, 224, 2, 252, 90];
 const I80F48_SCALE = 1n << 48n;
@@ -504,7 +505,9 @@ class Cursor {
 }
 
 function decodeMarket(data) {
-  if (data.length !== MARKET_ACCOUNT_SIZE || !sameDisc(data, MARKET_DISCRIMINATOR)) {
+  const isV2 = Boolean(data) && data.length === MARKET_ACCOUNT_SIZE_V2;
+  const isLegacy = Boolean(data) && data.length === MARKET_ACCOUNT_SIZE;
+  if ((!isLegacy && !isV2) || !sameDisc(data, MARKET_DISCRIMINATOR)) {
     throw new Error("Account is not a valid Market account");
   }
   const c = new Cursor(data, 8);
@@ -528,10 +531,11 @@ function decodeMarket(data) {
   c.i64(); // lastAccrualTs
   c.i128(); // cumYesPerShare
   c.i128(); // cumNoPerShare
-  c.u16(); // feeBps
+  const feeBps = isLegacy ? c.u16() : 0;
   c.i128(); // reserveYes
   c.i128(); // reserveNo
   c.i128(); // totalLpShares
+  const startTs = isV2 ? Number(c.i64()) : null;
   const endTs = Number(c.i64());
   const ocr2State = c.pubkey();
   const threshold = c.i64();
@@ -547,6 +551,8 @@ function decodeMarket(data) {
     status,
     collateralMint,
     winner,
+    feeBps,
+    startTs,
     endTs,
     ocr2State,
     threshold,
@@ -1627,6 +1633,8 @@ module.exports = {
   DEFAULT_PROGRAM_ID,
   DEFAULT_COLLATERAL_MINT,
   DEFAULT_ASSETS,
+  MARKET_ACCOUNT_SIZE,
+  MARKET_ACCOUNT_SIZE_V2,
   MARKET_ID_BYTES,
   FEED_MIN_LEN,
   FEED_DECIMALS_OFFSET,
@@ -1646,6 +1654,7 @@ module.exports = {
   loadState,
   saveState,
   encodePrediction,
+  decodeMarket,
   decodeChainlinkFeed,
   fetchMintMeta,
   ataOf,
