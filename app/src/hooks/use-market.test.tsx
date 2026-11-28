@@ -219,7 +219,7 @@ describe("useMarket + GuestSession A1/A6 integration", () => {
   it("scrolls to the claim after the position arrives later than the market", async () => {
     walletState.publicKey = MARKET_KEY;
     walletState.connected = true;
-    fetchMarket.mockResolvedValue({ ...makeMarket(), status: "windowBurn" });
+    fetchMarket.mockResolvedValue({ ...makeMarket(), status: "windowBurn", finishTs: 1_900_000_000 });
     let finishPosition!: (value: UserPosition) => void;
     fetchPosition.mockReturnValue(new Promise<UserPosition>(resolve => { finishPosition = resolve; }));
     const scroll = vi.fn();

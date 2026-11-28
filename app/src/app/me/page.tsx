@@ -558,7 +558,10 @@ export default function MePage() {
                   {rows.map(({ market, position }) => {
                     const kind = marketKind(market, now);
                     const claimable = claimableOf(market, position);
-                    const hasLp = position.lpShares > 0n || position.pendingYes > 0n || position.pendingNo > 0n;
+                    const isBackfilledVoid = isVoidedStatus(market.status) && market.finishTs <= 0;
+                    const hasLp =
+                      !isBackfilledVoid &&
+                      (position.lpShares > 0n || position.pendingYes > 0n || position.pendingNo > 0n);
                     const action: {
                       key: "markets.open" | "markets.actionSettle" | "markets.actionVoid" | "me.actionClaim" | "markets.view";
                       cls: string;

@@ -101,13 +101,16 @@ export function isFinalizedStatus(status: MarketStatusName): boolean {
  * independently at `floor(amount / 2)` (`yes / 2n + no / 2n`).
  */
 export function claimableOf(
-  market: Pick<MarketView, "status" | "winner">,
+  market: Pick<MarketView, "status" | "winner"> & { finishTs?: number },
   position: Pick<UserPosition, "yes" | "no">
 ): bigint {
   if (market.status === "resolved") {
     return market.winner === "yes" ? position.yes : market.winner === "no" ? position.no : 0n;
   }
   if (isVoidedStatus(market.status)) {
+    if (market.status === "windowBurn" && market.finishTs !== undefined && market.finishTs <= 0) {
+      return 0n;
+    }
     return position.yes / 2n + position.no / 2n;
   }
   return 0n;
@@ -170,6 +173,13 @@ function buildView(
       : 0;
   const yesPrice = impliedYesPrice(reserveYes, reserveNo, lEff > 0 ? lEff : undefined);
   const preset = feedByState(account.ocr2State);
+  const startTs = account.startTs > 0n ? Number(account.startTs) : undefined;
+  const endTs = Number(account.endTs);
+  const nowSec = Math.floor(Date.now() / 1000);
+  const status: MarketStatusName =
+    startTs === undefined && account.status === "open" && nowSec > endTs + RESOLVE_WINDOW
+      ? "windowBurn"
+      : account.status;
   return {
     address,
     pdas,
@@ -179,11 +189,11 @@ function buildView(
     collateralMint: account.collateralMint,
     yesMint: account.yesMint,
     noMint: account.noMint,
-    status: account.status,
+    status,
     winner: account.winner,
     expiry: Number(account.expiry),
-    startTs: account.startTs > 0n ? Number(account.startTs) : undefined,
-    endTs: Number(account.endTs),
+    startTs,
+    endTs,
     finishTs: Number(account.finishTs),
     bump: account.bump,
     yesPool: extras.yesPool,

@@ -16,6 +16,7 @@ function getDatabaseClass() {
 const DEFAULT_PROGRAM_ID = "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER";
 const MARKET_ACCOUNT_SIZE = 409;
 const MARKET_ACCOUNT_SIZE_V2 = 415;
+const RESOLVE_WINDOW_SEC = 172_800;
 const MARKET_DISCRIMINATOR = [219, 190, 213, 55, 0, 227, 198, 154];
 const LP_POSITION_DISCRIMINATOR = [105, 241, 37, 200, 224, 2, 252, 90];
 const MARKET_SNAPSHOT_DISCRIMINATOR = [107, 32, 221, 188, 130, 114, 104, 28];
@@ -576,13 +577,27 @@ function isFinalizedStatus(status) {
   return status === "resolved" || isVoidedStatus(status);
 }
 
-function claimableOf(status, winner, yesAmount, noAmount) {
+function deriveIndexedMarketStatus({ status, startTs, endTs }, nowSec = Math.floor(Date.now() / 1000)) {
+  const isV1 = startTs == null || Number(startTs) <= 0;
+  if (
+    isV1 &&
+    status === "open" &&
+    Number.isFinite(Number(endTs)) &&
+    nowSec > Number(endTs) + RESOLVE_WINDOW_SEC
+  ) {
+    return "windowBurn";
+  }
+  return status;
+}
+
+function claimableOf(status, winner, yesAmount, noAmount, finishTs) {
   const yes = BigInt(yesAmount || 0);
   const no = BigInt(noAmount || 0);
   if (status === "resolved") {
     return winner === "yes" ? yes : winner === "no" ? no : 0n;
   }
   if (isVoidedStatus(status)) {
+    if (finishTs !== undefined && Number(finishTs) <= 0) return 0n;
     return yes / 2n + no / 2n;
   }
   return 0n;
@@ -668,7 +683,10 @@ function buildMarketRow({
     finish_ts: Number(account.finishTs),
     duration_sec: durationSec,
     duration_bucket: durationBucket,
-    status: account.status,
+    status: deriveIndexedMarketStatus(
+      { status: account.status, startTs, endTs },
+      Number(updatedAt)
+    ),
     winner: account.winner || null,
     threshold: account.threshold.toString(),
     price_decimals: Number(account.priceDecimals),
@@ -865,6 +883,8 @@ function refreshClaimableForMarket(db, marketRow) {
     "UPDATE wallet_positions SET claimable_amount = ?, can_claim = ?, updated_at = ? WHERE wallet = ? AND market_address = ?"
   );
   const finalized = isFinalizedStatus(marketRow.status);
+  const isBackfilledVoid =
+    isVoidedStatus(marketRow.status) && Number(marketRow.finish_ts || 0) <= 0;
   const nowSec = Math.floor(Date.now() / 1000);
   const run = db.transaction(() => {
     for (const row of rows) {
@@ -872,13 +892,14 @@ function refreshClaimableForMarket(db, marketRow) {
         marketRow.status,
         marketRow.winner,
         row.yes_amount,
-        row.no_amount
+        row.no_amount,
+        marketRow.finish_ts
       );
       const hasLp =
         BigInt(row.lp_shares) > 0n ||
         BigInt(row.pending_yes) > 0n ||
         BigInt(row.pending_no) > 0n;
-      const canClaim = finalized && (claimable > 0n || hasLp) ? 1 : 0;
+      const canClaim = !isBackfilledVoid && finalized && (claimable > 0n || hasLp) ? 1 : 0;
       updateStmt.run(claimable.toString(), canClaim, nowSec, row.wallet, marketRow.address);
     }
   });
@@ -957,6 +978,7 @@ module.exports = {
   MARKET_ACCOUNT_SIZE_V2,
   MARKET_DISCRIMINATOR,
   MARKET_SNAPSHOT_DISCRIMINATOR,
+  RESOLVE_WINDOW_SEC,
   applyPragmas,
   buildMarketRow,
   claimableOf,
@@ -967,6 +989,7 @@ module.exports = {
   decodeMarketSnapshot,
   decodePrediction,
   deleteMissingMarkets,
+  deriveIndexedMarketStatus,
   explorerTxUrl,
   feedByState,
   findLpPosition,

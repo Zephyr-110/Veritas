@@ -248,17 +248,18 @@ function pmAmmSwapStep(
   amountIn: number,
   lEff: number,
   feeBps = Number(SERVICE_FEE_BPS)
-): { outAfterFee: number; newOutput: number; newInput: number } {
+): { outAfterFee: number; inputFee: number; newOutput: number; newInput: number } {
   if (outputPool <= 0 || inputPool <= 0 || amountIn <= 0 || lEff <= 0) {
-    return { outAfterFee: 0, newOutput: outputPool, newInput: inputPool };
+    return { outAfterFee: 0, inputFee: 0, newOutput: outputPool, newInput: inputPool };
   }
   const netIn = (amountIn * (10000 - feeBps)) / 10000;
+  const inputFee = Math.max(0, amountIn - netIn);
   const newInput = inputPool + netIn;
   const u = solveUForG(newInput / lEff);
   const newOutput = Math.max(0, newInput - u * lEff);
   const rawOut = Math.max(0, outputPool - newOutput);
   const outAfterFee = (rawOut * (10000 - feeBps)) / 10000;
-  return { outAfterFee, newOutput, newInput };
+  return { outAfterFee, inputFee, newOutput, newInput };
 }
 
 export function pmAmmQuoteBet(
@@ -285,6 +286,36 @@ export function pmAmmQuoteBet(
   };
 }
 
+export function quoteSwapDetail(
+  outputPool: bigint,
+  inputPool: bigint,
+  amountIn: bigint,
+  lEff?: number,
+  feeBps = Number(SERVICE_FEE_BPS)
+): { amountOut: bigint; feeIn: bigint } {
+  if (outputPool <= 0n || inputPool <= 0n || amountIn <= 0n) {
+    return { amountOut: 0n, feeIn: 0n };
+  }
+  if (lEff != null && Number.isFinite(lEff) && lEff > 0) {
+    const step = pmAmmSwapStep(Number(outputPool), Number(inputPool), Number(amountIn), lEff, feeBps);
+    return {
+      amountOut: BigInt(Math.max(0, Math.floor(step.outAfterFee))),
+      feeIn: BigInt(Math.max(0, Math.round(step.inputFee))),
+    };
+  }
+  const feeBpsBig = BigInt(Math.max(0, Math.floor(feeBps)));
+  const amountInAfterFee =
+    (amountIn * (FEE_DENOMINATOR - feeBpsBig)) / FEE_DENOMINATOR;
+  const feeIn = amountIn > amountInAfterFee ? amountIn - amountInAfterFee : 0n;
+  const denominator = inputPool + amountInAfterFee;
+  if (denominator <= 0n) return { amountOut: 0n, feeIn: 0n };
+  const keep = (outputPool * inputPool) / denominator;
+  return {
+    amountOut: outputPool > keep ? outputPool - keep : 0n,
+    feeIn,
+  };
+}
+
 export function quoteSwapOut(
   outputPool: bigint,
   inputPool: bigint,
@@ -292,18 +323,7 @@ export function quoteSwapOut(
   lEff?: number,
   feeBps = Number(SERVICE_FEE_BPS)
 ): bigint {
-  if (outputPool <= 0n || inputPool <= 0n || amountIn <= 0n) return 0n;
-  if (lEff != null && Number.isFinite(lEff) && lEff > 0) {
-    const step = pmAmmSwapStep(Number(outputPool), Number(inputPool), Number(amountIn), lEff, feeBps);
-    return BigInt(Math.max(0, Math.floor(step.outAfterFee)));
-  }
-  const feeBpsBig = BigInt(Math.max(0, Math.floor(feeBps)));
-  const amountInAfterFee =
-    (amountIn * (FEE_DENOMINATOR - feeBpsBig)) / FEE_DENOMINATOR;
-  const denominator = inputPool + amountInAfterFee;
-  if (denominator <= 0n) return 0n;
-  const keep = (outputPool * inputPool) / denominator;
-  return outputPool > keep ? outputPool - keep : 0n;
+  return quoteSwapDetail(outputPool, inputPool, amountIn, lEff, feeBps).amountOut;
 }
 
 export function quoteBet(
@@ -313,11 +333,15 @@ export function quoteBet(
   side: Side,
   lEff?: number,
   feeBps = Number(SERVICE_FEE_BPS)
-): { swapOut: bigint; totalOut: bigint } {
+): { swapOut: bigint; totalOut: bigint; feeIn: bigint } {
   const outputPool = side === "yes" ? yesReserve : noReserve;
   const inputPool = side === "yes" ? noReserve : yesReserve;
-  const swapOut = quoteSwapOut(outputPool, inputPool, collateralAmount, lEff, feeBps);
-  return { swapOut, totalOut: collateralAmount + swapOut };
+  const detail = quoteSwapDetail(outputPool, inputPool, collateralAmount, lEff, feeBps);
+  return {
+    swapOut: detail.amountOut,
+    totalOut: collateralAmount + detail.amountOut,
+    feeIn: detail.feeIn,
+  };
 }
 
 export function quoteAddLiquidity(

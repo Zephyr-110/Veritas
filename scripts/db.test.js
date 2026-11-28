@@ -558,3 +558,88 @@ test("dual-layout 409 (v1) and 415 (v2) Market buffers decode consistently acros
   assert.equal(rowV2.fee_bps, 0);
   assert.equal(rowV2.end_ts, 1_800_001_800);
 });
+
+test("legacy v1 backfill marks only past-48h open v1 markets as windowBurn and keeps claimable=0", (t) => {
+  const dbPath = makeTempDbPath("v1-window-burn-backfill");
+  const db = dbLib.openDb(dbPath);
+  t.after(() => {
+    if (db.open) db.close();
+    cleanupDb(dbPath);
+  });
+
+  const endTs = 1_800_000_000;
+  const atWindowEdge = endTs + dbLib.RESOLVE_WINDOW_SEC;
+  const pastWindow = atWindowEdge + 1;
+
+  // 1. v1 inside 48h window (even at exact boundary end_ts + 172800) stays open
+  const v1Buf = makeSyntheticMarketBuffer({
+    expiry: BigInt(endTs),
+    endTs: BigInt(endTs),
+    statusByte: 0,
+    finishTs: 0n,
+  });
+  const decodedV1 = dbLib.decodeMarketFull(v1Buf);
+  const v1Pk = Keypair.generate().publicKey;
+  const rowV1Edge = dbLib.buildMarketRow({
+    programId: dbLib.DEFAULT_PROGRAM_ID,
+    address: v1Pk,
+    account: decodedV1,
+    tokenProgram: TOKEN_PROGRAM_ID,
+    updatedAt: atWindowEdge,
+  });
+  assert.equal(rowV1Edge.status, "open");
+
+  // 2. v1 past 48h window (now > end_ts + 172800) becomes windowBurn with finish_ts=0
+  const rowV1Past = dbLib.buildMarketRow({
+    programId: dbLib.DEFAULT_PROGRAM_ID,
+    address: v1Pk,
+    account: decodedV1,
+    tokenProgram: TOKEN_PROGRAM_ID,
+    updatedAt: pastWindow,
+  });
+  assert.equal(rowV1Past.status, "windowBurn");
+  assert.equal(rowV1Past.finish_ts, 0);
+
+  // Idempotent on subsequent rescan
+  dbLib.upsertMarkets(db, [rowV1Past]);
+  dbLib.upsertMarkets(db, [rowV1Past]);
+  const savedV1 = db.prepare("SELECT status, finish_ts FROM markets WHERE address = ?").get(v1Pk.toBase58());
+  assert.equal(savedV1.status, "windowBurn");
+  assert.equal(savedV1.finish_ts, 0);
+
+  // Backfilled v1 void (finish_ts=0) must NOT mark wallet positions claimable
+  const walletPk = Keypair.generate().publicKey;
+  dbLib.replaceWalletPositions(db, walletPk.toBase58(), dbLib.DEFAULT_PROGRAM_ID, [
+    {
+      wallet: walletPk.toBase58(),
+      market_address: v1Pk.toBase58(),
+      program_id: dbLib.DEFAULT_PROGRAM_ID,
+      yes_amount: "4000000",
+      no_amount: "2000000",
+      lp_shares: "1000000",
+      pending_yes: "0",
+      pending_no: "0",
+      claimable_amount: "0",
+      can_claim: 0,
+      collateral_amount: "0",
+      updated_at: pastWindow,
+    },
+  ]);
+  dbLib.refreshClaimableForMarket(db, rowV1Past);
+  const pos = db
+    .prepare("SELECT claimable_amount, can_claim FROM wallet_positions WHERE wallet = ? AND market_address = ?")
+    .get(walletPk.toBase58(), v1Pk.toBase58());
+  assert.equal(pos.claimable_amount, "0");
+  assert.equal(pos.can_claim, 0);
+
+  // 3. v2 past 48h window NEVER backfills (stays open; on-chain state is sole truth)
+  const v2Account = { ...decodedV1, startTs: BigInt(endTs - 900) };
+  const rowV2Past = dbLib.buildMarketRow({
+    programId: dbLib.DEFAULT_PROGRAM_ID,
+    address: Keypair.generate().publicKey,
+    account: v2Account,
+    tokenProgram: TOKEN_PROGRAM_ID,
+    updatedAt: pastWindow,
+  });
+  assert.equal(rowV2Past.status, "open");
+});

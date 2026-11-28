@@ -360,7 +360,8 @@
     "simSubmitBuyNo": "连接钱包提交买入 NO（模拟预览）",
     "simSubmitSwap": "连接钱包提交换仓（模拟预览）",
     "sandboxSwapCta": "连接真实钱包以换仓",
-    "currentFee": "当前费率"
+    "currentFee": "当前费率",
+    "feeEstimate": "手续费约 {amount} {symbol}"
   },
   "tradeDisable": {
     "connect": "连接钱包后才能交易",

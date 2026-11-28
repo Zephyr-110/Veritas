@@ -311,5 +311,21 @@ describe("quote", () => {
       expect(currentMarketFeeBps({ startTs: 1000, endTs: 4600, feeBps: 0 }, 2800)).toBe(106);
       expect(currentMarketFeeBps({ endTs: 2000, feeBps: 30 }, 1750)).toBe(30);
     });
+
+    it("quoteBet 与 quoteSwapDetail 暴露与报价同源的本腿手续费金额 feeIn", async () => {
+      const { quoteSwapDetail } = await import("@/lib/quote");
+      // 2 USDT at 175 bps -> 0.035 USDT = 35_000 atoms (both pm-AMM and fallback)
+      const betPm = quoteBet(150_000_000n, 150_000_000n, 2_000_000n, "yes", 375_994_241, 175);
+      expect(betPm.feeIn).toBe(35_000n);
+      const swapPm = quoteSwapDetail(150_000_000n, 150_000_000n, 2_000_000n, 375_994_241, 175);
+      expect(swapPm.feeIn).toBe(35_000n);
+      expect(swapPm.amountOut).toBe(betPm.swapOut);
+
+      // Constant-product fallback (no lEff): 1 USDT at 50 bps -> 0.005 USDT = 5_000 atoms
+      const betFallback = quoteBet(100_000_000n, 100_000_000n, 1_000_000n, "yes", undefined, 50);
+      expect(betFallback.feeIn).toBe(5_000n);
+      const swapFallback = quoteSwapDetail(100_000_000n, 100_000_000n, 1_000_000n, undefined, 50);
+      expect(swapFallback.feeIn).toBe(5_000n);
+    });
   });
 });

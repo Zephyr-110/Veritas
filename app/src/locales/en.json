@@ -360,7 +360,8 @@
     "simSubmitBuyNo": "Connect wallet to Buy NO (Sim)",
     "simSubmitSwap": "Connect wallet to Swap (Sim)",
     "sandboxSwapCta": "Connect real wallet to swap",
-    "currentFee": "Current fee"
+    "currentFee": "Current fee",
+    "feeEstimate": "Fee ≈ {amount} {symbol}"
   },
   "tradeDisable": {
     "connect": "Connect a wallet to trade",

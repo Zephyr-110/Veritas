@@ -308,7 +308,7 @@ describe("Sandbox desks & header integration", () => {
     );
     expect(realRun).not.toHaveBeenCalled();
 
-    const voided = makeMarket({ status: "staleBurn" });
+    const voided = makeMarket({ status: "staleBurn", finishTs: 1_900_000_000 });
     rerender(
       <LocaleProvider>
         <SettleDesk market={voided} position={makePosition({ no: 4_000_000n })} />

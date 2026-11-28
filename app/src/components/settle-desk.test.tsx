@@ -212,7 +212,7 @@ describe("SettleDesk 合并与兑付", () => {
 
 describe("SettleDesk 作废半价退款（VoidClaim）", () => {
   it("默认向下取偶数份额并按半价折算，提交调用 ixGetCollateral", async () => {
-    const market = makeMarket({ status: "windowBurn" });
+    const market = makeMarket({ status: "windowBurn", finishTs: 1_900_000_000 });
     renderDesk(market, makePosition({ yes: 5_000_001n, no: 0n }));
 
     const input = screen.getByRole("textbox") as HTMLInputElement;
@@ -233,7 +233,7 @@ describe("SettleDesk 作废半价退款（VoidClaim）", () => {
   });
 
   it("输入 0 或切到无余额的一侧时重置金额并禁用按钮", async () => {
-    const market = makeMarket({ status: "staleBurn" });
+    const market = makeMarket({ status: "staleBurn", finishTs: 1_900_000_000 });
     renderDesk(market, makePosition({ yes: 5_000_000n, no: 0n }));
 
     const input = screen.getByRole("textbox") as HTMLInputElement;
@@ -249,7 +249,7 @@ describe("SettleDesk 作废半价退款（VoidClaim）", () => {
   });
 
   it("切换 YES/NO 时将金额重置为新一侧的平额", async () => {
-    const market = makeMarket({ status: "staleBurn" });
+    const market = makeMarket({ status: "staleBurn", finishTs: 1_900_000_000 });
     const { container } = renderDesk(
       market,
       makePosition({ yes: 5_000_001n, no: 2_000_001n })
@@ -271,6 +271,12 @@ describe("SettleDesk 作废半价退款（VoidClaim）", () => {
     await userEvent.click(screen.getByRole("button", { name: "Redeem YES" }));
     expect(input.value).toBe("5");
     expect(screen.getByRole("button", { name: "Redeem 2.50 USDT" })).toBeEnabled();
+  });
+
+  it("索引补记作废（status=windowBurn 且 finishTs=0）不渲染可点击的半价兑付入口", () => {
+    const market = makeMarket({ status: "windowBurn", finishTs: 0 });
+    renderDesk(market, makePosition({ yes: 6_000_000n, no: 4_000_000n }));
+    expect(screen.queryByRole("button", { name: /Redeem/ })).toBeNull();
   });
 });
 

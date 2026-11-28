@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PublicKey } from "@solana/web3.js";
 import type { MarketView, UserPosition } from "@/lib/markets";
@@ -38,6 +38,7 @@ vi.mock("@/components/ui", async (importOriginal) => {
 
 const { TradeDesk } = await import("@/components/trade-desk");
 const { LocaleProvider } = await import("@/i18n/provider");
+const { setLocale } = await import("@/i18n/store");
 
 function makeMarket(overrides: Partial<MarketView> = {}): MarketView {
   const key = PublicKey.default;
@@ -139,7 +140,10 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  setLocale("en");
+});
 
 describe("TradeDesk 下单前置校验", () => {
   it("未连接钱包：进入模拟预览，使用实时储备算报价并在点击提交时引导连钱包", async () => {
@@ -383,5 +387,38 @@ describe("TradeDesk 提交", () => {
     );
     expect(screen.getByText("Current fee")).toBeInTheDocument();
     expect(screen.getByText(/1\.23% \/ leg/)).toBeInTheDocument();
+    // 2 USDT default input * 1.23% = 0.0246 -> 0.025 USDT
+    expect(screen.getByTestId("trade-fee-estimate")).toHaveTextContent("Fee ≈ 0.025 USDT");
+  });
+
+  it("买入与换仓均展示本腿手续费金额，小额不截断为 0.00，且支持中英双语", async () => {
+    // 175 bps/leg -> 2 USDT = 0.035 USDT; 0.2 USDT = 0.0035 -> 0.004 USDT; 0.01 USDT = 0.000175 USDT
+    const market = makeMarket({ feeBps: 175 });
+    const { rerender } = renderDesk(market, makePosition({ collateral: 10_000_000n, yes: 10_000_000n, no: 10_000_000n }));
+
+    expect(screen.getByTestId("trade-fee-estimate")).toHaveTextContent("Fee ≈ 0.035 USDT");
+
+    // Sub-0.01 USDT must keep >= 3 decimals / sig figs, never 0.00
+    await typeAmount("0.1");
+    expect(screen.getByTestId("trade-fee-estimate")).toHaveTextContent("Fee ≈ 0.002 USDT");
+    expect(screen.getByTestId("trade-fee-estimate").textContent).not.toContain("0.00 USDT");
+
+    await typeAmount("0.01");
+    expect(screen.getByTestId("trade-fee-estimate")).toHaveTextContent("Fee ≈ 0.000175 USDT");
+
+    // Swap path also updates live with input
+    await userEvent.click(screen.getByRole("button", { name: "Swap" }));
+    await typeAmount("2");
+    expect(screen.getByTestId("trade-fee-estimate")).toHaveTextContent("Fee ≈ 0.035 USDT");
+
+    act(() => {
+      setLocale("zh");
+    });
+    rerender(
+      <LocaleProvider>
+        <TradeDesk market={market} position={makePosition({ collateral: 10_000_000n, yes: 10_000_000n, no: 10_000_000n })} />
+      </LocaleProvider>
+    );
+    expect(screen.getByTestId("trade-fee-estimate")).toHaveTextContent("手续费约 0.035 USDT");
   });
 });

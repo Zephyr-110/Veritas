@@ -209,6 +209,7 @@ export default function MarketDetailPage() {
           <SettleDesk market={market} position={position} />
           {!live &&
           isFinalizedStatus(market.status) &&
+          !(isMarketVoided(market) && market.finishTs <= 0) &&
           !(isSandbox && position.lpShares === 0n && position.pendingYes === 0n && position.pendingNo === 0n) ? (
             <LpDesk market={market} position={position} withdrawOnly />
           ) : null}
@@ -591,7 +592,7 @@ function MyPositionStrip({
           <span className="text-zinc-500">
             <StableText k="market.lostZero" />
           </span>
-        ) : voided ? (
+        ) : voided && market.finishTs > 0 ? (
           <span className="num text-zinc-300">
             <StableText k="me.rowRedeemable" vars={{ amount: money(shares / 2n, market.decimals) }} />
           </span>
@@ -763,7 +764,9 @@ function PositionCard({
               <StableText k="market.awaitingPoll" />
             </p>
           ) : null}
-          {isFinalizedStatus(market.status) && hasBet(position) ? (
+          {isFinalizedStatus(market.status) &&
+          !(isMarketVoided(market) && market.finishTs <= 0) &&
+          hasBet(position) ? (
             <Kv
               k={<StableText k="market.redeemableLabel" />}
               v={money(finalizedClaimable, market.decimals)}

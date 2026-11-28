@@ -21,8 +21,10 @@ vi.mock("@/lib/ruling-evidence", async (importOriginal) => {
 });
 
 import {
+  backfillExpiredV1Markets,
   clearEvidenceHealStateForTests,
   closeServerDb,
+  deriveIndexedMarketStatus,
   getServerDb,
   healSettlementEvidenceOnDemand,
   queryMarketsPage,
@@ -714,5 +716,56 @@ describe("server-db & API routes", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("backfills only past-48h open v1 markets to windowBurn, keeps in-window v1 and past-48h v2 open, and excludes backfilled voids from claim summary", () => {
+    const endTs = 1_800_000_000;
+    const atEdge = endTs + 172_800;
+    const pastWindow = atEdge + 1;
+
+    // Pure status derivation checks
+    expect(deriveIndexedMarketStatus({ status: "open", startTs: null, endTs }, atEdge)).toBe("open");
+    expect(deriveIndexedMarketStatus({ status: "open", startTs: null, endTs }, pastWindow)).toBe("windowBurn");
+    expect(deriveIndexedMarketStatus({ status: "open", startTs: endTs - 900, endTs }, pastWindow)).toBe("open");
+
+    const addresses = seedMarkets(dbPath, 3, endTs);
+    const db = getServerDb(dbPath);
+    const v1InWindow = addresses[0];
+    const v1PastWindow = addresses[1];
+    const v2PastWindow = addresses[2];
+
+    // Configure exact v1/v2 rows
+    db.prepare(
+      "UPDATE markets SET status = 'open', winner = NULL, finish_ts = 0, start_ts = NULL, expiry = ?, end_ts = ? WHERE address = ?"
+    ).run(pastWindow - 1000, pastWindow - 1000, v1InWindow);
+    db.prepare(
+      "UPDATE markets SET status = 'open', winner = NULL, finish_ts = 0, start_ts = NULL, expiry = ?, end_ts = ? WHERE address = ?"
+    ).run(endTs, endTs, v1PastWindow);
+    db.prepare(
+      "UPDATE markets SET status = 'open', winner = NULL, finish_ts = 0, start_ts = ?, expiry = ?, end_ts = ? WHERE address = ?"
+    ).run(endTs - 900, endTs, endTs, v2PastWindow);
+
+    const changed = backfillExpiredV1Markets({ programId: DEFAULT_PROGRAM_ID, nowSec: pastWindow, dbPath });
+    expect(changed).toBe(1);
+
+    const statusOf = (addr: string) =>
+      (db.prepare("SELECT status FROM markets WHERE address = ?").get(addr) as { status: string }).status;
+    expect(statusOf(v1InWindow)).toBe("open");
+    expect(statusOf(v1PastWindow)).toBe("windowBurn");
+    expect(statusOf(v2PastWindow)).toBe("open");
+
+    // Wallet holding YES/NO/LP on the backfilled v1 market (finish_ts=0) must NOT show claimable funds
+    const wallet = Keypair.generate().publicKey.toBase58();
+    db.prepare(`
+      INSERT INTO wallet_positions (
+        wallet, market_address, program_id, yes_amount, no_amount, lp_shares,
+        pending_yes, pending_no, claimable_amount, can_claim, collateral_amount, updated_at
+      ) VALUES (?, ?, ?, '4000000', '2000000', '5000000', '0', '0', '0', 0, '0', ?)
+    `).run(wallet, v1PastWindow, DEFAULT_PROGRAM_ID, pastWindow);
+
+    const posPage = queryWalletPositionsPage({ wallet, programId: DEFAULT_PROGRAM_ID, dbPath });
+    expect(posPage.summary.claimCount).toBe(0);
+    expect(posPage.summary.claimTotal).toBe(0);
+    expect(posPage.summary.lpUnclaimed).toBe(false);
   });
 });

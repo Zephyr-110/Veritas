@@ -7,7 +7,14 @@ import { COLLATERAL_SYMBOL, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
 import { formatCents, formatFixed, fromUi, toUi } from "@/lib/format";
 import { money } from "@/lib/display";
 import { thresholdToHuman } from "@/lib/feeds";
-import { applySlippage, combinedFeePct, currentMarketFeeBps, pmAmmAccrue, quoteBet, quoteSwapOut } from "@/lib/quote";
+import {
+  applySlippage,
+  combinedFeePct,
+  currentMarketFeeBps,
+  pmAmmAccrue,
+  quoteBet,
+  quoteSwapDetail,
+} from "@/lib/quote";
 import { ixSwap, ixUserBetOn } from "@/lib/instructions";
 import { marketPhase, type MarketView, type UserPosition } from "@/lib/markets";
 import { useProgram } from "@/hooks/use-program";
@@ -21,6 +28,15 @@ import { FaucetClaimButton } from "./faucet-claim";
 import { useGuestSession, useSandboxTx } from "./guest-session";
 
 const PRESETS = ["1", "2", "5", "10"];
+
+function formatFeeAmount(atoms: bigint, decimals: number): string {
+  const val = Number(atoms) / 10 ** decimals;
+  if (!Number.isFinite(val) || val <= 0) return "0";
+  if (val >= 1) return val.toFixed(2);
+  if (val >= 0.001) return val.toFixed(3);
+  const sig = Number(val.toPrecision(3));
+  return sig.toFixed(Math.max(decimals, 6)).replace(/\.?0+$/, "");
+}
 
 export function TradeDesk({
   market,
@@ -79,7 +95,11 @@ export function TradeDesk({
     leg: (liveFeeBps / 100).toFixed(2),
     combined: combinedFeePct(liveFeeBps).toFixed(2),
   });
-  let betQuote: { swapOut: bigint; totalOut: bigint } = { swapOut: 0n, totalOut: 0n };
+  let betQuote: { swapOut: bigint; totalOut: bigint; feeIn: bigint } = {
+    swapOut: 0n,
+    totalOut: 0n,
+    feeIn: 0n,
+  };
   let betQuoteError: string | null = null;
   try {
     betQuote = quoteBet(effYes, effNo, parsed.value, side, effL, liveFeeBps);
@@ -91,10 +111,10 @@ export function TradeDesk({
   const avgCents =
     betQuote.totalOut > 0n && parsed.value > 0n ? (Number(parsed.value) / Number(betQuote.totalOut)) * 100 : null;
   const impactPct = avgCents != null && curSideCents > 0 ? (avgCents / curSideCents - 1) * 100 : null;
-  let swapOut = 0n;
+  let swapQuote: { amountOut: bigint; feeIn: bigint } = { amountOut: 0n, feeIn: 0n };
   let swapQuoteError: string | null = null;
   try {
-    swapOut = quoteSwapOut(
+    swapQuote = quoteSwapDetail(
       side === "yes" ? effYes : effNo,
       side === "yes" ? effNo : effYes,
       parsed.value,
@@ -104,6 +124,8 @@ export function TradeDesk({
   } catch (err) {
     swapQuoteError = err instanceof Error ? err.message : "errors.invalidPrice";
   }
+  const swapOut = swapQuote.amountOut;
+  const activeFeeAtoms = tab === "bet" ? betQuote.feeIn : swapQuote.feeIn;
   const activeQuoteError = tab === "bet" ? betQuoteError : swapQuoteError;
   const sellBalance = side === "yes" ? position.no : position.yes;
   const sideLabel = side === "yes" ? t("common.yes") : t("common.no");
@@ -372,10 +394,24 @@ export function TradeDesk({
             v={<PopNum text={money(outShares, market.decimals)} />}
           />
         ) : null}
-        <Kv
-          k={<StableText k="trade.currentFee" />}
-          v={<PopNum text={feeText} />}
-        />
+        <div className="stack-1">
+          <Kv
+            k={<StableText k="trade.currentFee" />}
+            v={<PopNum text={feeText} />}
+          />
+          {activeFeeAtoms > 0n && parsed.value > 0n && !activeQuoteError ? (
+            <div className="num text-right text-xs text-zinc-400" data-testid="trade-fee-estimate">
+              <StableText
+                k="trade.feeEstimate"
+                vars={{
+                  amount: formatFeeAmount(activeFeeAtoms, market.decimals),
+                  symbol: COLLATERAL_SYMBOL,
+                }}
+                align="end"
+              />
+            </div>
+          ) : null}
+        </div>
         {tab === "swap" ? (
           <p className="text-xs leading-5 text-zinc-500">
             <StableText k="trade.swapHint" block />

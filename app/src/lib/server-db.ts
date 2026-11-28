@@ -5,7 +5,7 @@ import { utils } from "@coral-xyz/anchor";
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, unpackAccount } from "@solana/spl-token";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { computePending, decodeLpPosition, decodeMarket, i80f48ToAmount } from "./codec";
-import { DEFAULT_PROGRAM_ID, LP_POSITION_DISCRIMINATOR } from "./constants";
+import { DEFAULT_PROGRAM_ID, LP_POSITION_DISCRIMINATOR, RESOLVE_WINDOW } from "./constants";
 import type { DurationFilter } from "./display";
 import { feedByState } from "./feeds";
 import { explorerTx, toUi } from "./format";
@@ -20,7 +20,13 @@ import {
   type WalletPositionsPageResponse,
   type WalletPositionsSummaryDto,
 } from "./market-dto";
-import { claimableOf, fetchMarketSnapshot, isFinalizedStatus, pendingValueOf } from "./markets";
+import {
+  claimableOf,
+  fetchMarketSnapshot,
+  isFinalizedStatus,
+  isVoidedStatus,
+  pendingValueOf,
+} from "./markets";
 import { findLpPosition, findMarketPdas } from "./pdas";
 import { fetchTxBatch } from "./resolve";
 import { fetchRuling, findPushSignatures, witnessCounts } from "./ruling-evidence";
@@ -323,11 +329,52 @@ export function closeServerDb(): void {
   globalScope.__veritasServerDb = undefined;
 }
 
-function serializeMarketRow(row: MarketDbRow): SerializedMarket {
+export function deriveIndexedMarketStatus(
+  market: { status: MarketStatusName; startTs: number | null | undefined; endTs: number },
+  nowSec = Math.floor(Date.now() / 1000)
+): MarketStatusName {
+  const isV1 = market.startTs == null || market.startTs <= 0;
+  if (
+    isV1 &&
+    market.status === "open" &&
+    Number.isFinite(market.endTs) &&
+    nowSec > market.endTs + RESOLVE_WINDOW
+  ) {
+    return "windowBurn";
+  }
+  return market.status;
+}
+
+export function backfillExpiredV1Markets(opts: {
+  programId?: string;
+  nowSec?: number;
+  dbPath?: string;
+} = {}): number {
+  const db = getServerDb(opts.dbPath);
+  const programId = opts.programId?.trim() || DEFAULT_PROGRAM_ID;
+  const nowSec = opts.nowSec ?? Math.floor(Date.now() / 1000);
+  const info = db
+    .prepare<[number, string, number, number]>(
+      `UPDATE markets
+       SET status = 'windowBurn', updated_at = ?
+       WHERE program_id = ?
+         AND (start_ts IS NULL OR start_ts <= 0)
+         AND status = 'open'
+         AND end_ts + ? < ?`
+    )
+    .run(nowSec, programId, RESOLVE_WINDOW, nowSec);
+  return info.changes;
+}
+
+function serializeMarketRow(row: MarketDbRow, nowSec?: number): SerializedMarket {
   const startTs =
     row.start_ts != null && row.start_ts > 0 && row.end_ts > row.start_ts
       ? row.start_ts
       : null;
+  const status = deriveIndexedMarketStatus(
+    { status: row.status as MarketStatusName, startTs, endTs: row.end_ts },
+    nowSec
+  );
   return {
     address: row.address,
     programId: row.program_id,
@@ -350,7 +397,7 @@ function serializeMarketRow(row: MarketDbRow): SerializedMarket {
     finishTs: row.finish_ts,
     durationSec: row.duration_sec,
     durationBucket: (row.duration_bucket as Exclude<DurationFilter, "all"> | null) ?? null,
-    status: row.status as MarketStatusName,
+    status,
     winner: (row.winner as Side | null) ?? null,
     threshold: row.threshold,
     priceDecimals: row.price_decimals,
@@ -391,6 +438,7 @@ export function queryMarketsPage(opts: {
   const pageSize = Math.min(50, Math.max(1, Math.floor(opts.pageSize ?? 30)));
   const offset = (page - 1) * pageSize;
   const nowSec = opts.nowSec ?? Math.floor(Date.now() / 1000);
+  backfillExpiredV1Markets({ programId, nowSec, dbPath: opts.dbPath });
 
   const conditions = ["program_id = ?"];
   const params: unknown[] = [programId];
@@ -434,7 +482,7 @@ export function queryMarketsPage(opts: {
     )
     .get(programId);
 
-  const items = rows.map((r) => serializeMarketRow(r));
+  const items = rows.map((r) => serializeMarketRow(r, nowSec));
   return {
     items,
     total,
@@ -1127,10 +1175,22 @@ export async function syncWalletPositionsOnDemand(opts: {
         ) {
           continue;
         }
-        const status = marketRow.status as MarketStatusName;
+        const status = deriveIndexedMarketStatus(
+          {
+            status: marketRow.status as MarketStatusName,
+            startTs: marketRow.start_ts,
+            endTs: marketRow.end_ts,
+          },
+          syncedAt
+        );
         const winner = (marketRow.winner as Side | null) ?? null;
-        const claimable = claimableOf({ status, winner }, { yes, no });
+        const isBackfilledVoid = isVoidedStatus(status) && marketRow.finish_ts <= 0;
+        const claimable = claimableOf(
+          { status, winner, finishTs: marketRow.finish_ts },
+          { yes, no }
+        );
         const canClaim =
+          !isBackfilledVoid &&
           isFinalizedStatus(status) &&
           (claimable > 0n || lpShares > 0n || pending.yes > 0n || pending.no > 0n)
             ? 1
@@ -1198,6 +1258,8 @@ export function queryWalletPositionsPage(opts: {
 }): WalletPositionsPageResponse {
   const db = getServerDb(opts.dbPath);
   const programId = opts.programId?.trim() || DEFAULT_PROGRAM_ID;
+  const nowSec = Math.floor(Date.now() / 1000);
+  backfillExpiredV1Markets({ programId, nowSec, dbPath: opts.dbPath });
   const page = Math.max(1, Math.floor(opts.page ?? 1));
   const pageSize = Math.min(50, Math.max(1, Math.floor(opts.pageSize ?? 30)));
   const offset = (page - 1) * pageSize;
@@ -1214,6 +1276,9 @@ export function queryWalletPositionsPage(opts: {
         claimable_amount: string;
         status: string;
         winner: string | null;
+        finish_ts: number;
+        start_ts: number | null;
+        end_ts: number;
         decimals: number;
       }
     >(`
@@ -1226,6 +1291,9 @@ export function queryWalletPositionsPage(opts: {
         wp.claimable_amount,
         m.status,
         m.winner,
+        m.finish_ts,
+        m.start_ts,
+        m.end_ts,
         m.decimals
       FROM wallet_positions wp
       INNER JOIN markets m ON m.address = wp.market_address
@@ -1254,8 +1322,16 @@ export function queryWalletPositionsPage(opts: {
     const lpShares = BigInt(r.lp_shares);
     const pendingYes = BigInt(r.pending_yes);
     const pendingNo = BigInt(r.pending_no);
-    const status = r.status as MarketStatusName;
+    const status = deriveIndexedMarketStatus(
+      {
+        status: r.status as MarketStatusName,
+        startTs: r.start_ts,
+        endTs: r.end_ts,
+      },
+      nowSec
+    );
     const winner = (r.winner as Side | null) ?? null;
+    const isBackfilledVoid = isVoidedStatus(status) && r.finish_ts <= 0;
     summaryDecimals = r.decimals;
 
     if (status === "open") {
@@ -1268,8 +1344,8 @@ export function queryWalletPositionsPage(opts: {
     summary.sumPending += Number(
       toUi(pendingValueOf({ status, winner }, { pendingYes, pendingNo }), r.decimals, 4)
     );
-    if (isFinalizedStatus(status)) {
-      const claimable = claimableOf({ status, winner }, { yes, no });
+    if (isFinalizedStatus(status) && !isBackfilledVoid) {
+      const claimable = claimableOf({ status, winner, finishTs: r.finish_ts }, { yes, no });
       if (claimable > 0n) {
         summary.claimCount += 1;
         sumClaimAtoms += claimable;
