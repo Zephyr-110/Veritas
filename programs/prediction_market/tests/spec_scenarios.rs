@@ -237,11 +237,16 @@ fn d_seed_threshold() {
         (book_yes - phys_yes).abs(),
         (book_no - phys_no).abs()
     );
-    assert!(
-        (book_yes - phys_yes).abs() <= l.band,
-        "book yes != seed phys"
+    assert_eq!(
+        m.reserve_yes_fixed(),
+        I80F48::from_num(1_000_001u64),
+        "book yes != exact seed collateral"
     );
-    assert!((book_no - phys_no).abs() <= l.band, "book no != seed phys");
+    assert_eq!(
+        m.reserve_no_fixed(),
+        I80F48::from_num(1_000_001u64),
+        "book no != exact seed collateral"
+    );
     assert_eq!(phys_yes, 1_000_001.0);
     assert_eq!(phys_no, 1_000_001.0);
     assert_eq!(m.ocr2_state, prediction_market::ALLOWED_FEEDS[0].state);
@@ -1115,11 +1120,14 @@ fn b2_aging_vs_python() {
         "ops": [
             {"op": "create"},
             {"op": "warp", "ts": START + LIFE / 2},
-            {"op": "withdraw", "wallet": "house", "shares": 1},
+            // Exact initial reserves == total_lp_shares == SEED means 1 share after accrual
+            // splits into pending + working = 1.0 - eps in I80F48 (floors to 0 -> InvalidAmount);
+            // 2 shares guarantees >= 1 token withdrawn while triggering accrual at each checkpoint.
+            {"op": "withdraw", "wallet": "house", "shares": 2},
             {"op": "warp", "ts": START + LIFE * 9 / 10},
-            {"op": "withdraw", "wallet": "house", "shares": 1},
+            {"op": "withdraw", "wallet": "house", "shares": 2},
             {"op": "warp", "ts": START + LIFE * 99 / 100},
-            {"op": "withdraw", "wallet": "house", "shares": 1}
+            {"op": "withdraw", "wallet": "house", "shares": 2}
         ]
     });
     let sim = python_sim(&ops);
@@ -1136,7 +1144,7 @@ fn b2_aging_vs_python() {
     for ts in marks {
         env.warp(ts);
         let before = env.read_market(&keys);
-        env.withdraw(&keys, &house, 1);
+        env.withdraw(&keys, &house, 2);
         let m = env.read_market(&keys);
         let st = &sim["steps"][si];
         let e_rel_y = (bits_f64(m.reserve_yes) - f64_of(&st["reserve_yes"])).abs();

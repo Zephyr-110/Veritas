@@ -9,6 +9,7 @@ use crate::constants::*;
 
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::*;
+use fixed::types::I80F48;
 use crate::RESOLVE_WINDOW;
 
 #[derive(Accounts)]
@@ -177,17 +178,13 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
 
     let duration = market.end_ts - market.last_accrual_ts;
     let l_zero = suggest_l_zero_for_budget(param.collateral_amount, duration)?;
-    let l_eff = l_effective(l_zero, duration)?;
-    let (reserve_yes, reserve_no) = reserves_from_price( // 两种币的当前储备
-        fixed::types::I80F48::lit("0.5"),
-        l_eff,
-    )?;
+
     market.set_l_zero_fixed(l_zero);
-    market.set_reserve_yes_fixed(reserve_yes);
-    market.set_reserve_no_fixed(reserve_no);
-    market.set_cum_yes_per_share_fixed(fixed::types::I80F48::ZERO);
-    market.set_cum_no_per_share_fixed(fixed::types::I80F48::ZERO);
-    market.set_total_lp_shares_fixed(fixed::types::I80F48::from_num(param.collateral_amount));
+    market.set_reserve_yes_fixed(I80F48::from_num(param.collateral_amount));
+    market.set_reserve_no_fixed(I80F48::from_num(param.collateral_amount));
+    market.set_cum_yes_per_share_fixed(I80F48::ZERO);
+    market.set_cum_no_per_share_fixed(I80F48::ZERO);
+    market.set_total_lp_shares_fixed(I80F48::from_num(param.collateral_amount));
     msg!("create market---------");
     msg!("Market ID：{:?}", param.market_id);
     msg!("create market collateral: {:?}", market.collateral_mint.key());
@@ -247,9 +244,9 @@ pub fn create_market(ctx: Context<CreateMarket>, param: CreateMarketParams, ) ->
     let position = &mut ctx.accounts.lp_position;
     position.owner = ctx.accounts.creator.key();
     position.bump = ctx.bumps.lp_position;
-    position.set_shares_fixed(fixed::types::I80F48::from_num(param.collateral_amount));
-    position.set_checkpoint_yes_fixed(fixed::types::I80F48::ZERO);
-    position.set_checkpoint_no_fixed(fixed::types::I80F48::ZERO);
+    position.set_shares_fixed(I80F48::from_num(param.collateral_amount));
+    position.set_checkpoint_yes_fixed(I80F48::ZERO);
+    position.set_checkpoint_no_fixed(I80F48::ZERO);
 
     let snapshot = &mut ctx.accounts.snapshot;
     snapshot.bump = ctx.bumps.snapshot;

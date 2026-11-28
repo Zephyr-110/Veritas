@@ -154,8 +154,8 @@ class Protocol:
         self.end_ts = self.start_ts + self.duration
         self.last_ts = self.start_ts
         self.l_zero = m.suggest_l_zero_for_budget(self.seed, self.duration)
-        le = m.l_effective(self.l_zero, self.duration)
-        self.reserve_yes, self.reserve_no = m.reserves_from_price(0.5, le)
+        self.reserve_yes = self.seed
+        self.reserve_no = self.seed
         self.cum_yes = 0.0
         self.cum_no = 0.0
         self.total_shares = self.seed
