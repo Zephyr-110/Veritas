@@ -1329,6 +1329,8 @@ function gridAssetForExpiry(assets, expiry, durationSec, totalSlots) {
   return assets[idx];
 }
 
+const GRID_PRE_OPEN_LEAD_SEC = 30;
+
 function planMissingMarkets(cfg, liveMarkets, nowSec) {
   const totalSlots = Math.max(cfg.assets.length, Number(cfg.slots || cfg.assets.length));
   const gridMode = totalSlots > cfg.assets.length;
@@ -1346,25 +1348,23 @@ function planMissingMarkets(cfg, liveMarkets, nowSec) {
 
   const stepSec = Math.max(1, Math.floor(cfg.durationSec / totalSlots));
   const toleranceSec = Math.floor(stepSec / 2);
+  const preOpenLeadSec = Math.min(GRID_PRE_OPEN_LEAD_SEC, Math.floor(stepSec / 2));
+  const maxOpenExpiry = nowSec + cfg.durationSec + preOpenLeadSec;
   const candidates = [];
   for (let slotIndex = 0; slotIndex < totalSlots; slotIndex += 1) {
     const expiry = computeStaggeredExpiry(nowSec, cfg.durationSec, slotIndex, totalSlots);
+    if (expiry > maxOpenExpiry) continue;
     const asset = gridAssetForExpiry(cfg.assets, expiry, cfg.durationSec, totalSlots);
     candidates.push({ asset, slotIndex, expiry });
   }
   candidates.sort((a, b) => a.expiry - b.expiry);
 
-  return candidates.filter(({ asset, expiry }) => {
-    const prevCycleExpiry = expiry - cfg.durationSec;
-    const hasAtExpiry = liveMarkets.some(
-      (m) => m.asset === asset.key && Math.abs(m.expiry - expiry) <= toleranceSec
-    );
-    if (hasAtExpiry) return false;
-    const hasPrevCycleInSlot = liveMarkets.some(
-      (m) => m.expiry > nowSec && Math.abs(m.expiry - prevCycleExpiry) <= toleranceSec
-    );
-    return !hasPrevCycleInSlot;
-  });
+  return candidates.filter(
+    ({ asset, expiry }) =>
+      !liveMarkets.some(
+        (m) => m.asset === asset.key && Math.abs(m.expiry - expiry) <= toleranceSec
+      )
+  );
 }
 
 function inferAssetKey(entry, ocr2State) {
@@ -1586,6 +1586,7 @@ async function runTick() {
   }
 
   // 2. Open missing staggered markets FIRST (guarantees zero gap even if settlement RPC stalls)
+  nowSec = Math.floor(Date.now() / 1000);
   const liveMarkets = state.markets.filter((m) => m.status === "open" && Number(m.expiry) > nowSec);
   const missingSlots = planMissingMarkets(cfg, liveMarkets, nowSec);
 

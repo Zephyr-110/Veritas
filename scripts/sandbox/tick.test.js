@@ -340,66 +340,112 @@ test("slotOffsetSec uses general floor(slotIndex * duration / totalSlots) formul
   }
 });
 
-test("planMissingMarkets 6-slot phase grid maintains steady-state 6 live 15m markets, 150s spacing, 4-asset rotation, and +-75s dedup", () => {
+test("planMissingMarkets 6-slot phase grid maintains steady-state 6 live 15m markets on 60s ticks, >=840s lifetime, <=10% boundary transient, and +-75s dedup", () => {
   const assets = parseAssets("btc,eth,sol,link");
   const cfg = { assets, slots: 6, durationSec: 900 };
   const startNow = 1_763_900_000;
+  const CREATE_COST_SEC = 4; // realistic per-market creation + confirmation time within a tick
 
-  // Cold start: 6 consecutive grid expiries spaced by 150s
-  const live = [];
-  const initial = planMissingMarkets(cfg, live, startNow);
-  assert.equal(initial.length, 6);
-  for (let i = 1; i < initial.length; i += 1) {
-    assert.equal(initial[i].expiry - initial[i - 1].expiry, 150);
-  }
-  for (const item of initial) {
-    live.push({ asset: item.asset.key, expiry: item.expiry, status: "open" });
-  }
+  // Cold start + warm-up into steady state (first 15 min)
+  let stateLive = [];
+  const seenExpiries = new Set();
+  const seenKeys = new Set();
 
-  // +-75s dedup: jittering an existing market by +40s must not trigger a duplicate
-  const jittered = live.map((m, idx) => (idx === 2 ? { ...m, expiry: m.expiry + 40 } : m));
+  // +-75s dedup check at a specific instant
+  const initialPlan = planMissingMarkets(cfg, [], startNow);
+  assert.ok(initialPlan.length >= 5);
+  for (let i = 1; i < initialPlan.length; i += 1) {
+    assert.equal(initialPlan[i].expiry - initialPlan[i - 1].expiry, 150);
+  }
+  const jittered = initialPlan.map((item, idx) => ({
+    asset: item.asset.key,
+    expiry: idx === 2 ? item.expiry + 40 : item.expiry,
+    status: "open",
+  }));
   assert.equal(planMissingMarkets(cfg, jittered, startNow).length, 0);
 
-  // Steady-state simulation: tick every 60s across 3 hours (180 ticks)
-  const seenKeys = new Set(live.map((m) => `${m.asset}:${m.expiry}`));
-  let stateLive = [...live];
-  for (let step = 1; step <= 180; step += 1) {
-    const now = startNow + step * 60;
-    stateLive = stateLive.filter((m) => m.expiry > now);
-    const toOpen = planMissingMarkets(cfg, stateLive, now);
-    for (const item of toOpen) {
-      const key = `${item.asset.key}:${item.expiry}`;
-      assert.equal(seenKeys.has(key), false, `duplicate (asset, expiry): ${key}`);
-      seenKeys.add(key);
-      assert.equal(
-        gridAssetForExpiry(assets, item.expiry, 900, 6).key,
-        item.asset.key
-      );
-      stateLive.push({ asset: item.asset.key, expiry: item.expiry, status: "open" });
-    }
+  // Realistic 180-tick (3-hour) simulation: ticks occur every 60s, creations happen sequentially inside each tick
+  const steadyLifetimes = [];
+  let steadySamples = 0;
+  let transientSamples = 0; // live count === 5 or 7 near phase boundaries
 
-    // Invariants at every tick after opening missing slots
-    stateLive.sort((a, b) => a.expiry - b.expiry);
-    assert.equal(stateLive.length, 6, `expected 6 live markets at tick ${step}, got ${stateLive.length}`);
-    for (let i = 1; i < stateLive.length; i += 1) {
-      assert.equal(stateLive[i].expiry - stateLive[i - 1].expiry, 150);
-    }
-    const assetCounts = new Map(assets.map((a) => [a.key, 0]));
-    for (const m of stateLive) {
-      assetCounts.set(m.asset, (assetCounts.get(m.asset) || 0) + 1);
-    }
-    for (const a of assets) {
-      assert.ok(assetCounts.get(a.key) >= 1, `asset ${a.key} missing at tick ${step}`);
-    }
-    // Same-asset markets are 600s apart (300s overlap on 900s duration)
-    for (let i = 0; i < stateLive.length; i += 1) {
-      for (let j = i + 1; j < stateLive.length; j += 1) {
-        if (stateLive[i].asset === stateLive[j].asset) {
-          assert.equal(stateLive[j].expiry - stateLive[i].expiry, 600);
+  for (let step = 0; step <= 180; step += 1) {
+    const tickStart = startNow + step * 60;
+
+    // Sample every 1 second across the 60s interval between previous tick and this tick (after 15-min warmup)
+    if (step >= 16) {
+      const prevTick = tickStart - 60;
+      for (let t = prevTick; t < tickStart; t += 1) {
+        const activeAtT = stateLive.filter((m) => m.createdAt <= t && m.expiry > t);
+        steadySamples += 1;
+        assert.ok(
+          activeAtT.length >= 5 && activeAtT.length <= 7,
+          `expected 5..7 live markets at t=${t}, got ${activeAtT.length}`
+        );
+        if (activeAtT.length !== 6) {
+          transientSamples += 1;
         }
       }
     }
+
+    // Expire markets that ended at or before tickStart
+    stateLive = stateLive.filter((m) => m.expiry > tickStart);
+    const toOpen = planMissingMarkets(cfg, stateLive, tickStart);
+
+    // Execute creations sequentially in expiry order within this tick
+    let cursorSec = tickStart;
+    for (const item of toOpen) {
+      cursorSec += CREATE_COST_SEC;
+      const key = `${item.asset.key}:${item.expiry}`;
+      assert.equal(seenKeys.has(key), false, `duplicate (asset, expiry): ${key}`);
+      assert.equal(seenExpiries.has(item.expiry), false, `duplicate phase instant: ${item.expiry}`);
+      seenKeys.add(key);
+      seenExpiries.add(item.expiry);
+      assert.equal(gridAssetForExpiry(assets, item.expiry, 900, 6).key, item.asset.key);
+
+      const lifetime = item.expiry - cursorSec;
+      if (step >= 15) {
+        steadyLifetimes.push(lifetime);
+        assert.ok(
+          lifetime >= 840,
+          `steady-state market lifetime ${lifetime}s < 840s (expiry=${item.expiry}, createdAt=${cursorSec})`
+        );
+      }
+      stateLive.push({
+        asset: item.asset.key,
+        expiry: item.expiry,
+        createdAt: cursorSec,
+        status: "open",
+      });
+    }
+
+    // Steady-state structural invariants after warmup
+    if (step >= 15) {
+      const liveNow = stateLive.filter((m) => m.expiry > cursorSec).sort((a, b) => a.expiry - b.expiry);
+      assert.ok(liveNow.length === 6 || liveNow.length === 7, `post-tick live count=${liveNow.length}`);
+      for (let i = 1; i < liveNow.length; i += 1) {
+        assert.equal(liveNow[i].expiry - liveNow[i - 1].expiry, 150);
+      }
+      const assetCounts = new Map(assets.map((a) => [a.key, 0]));
+      for (const m of liveNow) {
+        assetCounts.set(m.asset, (assetCounts.get(m.asset) || 0) + 1);
+      }
+      for (const a of assets) {
+        assert.ok(assetCounts.get(a.key) >= 1, `asset ${a.key} missing at tick ${step}`);
+      }
+    }
   }
+
+  assert.ok(steadyLifetimes.length >= 60, `expected >= 60 steady-state creations, got ${steadyLifetimes.length}`);
+  const minLifetime = Math.min(...steadyLifetimes);
+  const avgLifetime = steadyLifetimes.reduce((a, b) => a + b, 0) / steadyLifetimes.length;
+  const transientRatio = transientSamples / steadySamples;
+  assert.ok(minLifetime >= 840, `minLifetime=${minLifetime}s < 840s`);
+  assert.ok(avgLifetime >= 880, `avgLifetime=${avgLifetime.toFixed(1)}s < 880s`);
+  assert.ok(
+    transientRatio <= 0.1,
+    `boundary transient ratio ${(transientRatio * 100).toFixed(2)}% > 10% (${transientSamples}/${steadySamples})`
+  );
 });
 
 test("planMissingMarkets preserves legacy 1-asset-per-slot behavior when slots === assets.length", () => {
