@@ -175,8 +175,9 @@ describe("HomePage finished marquee & token logos", () => {
     expect(container.querySelector('[data-asset-logo="sol"] img')).toHaveAttribute("src", "/tokens/sol.svg");
     expect(container.querySelector('[data-asset-logo="link"] img')).toHaveAttribute("src", "/tokens/link.svg");
 
-    // Total > 6 shows View all finished link
-    expect(screen.getByText(/View all finished/i)).toBeInTheDocument();
+    // Total > 6 shows View all finished link targeting /markets?tape=history
+    const viewAllLink = screen.getByRole("link", { name: /View all finished/i });
+    expect(viewAllLink).toHaveAttribute("href", "/markets?tape=history");
   });
 
   it("does not duplicate or fabricate cards when only 1 finished market exists", () => {

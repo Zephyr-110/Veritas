@@ -22,6 +22,14 @@ const marketState = vi.hoisted(() => ({
   markets: [] as MarketView[],
 }));
 
+const searchParamsState = vi.hoisted(() => ({
+  query: "",
+}));
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(searchParamsState.query),
+}));
+
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
     <a href={typeof href === "string" ? href : "#"} {...rest}>
@@ -246,6 +254,7 @@ function renderMarkets() {
 beforeEach(() => {
   marketState.markets = [];
   feedQuotesState.quotes = emptyQuotes();
+  searchParamsState.query = "";
 });
 
 afterEach(() => cleanup());
@@ -589,5 +598,61 @@ describe("MarketsPage duration filter chips", () => {
     expect(screen.getByText("0.0¢")).toBeInTheDocument();
     expect(screen.getAllByText("YES 0.0% · NO 100.0%").length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText("50.0¢")).toBeNull();
+  });
+
+  it("initializes tape from URL searchParams (history/unsettled), falls back to hot on invalid param, and preserves manual switching", async () => {
+    const liveM = makeMarket(40, {
+      title: "BTC/USD at or above opening price in 15 min?",
+      expiry: NOW + 600,
+      endTs: NOW + 600,
+    });
+    const unsettledM = makeMarket(41, {
+      title: "ETH/USD at or above opening price in 15 min?",
+      ocr2State: new PublicKey(FEEDS[1].state),
+      feedKey: "eth",
+      feedSymbol: "ETH/USD",
+      status: "open",
+      expiry: NOW - 120,
+      endTs: NOW - 120,
+    });
+    const hist2m = makeMarket(42, {
+      title: "SOL/USD at or above opening price in 2 min?",
+      ocr2State: new PublicKey(FEEDS[2].state),
+      feedKey: "sol",
+      feedSymbol: "SOL/USD",
+      status: "resolved",
+      winner: "yes",
+      expiry: NOW - 600,
+      endTs: NOW - 600,
+      finishTs: NOW - 595,
+    });
+    marketState.markets = [liveM, unsettledM, hist2m];
+
+    // 1. ?tape=history opens directly on History tab with 2 min chip available and manual switching intact
+    searchParamsState.query = "tape=history";
+    const { unmount: unmountHistory } = renderMarkets();
+    expect(screen.getByRole("link", { name: /SOL\/USD/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /BTC\/USD/ })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "2 min" }));
+    expect(screen.getByRole("button", { name: "2 min" })).toHaveAttribute("aria-pressed", "true");
+    // Manual switch back to Live tape resets 2m filter to All
+    await userEvent.click(screen.getByRole("button", { name: "Live tape" }));
+    expect(screen.queryByRole("button", { name: "2 min" })).toBeNull();
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("link", { name: /BTC\/USD/ })).toBeInTheDocument();
+    unmountHistory();
+
+    // 2. ?tape=unsettled opens directly on Unsettled tab
+    searchParamsState.query = "tape=unsettled";
+    const { unmount: unmountUnsettled } = renderMarkets();
+    expect(screen.getByRole("link", { name: /ETH\/USD/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /BTC\/USD/ })).toBeNull();
+    unmountUnsettled();
+
+    // 3. Invalid ?tape=bogus falls back to Live tape ("hot")
+    searchParamsState.query = "tape=bogus";
+    renderMarkets();
+    expect(screen.getByRole("link", { name: /BTC\/USD/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /SOL\/USD/ })).toBeNull();
   });
 });

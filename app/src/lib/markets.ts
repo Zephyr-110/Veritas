@@ -117,7 +117,7 @@ export function claimableOf(
 }
 
 export function pendingValueOf(
-  market: Pick<MarketView, "status" | "winner">,
+  market: Pick<MarketView, "status" | "winner"> & { yesPrice?: number },
   position: Pick<UserPosition, "pendingYes" | "pendingNo">
 ): bigint {
   if (market.status === "resolved") {
@@ -126,7 +126,18 @@ export function pendingValueOf(
   if (isVoidedStatus(market.status)) {
     return position.pendingYes / 2n + position.pendingNo / 2n;
   }
-  return position.pendingYes + position.pendingNo;
+  if (
+    typeof market.yesPrice === "number" &&
+    Number.isFinite(market.yesPrice) &&
+    market.yesPrice >= 0 &&
+    market.yesPrice <= 1
+  ) {
+    const yesPrice = market.yesPrice;
+    const noPrice = 1 - yesPrice;
+    const est = Number(position.pendingYes) * yesPrice + Number(position.pendingNo) * noPrice;
+    return Number.isFinite(est) && est > 0 ? BigInt(Math.round(est)) : 0n;
+  }
+  return position.pendingYes < position.pendingNo ? position.pendingYes : position.pendingNo;
 }
 
 export function marketPhase(

@@ -7,7 +7,7 @@ describe("chartPair", () => {
     expect(chartPair("eth")).toBe("ETH-USD");
     expect(chartPair("sol")).toBe("SOL-USD");
     expect(chartPair("link")).toBe("LINK-USD");
-    expect(chartPair("usdc")).toBe("USDC-USD");
+    expect(chartPair("usdc")).toBeNull();
     expect(chartPair("usdt")).toBe("USDT-USD");
     expect(chartPair("unknown")).toBeNull();
     expect(chartPair(null)).toBeNull();

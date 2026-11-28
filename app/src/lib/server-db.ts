@@ -1324,6 +1324,7 @@ export function queryWalletPositionsPage(opts: {
         start_ts: number | null;
         end_ts: number;
         decimals: number;
+        yes_price: number;
       }
     >(`
       SELECT
@@ -1338,7 +1339,8 @@ export function queryWalletPositionsPage(opts: {
         m.finish_ts,
         m.start_ts,
         m.end_ts,
-        m.decimals
+        m.decimals,
+        m.yes_price
       FROM wallet_positions wp
       INNER JOIN markets m ON m.address = wp.market_address
       WHERE wp.wallet = ? AND wp.program_id = ?
@@ -1386,7 +1388,11 @@ export function queryWalletPositionsPage(opts: {
       else if (winner === "no") sumNoAtoms += no;
     }
     summary.sumPending += Number(
-      toUi(pendingValueOf({ status, winner }, { pendingYes, pendingNo }), r.decimals, 4)
+      toUi(
+        pendingValueOf({ status, winner, yesPrice: r.yes_price }, { pendingYes, pendingNo }),
+        r.decimals,
+        4
+      )
     );
     if (isFinalizedStatus(status) && !isBackfilledVoid) {
       const claimable = claimableOf({ status, winner, finishTs: r.finish_ts }, { yes, no });

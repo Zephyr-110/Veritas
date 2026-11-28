@@ -190,7 +190,7 @@ cp .env.example .env.local   # optional; defaults target Solana Devnet
 npm run dev                  # start Next.js dev server on http://localhost:3000
 npm run typecheck            # TypeScript check (tsc --noEmit)
 npm run lint                 # ESLint check (eslint .)
-npm run test:coverage        # Run all 46 Vitest suites (421 tests + 4 opt-in devnet checks) with v8 coverage gates
+npm run test:coverage        # Run all 46 Vitest suites (431 tests + 4 opt-in devnet checks) with v8 coverage gates
 ```
 
 From the repository root, `scripts/` also includes **6 `node --test` suites** (`scripts/settle.test.js`, `scripts/db.test.js`, and `scripts/sandbox/*.test.js`).

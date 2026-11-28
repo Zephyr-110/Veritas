@@ -573,7 +573,10 @@ function MyPositionStrip({
   const liveNoPrice = 1 - liveYesPrice;
   const voided = isMarketVoided(market);
   const lpPct = formatPoolSharePct(position.lpShares, market.totalLpShares);
-  const pendingTotal = pendingValueOf(market, position);
+  const pendingTotal = pendingValueOf(
+    { status: market.status, winner: market.winner, yesPrice: liveYesPrice },
+    position
+  );
 
   const renderSide = (side: "yes" | "no", shares: bigint, price: number) => {
     if (shares <= 0n) return null;

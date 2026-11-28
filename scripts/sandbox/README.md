@@ -17,7 +17,7 @@ Standalone Node 22 scripts (`tick.js`, `daily.js`, and `settle-all.js`) for runn
    - Shares the same per-minute B1 self-sweep settlement (`scheduleWatches` + `scheduleExpiredSettlements`) and fund recycling.
 
 3. **`settle-all.js` (Global Fallback Permissionless Settler)**
-   - Retained as global safety net decoupled from `state*.json`: scans **all** `open` `Market` accounts (`dataSize: 409`, discriminator and status filters) owned by `PROGRAM_ID`—including user-created, sandbox-created, or older bot markets.
+   - Retained as global safety net decoupled from `state*.json`: scans **all** `open` `Market` accounts owned by `PROGRAM_ID` using discriminator + status filters, skipping legacy 409-byte accounts and settling only 415-byte v2 markets—including user-created, sandbox-created, or bot markets.
    - Settles every expired market at least `SETTLE_MIN_AGE_SEC` past `endTs` and still within the inclusive 48-hour settlement window (newest-expired first) by invoking `scripts/settle.js`.
    - After settlement, voids open markets past 48 hours and reclaims operator-created terminal markets strictly more than 30 days after finalization. The creator receives remaining vault collateral and closed-account rent. Each maintenance pass handles up to `SETTLE_MAX_PER_RUN` successful transactions.
    - Supports single cron runs, `--dry-run` inspection, and `--loop` polling daemon mode.
@@ -69,7 +69,7 @@ node scripts/sandbox/settle-all.js --self-check
 | `SANDBOX_DAILY_MAX_MARKETS` | `0` | UTC daily creation cap (`0` = unlimited) |
 | `SANDBOX_MIN_SOL_LAMPORTS` | `30000000` | Minimum SOL guard (`0.03 SOL`); when below threshold, skips creation only while still settling & recycling |
 | `SANDBOX_ACTIVE_FILE` | _(empty)_ | Optional JSON `{ "lastActiveTs": <unix_sec> }` gating creation |
-| `SANDBOX_ACTIVE_WINDOW_SEC` | `1800` | Activity window duration if `SANDBOX_ACTIVE_FILE` is set |
+| `SANDBOX_ACTIVE_WINDOW_SEC` | `3600` | Activity window duration if `SANDBOX_ACTIVE_FILE` is set |
 | `SETTLE_SCRIPT_PATH` | `../settle.js` | Explicit path to `scripts/settle.js` |
 | `IDL_PATH` | `../../app/src/idl/prediction_market.json` | Explicit path to Anchor IDL |
 

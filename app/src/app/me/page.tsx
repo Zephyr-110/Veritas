@@ -719,7 +719,18 @@ export default function MePage() {
                             <StableText k="me.lpPending" />
                           </div>
                           <div className="num num-accent text-[15px] font-medium">
-                            {formatFixed(pendingValueOf(market, position), market.decimals, 4)}
+                            {formatFixed(
+                              pendingValueOf(
+                                {
+                                  status: market.status,
+                                  winner: market.winner,
+                                  yesPrice: livePricesOf(market, now).yesPrice,
+                                },
+                                position
+                              ),
+                              market.decimals,
+                              4
+                            )}
                           </div>
                           {position.pendingYes > 0n || position.pendingNo > 0n ? (
                             <div className="mt-0.5 text-[11px] leading-4 text-zinc-500">

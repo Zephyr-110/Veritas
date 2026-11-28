@@ -387,7 +387,7 @@ export default function HomePage() {
                 )}
                 {endedQuery.total > 6 ? (
                   <div className="mt-3 text-right">
-                    <Link href="/markets" className="link-accent text-[15px]">
+                    <Link href="/markets?tape=history" className="link-accent text-[15px]">
                       <StableText k="home.viewAllFinished" align="end" /> →
                     </Link>
                   </div>

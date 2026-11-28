@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useMarketPhaseTime, useMarketsInfinite, useMarketsPage } from "@/hooks/use-markets";
 import { listSection, marketKind, questionTitle, type DurationFilter } from "@/lib/display";
 import { localizeError } from "@/lib/errors";
@@ -34,11 +35,27 @@ const DURATION_FILTERS: ReadonlyArray<{
 
 const PAGE_SIZE = 30;
 
-export default function MarketsPage() {
+function parseTapeParam(raw: string | null | undefined): Tape {
+  return raw === "hot" || raw === "unsettled" || raw === "history" ? raw : "hot";
+}
+
+function MarketsPageInner() {
   const publicKey = useEffectivePublicKey();
   const t = useT();
-  const [tape, setTape] = useState<Tape>("hot");
+  const searchParams = useSearchParams();
+  const tapeParam = searchParams?.get("tape");
+  const [tape, setTape] = useState<Tape>(() => parseTapeParam(tapeParam));
   const [duration, setDuration] = useState<DurationFilter>("all");
+  const prevTapeParamRef = useRef(tapeParam);
+  useEffect(() => {
+    if (prevTapeParamRef.current === tapeParam) return;
+    prevTapeParamRef.current = tapeParam;
+    const nextTape = parseTapeParam(tapeParam);
+    setTape(nextTape);
+    if (nextTape !== "history") {
+      setDuration((prev) => (prev === "2m" ? "all" : prev));
+    }
+  }, [tapeParam]);
   const visibleDurationFilters = useMemo(
     () => (tape === "history" ? DURATION_FILTERS : DURATION_FILTERS.filter((chip) => chip.id !== "2m")),
     [tape]
@@ -407,5 +424,13 @@ export default function MarketsPage() {
         </Reveal>
       </aside>
     </div>
+  );
+}
+
+export default function MarketsPage() {
+  return (
+    <Suspense fallback={<MarketsSkeleton />}>
+      <MarketsPageInner />
+    </Suspense>
   );
 }

@@ -834,4 +834,37 @@ describe("server-db & API routes", () => {
     expect(b2m.total + b15m.total + b24h.total + bOther.total).toBe(all.total);
     expect(bOther.items.every((m) => m.durationBucket === "other")).toBe(true);
   });
+
+  it("values open LP pending by market yes_price in summary.sumPending while preserving resolved and voided rules", () => {
+    const nowSec = 1_800_000_000;
+    const addresses = seedMarkets(dbPath, 16, nowSec);
+    const db = getServerDb(dbPath);
+    const wallet = Keypair.generate().publicKey.toBase58();
+
+    const openBalanced = addresses[0]; // open, default yes_price = 0.5
+    const openSkewed = addresses[1]; // open, update yes_price = 0.8
+    const resolvedYes = addresses[12]; // resolved, winner = 'yes'
+    const voided = addresses[14]; // update to staleBurn
+
+    db.prepare("UPDATE markets SET yes_price = 0.8, no_price = 0.2 WHERE address = ?").run(openSkewed);
+    db.prepare("UPDATE markets SET status = 'staleBurn', winner = NULL WHERE address = ?").run(voided);
+
+    const insertPos = db.prepare(`
+      INSERT INTO wallet_positions (
+        wallet, market_address, program_id, yes_amount, no_amount, lp_shares,
+        pending_yes, pending_no, claimable_amount, can_claim, collateral_amount, updated_at
+      ) VALUES (?, ?, ?, '0', '0', '5000000', ?, ?, '0', 0, '0', ?)
+    `);
+    // Equal 50 YES + 50 NO at P=0.5 -> 50 USDT (half of raw sum 100)
+    insertPos.run(wallet, openBalanced, DEFAULT_PROGRAM_ID, "50000000", "50000000", nowSec);
+    // Pure 10 YES at P=0.8 -> 8 USDT
+    insertPos.run(wallet, openSkewed, DEFAULT_PROGRAM_ID, "10000000", "0", nowSec);
+    // Resolved YES winner -> 4 YES counts, 6 NO ignored -> 4 USDT
+    insertPos.run(wallet, resolvedYes, DEFAULT_PROGRAM_ID, "4000000", "6000000", nowSec);
+    // Voided -> 4/2 + 6/2 = 5 USDT
+    insertPos.run(wallet, voided, DEFAULT_PROGRAM_ID, "4000000", "6000000", nowSec);
+
+    const page = queryWalletPositionsPage({ wallet, programId: DEFAULT_PROGRAM_ID, dbPath });
+    expect(page.summary.sumPending).toBeCloseTo(67, 4);
+  });
 });

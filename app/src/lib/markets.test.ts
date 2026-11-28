@@ -547,8 +547,30 @@ describe("markets RPC 聚合", () => {
 describe("pendingValueOf", () => {
   const pending = { pendingYes: 48_060_000n, pendingNo: 52_000_000n };
 
-  it("未终局市场按两边待领合计展示", () => {
-    expect(pendingValueOf({ status: "open", winner: null }, pending)).toBe(100_060_000n);
+  it("开盘市场按当前价格估值：双边等量 pending 在价格 0.5 时恰为旧原始和的一半", () => {
+    const equalPending = { pendingYes: 50_000_000n, pendingNo: 50_000_000n };
+    expect(pendingValueOf({ status: "open", winner: null, yesPrice: 0.5 }, equalPending)).toBe(50_000_000n);
+    expect(pendingValueOf({ status: "open", winner: null, yesPrice: 0.5 }, pending)).toBe(50_030_000n);
+  });
+
+  it("开盘市场单边 pending 按对应侧价格折算（纯 YES 在 0.8 时为枚数 × 0.8）", () => {
+    expect(
+      pendingValueOf({ status: "open", winner: null, yesPrice: 0.8 }, { pendingYes: 10_000_000n, pendingNo: 0n })
+    ).toBe(8_000_000n);
+    expect(
+      pendingValueOf({ status: "open", winner: null, yesPrice: 0.8 }, { pendingYes: 0n, pendingNo: 10_000_000n })
+    ).toBe(2_000_000n);
+    expect(
+      pendingValueOf({ status: "open", winner: null, yesPrice: 0.8 }, { pendingYes: 10_000_000n, pendingNo: 5_000_000n })
+    ).toBe(9_000_000n);
+  });
+
+  it("开盘市场缺少有效价格时兜底为成套下限 min(pendingYes, pendingNo)，绝不退回原始相加", () => {
+    expect(pendingValueOf({ status: "open", winner: null }, pending)).toBe(48_060_000n);
+    expect(pendingValueOf({ status: "open", winner: null, yesPrice: Number.NaN }, pending)).toBe(48_060_000n);
+    expect(
+      pendingValueOf({ status: "open", winner: null }, { pendingYes: 10_000_000n, pendingNo: 0n })
+    ).toBe(0n);
   });
 
   it("已裁决市场只计入赢家边待领金额", () => {

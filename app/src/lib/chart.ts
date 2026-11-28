@@ -11,7 +11,6 @@ const PAIRS: Record<string, string> = {
   eth: "ETH-USD",
   sol: "SOL-USD",
   link: "LINK-USD",
-  usdc: "USDC-USD",
   usdt: "USDT-USD",
 };
 

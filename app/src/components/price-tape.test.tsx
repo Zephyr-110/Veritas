@@ -68,16 +68,14 @@ afterEach(() => {
 
 describe("PricePanel", () => {
   it("renders borderless SVG logos, full names for volatile assets, and code-only for stablecoins", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => [
-          [1700003600, 99, 106, 100, 105],
-          [1700000000, 98, 101, 100, 100],
-        ],
-      })
-    );
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [
+        [1700003600, 99, 106, 100, 105],
+        [1700000000, 98, 101, 100, 100],
+      ],
+    });
+    vi.stubGlobal("fetch", fetchSpy);
 
     const { container } = renderPanel();
 
@@ -97,10 +95,14 @@ describe("PricePanel", () => {
       expect(badge?.querySelector("img")).toHaveAttribute("src", `/tokens/${key}.svg`);
     }
 
+    // Only the 5 feeds with valid Coinbase pairs fetch sparklines; USDC never triggers a 404 request.
     await waitFor(() => {
-      expect(container.querySelectorAll('[data-sparkline="true"]')).toHaveLength(6);
+      expect(container.querySelectorAll('[data-sparkline="true"]')).toHaveLength(5);
     });
-    expect(screen.getAllByText("+5.00%")).toHaveLength(6);
+    expect(screen.getAllByText("+5.00%")).toHaveLength(5);
+    const urls = fetchSpy.mock.calls.map((c) => String(c[0]));
+    expect(urls).toHaveLength(5);
+    expect(urls.some((u) => u.includes("USDC-USD"))).toBe(false);
   });
 
   it("degrades cleanly without fabricating percentages or sparklines when /chart fails", async () => {

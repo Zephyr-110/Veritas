@@ -475,4 +475,46 @@ describe("MePage Claim 跳转分流", () => {
     expect(overview.textContent).toContain("••••");
     expect(screen.getByTestId("me-overview-sol-row").textContent).toContain("•••• SOL");
   });
+
+  it("开盘市场 LP pending 按当前价格估值并计入顶部 LP pending 与 Total (USDT)", async () => {
+    const balancedOpen = makeMarket(14, {
+      title: "Balanced Open LP Market",
+      status: "open",
+      yesPrice: 0.5,
+      noPrice: 0.5,
+      expiry: NOW + 600,
+      endTs: NOW + 600,
+    });
+    const skewedOpen = makeMarket(15, {
+      title: "Skewed Open LP Market",
+      status: "open",
+      yesPrice: 0.8,
+      noPrice: 0.2,
+      expiry: NOW + 900,
+      endTs: NOW + 900,
+    });
+    positionState.rows = [
+      {
+        market: balancedOpen,
+        // 10 YES + 10 NO at P=0.5 -> valued at 10.0000 USDT (half of raw 20)
+        position: makePosition({ lpShares: 10_000_000n, pendingYes: 10_000_000n, pendingNo: 10_000_000n }),
+      },
+      {
+        market: skewedOpen,
+        // 10 YES + 0 NO at P=0.8 -> valued at 8.0000 USDT
+        position: makePosition({ lpShares: 5_000_000n, pendingYes: 10_000_000n, pendingNo: 0n }),
+      },
+    ];
+
+    renderMePage();
+    await screen.findByText("Balanced Open LP Market");
+
+    const overview = screen.getByTestId("me-account-overview");
+    // Available 25.00 + LP pending (10 + 8 = 18.0000) -> Total 43.00
+    expect(overview.textContent).toContain("18.0000");
+    expect(overview.textContent).toContain("43.00");
+    expect(overview.textContent).not.toContain("28.0000");
+    expect(screen.getByText("10.0000")).toBeInTheDocument();
+    expect(screen.getByText("8.0000")).toBeInTheDocument();
+  });
 });
