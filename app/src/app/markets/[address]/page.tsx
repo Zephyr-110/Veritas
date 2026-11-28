@@ -14,7 +14,7 @@ import { COLLATERAL_SYMBOL, RESOLVE_WINDOW } from "@/lib/constants";
 import { claimableOf, isFinalizedStatus, marketPhase, pendingValueOf, type MarketView, type UserPosition } from "@/lib/markets";
 import { resolveBackTarget, type BackTarget } from "@/lib/nav-history";
 import { isQuoteStale } from "@/lib/chainlink";
-import { combinedFeePct, currentMarketFeeBps, pmAmmAccrue } from "@/lib/quote";
+import { currentMarketFeeBps, pmAmmAccrue } from "@/lib/quote";
 import { TradeDesk } from "@/components/trade-desk";
 import { LiquidityCard, PriceChartCard } from "@/components/market-visuals";
 import { chartPair } from "@/lib/chart";
@@ -239,9 +239,8 @@ export default function MarketDetailPage() {
 function PoolFactsCard({ market, humanThreshold, now }: { market: MarketView; humanThreshold: string; now: number }) {
   const t = useT();
   const liveFeeBps = currentMarketFeeBps(market, now > 0 ? now : market.lastAccrualTs);
-  const feeText = t("market.feeValue", {
+  const feeText = t("trade.feeSingleLeg", {
     leg: (liveFeeBps / 100).toFixed(2),
-    combined: combinedFeePct(liveFeeBps).toFixed(2),
   });
   return (
     <Card className="stack-3 h-full">

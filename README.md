@@ -14,7 +14,7 @@
 
 A non-custodial binary prediction market on Solana. Pricing follows a dynamic [pm-AMM](https://www.paradigm.xyz/2024/11/pm-amms) invariant, settlement is verified directly on-chain against signed **Chainlink OCR2** oracle reports (with a permissionless expiry snapshot backstop), and every circulating YES/NO complete set is backed 1:1 by collateral in the market vault.
 
-No off-chain matching engine, no admin resolver, and no trusted relayer — the browser client (`app/`) talks directly to Solana RPC.
+No off-chain matching engine, no admin resolver, and no trusted relayer — the browser client (`app/`) talks to Solana RPC.
 
 | Component | Details |
 | :--- | :--- |
@@ -190,7 +190,7 @@ cp .env.example .env.local   # optional; defaults target Solana Devnet
 npm run dev                  # start Next.js dev server on http://localhost:3000
 npm run typecheck            # TypeScript check (tsc --noEmit)
 npm run lint                 # ESLint check (eslint .)
-npm run test:coverage        # Run all 44 Vitest suites (390 tests + 4 opt-in devnet checks) with v8 coverage gates
+npm run test:coverage        # Run all 46 Vitest suites (421 tests + 4 opt-in devnet checks) with v8 coverage gates
 ```
 
 From the repository root, `scripts/` also includes **6 `node --test` suites** (`scripts/settle.test.js`, `scripts/db.test.js`, and `scripts/sandbox/*.test.js`).
