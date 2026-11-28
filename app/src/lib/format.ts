@@ -138,13 +138,13 @@ export function countdown(expiry: number, now = Math.floor(Date.now() / 1000)): 
 export function explorerTx(sig: string, cluster: string): string | null {
   if (cluster === "localnet") return null;
   const q = cluster === "mainnet-beta" ? "" : `?cluster=${cluster}`;
-  return `https://solscan.io/tx/${sig}${q}`;
+  return `https://explorer.solana.com/tx/${sig}${q}`;
 }
 
 export function explorerAccount(address: string, cluster: string): string | null {
   if (cluster === "localnet") return null;
   const q = cluster === "mainnet-beta" ? "" : `?cluster=${cluster}`;
-  return `https://solscan.io/account/${address}${q}`;
+  return `https://explorer.solana.com/address/${address}${q}`;
 }
 
 export function bytesFromHex(hex: string): number[] {

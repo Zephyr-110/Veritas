@@ -102,6 +102,7 @@ function makeMarket(overrides: Partial<MarketView> = {}): MarketView {
     status: "open",
     winner: null,
     expiry: 2_000_000_000,
+    startTs: 1_999_999_100,
     endTs: 2_000_000_000,
     finishTs: 0,
     bump: 255,
@@ -354,7 +355,7 @@ describe("SettleDesk 裁决与超时作废", () => {
       "ok",
       "Submit settlement",
       "View transaction",
-      "https://solscan.io/tx/resolve-sig-1?cluster=devnet",
+      "https://explorer.solana.com/tx/resolve-sig-1?cluster=devnet",
       expectedMeta
     );
     expect(bump).toHaveBeenCalledTimes(1);
@@ -491,6 +492,20 @@ describe("SettleDesk 裁决与超时作废", () => {
     await userEvent.click(voidBtn);
     await waitFor(() => expect(ixVoidMarket).toHaveBeenCalledTimes(1));
     expect(ixVoidMarket).toHaveBeenCalledWith({}, market, USER_KEY);
+  });
+
+  it("v1 老盘（无 startTs）过期后不渲染可点击的结算、作废或快照按钮", () => {
+    const now = Math.floor(Date.now() / 1000);
+    const v1Expired = makeMarket({
+      status: "open",
+      startTs: undefined,
+      expiry: now - 100,
+      endTs: now - 100,
+    });
+    renderDesk(v1Expired);
+    expect(screen.queryByRole("button", { name: "Submit settlement" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Void market" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Take snapshot" })).toBeNull();
   });
 });
 

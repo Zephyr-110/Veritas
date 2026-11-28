@@ -155,6 +155,7 @@ function makeMarket(overrides: Partial<MarketView> = {}): MarketView {
     status: "open",
     winner: null,
     expiry: 2_000_000_000,
+    startTs: 1_999_999_880,
     endTs: 2_000_000_000,
     finishTs: 0,
     bump: 255,
@@ -339,7 +340,7 @@ describe("Sandbox desks & header integration", () => {
     expect(ixAddLiquidity).not.toHaveBeenCalled();
   });
 
-  it("Header renders low-saturation Sandbox capsule with dropdown details (full address, Solscan, reset)", async () => {
+  it("Header renders low-saturation Sandbox capsule with dropdown details (full address, Solana Explorer, reset)", async () => {
     vi.spyOn(window, "scrollTo").mockImplementation(() => {});
     render(
       <LocaleProvider>
@@ -354,9 +355,9 @@ describe("Sandbox desks & header integration", () => {
     await userEvent.click(capsule);
     expect(screen.getByText("Sandbox Account (Devnet)")).toBeInTheDocument();
     expect(screen.getByText(SANDBOX_KEY.toBase58())).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Solscan/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /Solana Explorer/i })).toHaveAttribute(
       "href",
-      `https://solscan.io/account/${SANDBOX_KEY.toBase58()}?cluster=devnet`
+      `https://explorer.solana.com/address/${SANDBOX_KEY.toBase58()}?cluster=devnet`
     );
 
     // Two-step confirmation for Reset sandbox

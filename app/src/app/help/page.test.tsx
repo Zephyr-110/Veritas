@@ -58,12 +58,17 @@ describe("HelpPage low-threshold Solana fee breakdown", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
+        "Placing a bet (user_bet_on) consumes roughly 540,000–560,000 compute units per transaction, measured on devnet."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
         "Creating a market also requires roughly 0.014 SOL of account rent, locked until the market's accounts are burned 30 days after it finalises."
       )
     ).toBeInTheDocument();
   });
 
-  it("renders verbatim ZH account rent disclosure in the creation/cost section", () => {
+  it("renders verbatim ZH account rent and bet CU disclosures in the creation/cost section", () => {
     setLocale("zh");
     render(
       <LocaleProvider>
@@ -74,6 +79,11 @@ describe("HelpPage low-threshold Solana fee breakdown", () => {
     const toggle = screen.getByRole("button", { name: /01 · 门槛低/i });
     fireEvent.click(toggle);
 
+    expect(
+      screen.getByText(
+        "下单（user_bet_on）每笔交易消耗约 540,000–560,000 计算单元（devnet 实测）。"
+      )
+    ).toBeInTheDocument();
     expect(
       screen.getByText(
         "创建市场另需约 0.014 SOL 的账户租金，锁定至市场完结 30 天后烧毁账户时回收。"

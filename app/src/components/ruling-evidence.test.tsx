@@ -117,7 +117,7 @@ afterEach(() => {
 });
 
 describe("RulingEvidence component", () => {
-  it("renders witnessed pre/post evidence lines, bold ruling price, Solscan push links, and zero missing count", async () => {
+  it("renders witnessed pre/post evidence lines, bold ruling price, Solana Explorer push links, and zero missing count", async () => {
     const digest = Buffer.alloc(32, 1);
     const makeReport = (epoch: number, round: number, ts: number, median: bigint) => ({
       configDigest: digest,
@@ -161,8 +161,8 @@ describe("RulingEvidence component", () => {
     expect(postPriceEl.closest("a")).toBeNull();
 
     const transmissionLinks = screen.getAllByRole("link", { name: "Transmission" });
-    expect(transmissionLinks[0]).toHaveAttribute("href", "https://solscan.io/tx/push-pre-sig?cluster=devnet");
-    expect(transmissionLinks[1]).toHaveAttribute("href", "https://solscan.io/tx/push-post-sig?cluster=devnet");
+    expect(transmissionLinks[0]).toHaveAttribute("href", "https://explorer.solana.com/tx/push-pre-sig?cluster=devnet");
+    expect(transmissionLinks[1]).toHaveAttribute("href", "https://explorer.solana.com/tx/push-post-sig?cluster=devnet");
     expect(preId.closest("p")?.querySelectorAll("a")).toHaveLength(1);
     expect(postId.closest("p")?.querySelectorAll("a")).toHaveLength(1);
 
@@ -173,7 +173,7 @@ describe("RulingEvidence component", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Resolve transaction" })).toHaveAttribute(
       "href",
-      "https://solscan.io/tx/resolve-sig-1?cluster=devnet"
+      "https://explorer.solana.com/tx/resolve-sig-1?cluster=devnet"
     );
     expect(screen.getAllByRole("link", { name: "Transmission" })).toHaveLength(2);
   });
@@ -247,7 +247,7 @@ describe("RulingEvidence component", () => {
             feedAddress: FEEDS[0].feed,
             snapshotAddress: market.pdas.snapshot.toBase58(),
             resolveSignature: "db-resolve-sig",
-            resolveTxUrl: "https://solscan.io/tx/db-resolve-sig?cluster=devnet",
+            resolveTxUrl: "https://explorer.solana.com/tx/db-resolve-sig?cluster=devnet",
             settledPrice: "6340222800000",
             priceDecimals: 8,
             winner: "yes",
@@ -258,14 +258,14 @@ describe("RulingEvidence component", () => {
             prePrice: "6338055208989",
             preTimestamp: 1795447821,
             prePushSignature: "db-push-pre",
-            prePushTxUrl: "https://solscan.io/tx/db-push-pre?cluster=devnet",
+            prePushTxUrl: "https://explorer.solana.com/tx/db-push-pre?cluster=devnet",
             postEpoch: 7201555,
             postRound: 3,
             postCounter: 41922064,
             postPrice: "6340222800000",
             postTimestamp: 1795447824,
             postPushSignature: "db-push-post",
-            postPushTxUrl: "https://solscan.io/tx/db-push-post?cluster=devnet",
+            postPushTxUrl: "https://explorer.solana.com/tx/db-push-post?cluster=devnet",
             missingCount: 0,
             createdAt: 1795447838,
           },
@@ -282,7 +282,7 @@ describe("RulingEvidence component", () => {
     expect(screen.getByText("63402.228").tagName).toBe("STRONG");
     expect(screen.getByRole("link", { name: "Resolve transaction" })).toHaveAttribute(
       "href",
-      "https://solscan.io/tx/db-resolve-sig?cluster=devnet"
+      "https://explorer.solana.com/tx/db-resolve-sig?cluster=devnet"
     );
     expect(fetchRuling).not.toHaveBeenCalled();
     expect(fetchMarketSnapshot).not.toHaveBeenCalled();
@@ -306,7 +306,7 @@ describe("RulingEvidence component", () => {
             feedAddress: FEEDS[0].feed,
             snapshotAddress: market.pdas.snapshot.toBase58(),
             resolveSignature: "db-resolve-adjacent",
-            resolveTxUrl: "https://solscan.io/tx/db-resolve-adjacent?cluster=devnet",
+            resolveTxUrl: "https://explorer.solana.com/tx/db-resolve-adjacent?cluster=devnet",
             settledPrice: "6340222800000",
             priceDecimals: 8,
             winner: "yes",
@@ -317,14 +317,14 @@ describe("RulingEvidence component", () => {
             prePrice: "6338055208989",
             preTimestamp: 1795447821,
             prePushSignature: "db-push-pre",
-            prePushTxUrl: "https://solscan.io/tx/db-push-pre?cluster=devnet",
+            prePushTxUrl: "https://explorer.solana.com/tx/db-push-pre?cluster=devnet",
             postEpoch: 7201555,
             postRound: 4,
             postCounter: null,
             postPrice: "6340222800000",
             postTimestamp: 1795447824,
             postPushSignature: "db-push-post",
-            postPushTxUrl: "https://solscan.io/tx/db-push-post?cluster=devnet",
+            postPushTxUrl: "https://explorer.solana.com/tx/db-push-post?cluster=devnet",
             missingCount: null,
             createdAt: 1795447838,
           },
@@ -361,7 +361,7 @@ describe("RulingEvidence component", () => {
             feedAddress: FEEDS[0].feed,
             snapshotAddress: market.pdas.snapshot.toBase58(),
             resolveSignature: "db-resolve-unw",
-            resolveTxUrl: "https://solscan.io/tx/db-resolve-unw?cluster=devnet",
+            resolveTxUrl: "https://explorer.solana.com/tx/db-resolve-unw?cluster=devnet",
             settledPrice: "6340222800000",
             priceDecimals: 8,
             winner: "yes",
@@ -372,14 +372,14 @@ describe("RulingEvidence component", () => {
             prePrice: "6338055208989",
             preTimestamp: 1795447821,
             prePushSignature: "db-push-pre",
-            prePushTxUrl: "https://solscan.io/tx/db-push-pre?cluster=devnet",
+            prePushTxUrl: "https://explorer.solana.com/tx/db-push-pre?cluster=devnet",
             postEpoch: 7201555,
             postRound: 4,
             postCounter: null,
             postPrice: "6340222800000",
             postTimestamp: 1795447824,
             postPushSignature: "db-push-post",
-            postPushTxUrl: "https://solscan.io/tx/db-push-post?cluster=devnet",
+            postPushTxUrl: "https://explorer.solana.com/tx/db-push-post?cluster=devnet",
             missingCount: null,
             createdAt: 1795447838,
           },

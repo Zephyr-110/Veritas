@@ -1131,7 +1131,7 @@ export function SandboxCapsule() {
     : balance
       ? (balance.solLamports / 1e9).toFixed(4)
       : "—";
-  const solscanHref = explorerAccount(addr, settings.cluster);
+  const explorerHref = explorerAccount(addr, settings.cluster);
 
   return (
     <div ref={wrapRef} className="relative">
@@ -1187,14 +1187,14 @@ export function SandboxCapsule() {
             <div className="stack-2 border border-[var(--hair)] bg-[var(--seg-bg)] p-3">
               <div className="flex items-center justify-between gap-2 text-[11px] uppercase tracking-wider text-zinc-500">
                 <StableText k="sandbox.addressLabel" />
-                {solscanHref ? (
+                {explorerHref ? (
                   <a
-                    href={solscanHref}
+                    href={explorerHref}
                     target="_blank"
                     rel="noreferrer"
                     className="link-accent inline-flex items-center gap-1 normal-case tracking-normal text-xs"
                   >
-                    <span>Solscan</span>
+                    <span>Solana Explorer</span>
                     <ExternalLink className="h-3 w-3" />
                   </a>
                 ) : null}

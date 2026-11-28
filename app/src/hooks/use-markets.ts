@@ -89,6 +89,7 @@ type DeserializedMarketsPage = {
   pageSize: number;
   hasMore: boolean;
   indexedAt: number | null;
+  fetchedAt: number;
 };
 
 async function fetchMarketsPageFromApi(opts: {
@@ -117,6 +118,7 @@ async function fetchMarketsPageFromApi(opts: {
     pageSize: json.pageSize,
     hasMore: json.hasMore,
     indexedAt: json.indexedAt,
+    fetchedAt: Date.now(),
   };
 }
 
@@ -141,7 +143,7 @@ export function useMarketsPage({
     queryKey: ["markets", "page", programId, section, duration, page, pageSize] as const,
     queryFn: () => fetchMarketsPageFromApi({ programId, section, duration, page, pageSize }),
     enabled: Boolean(programId && enabled),
-    staleTime: 20_000,
+    staleTime: 0,
     refetchInterval: section === "live" ? 30_000 : false,
   });
 
@@ -154,7 +156,7 @@ export function useMarketsPage({
     indexedAt: data?.indexedAt ?? null,
     loading: isEnabled ? query.isPending : false,
     refreshing: isEnabled ? query.isFetching && !query.isPending : false,
-    updatedAt: data?.indexedAt ? data.indexedAt * 1000 : query.dataUpdatedAt || null,
+    updatedAt: data?.fetchedAt ?? (query.dataUpdatedAt || null),
     isStaleError: Boolean(query.error && query.data),
     error: query.error ? parseTxError(query.error) : null,
     reload: async () => {
@@ -185,7 +187,7 @@ export function useMarketsInfinite({
       fetchMarketsPageFromApi({ programId, section, duration, page: pageParam, pageSize }),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     enabled: Boolean(programId && enabled),
-    staleTime: 20_000,
+    staleTime: 0,
   });
 
   const pages = query.data?.pages;
@@ -194,6 +196,7 @@ export function useMarketsInfinite({
     [pages]
   );
   const firstPage = pages?.[0];
+  const lastPage = pages?.[pages.length - 1];
   const isEnabled = Boolean(programId && enabled);
 
   return {
@@ -208,7 +211,7 @@ export function useMarketsInfinite({
       query.isFetching &&
       !query.isPending &&
       !query.isFetchingNextPage,
-    updatedAt: firstPage?.indexedAt ? firstPage.indexedAt * 1000 : query.dataUpdatedAt || null,
+    updatedAt: lastPage?.fetchedAt ?? firstPage?.fetchedAt ?? (query.dataUpdatedAt || null),
     isStaleError: Boolean(query.error && query.data),
     error: query.error ? parseTxError(query.error) : null,
     loadMore: async () => {

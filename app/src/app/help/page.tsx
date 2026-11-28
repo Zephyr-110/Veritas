@@ -235,6 +235,9 @@ export default function HelpPage() {
               <StableText k="help.a0Fee" block />
             </p>
             <p className="text-[15px] leading-relaxed text-zinc-400">
+              <StableText k="help.a0BetCu" block />
+            </p>
+            <p className="text-[15px] leading-relaxed text-zinc-400">
               <StableText k="create.rentNote" block />
             </p>
           </DeepItem>
@@ -326,7 +329,7 @@ export default function HelpPage() {
             </div>
             <div className="hairline" />
             <a
-              href={`https://solscan.io/account/${DEFAULT_PROGRAM_ID}?cluster=devnet`}
+              href={`https://explorer.solana.com/address/${DEFAULT_PROGRAM_ID}?cluster=devnet`}
               target="_blank"
               rel="noreferrer"
               className="flex items-center justify-between gap-3 text-[15px] text-zinc-200 transition-colors hover:text-white"

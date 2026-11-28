@@ -27,6 +27,104 @@ async function simulateBeforeSign(connection: Connection, tx: Transaction): Prom
   throw err;
 }
 
+export const CONFIRM_POLL_INTERVAL_MS = 750;
+
+export async function confirmSignatureWithPolling(
+  connection: Connection,
+  params: {
+    signature: string;
+    blockhash: string;
+    lastValidBlockHeight: number;
+  },
+  opts?: { pollIntervalMs?: number }
+): Promise<void> {
+  const pollIntervalMs = Math.max(50, opts?.pollIntervalMs ?? CONFIRM_POLL_INTERVAL_MS);
+  let settled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const cleanup = () => {
+    settled = true;
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+  };
+
+  const wsPromise = connection.confirmTransaction(params, "confirmed").then((res) => {
+    if (res?.value?.err) {
+      throw new ConfirmedTransactionError();
+    }
+  });
+
+  const canPollStatuses = typeof connection.getSignatureStatuses === "function";
+  const canPollSingle = typeof connection.getSignatureStatus === "function";
+  if (!canPollStatuses && !canPollSingle) {
+    return wsPromise;
+  }
+
+  const pollPromise = new Promise<void>((resolve, reject) => {
+    const check = async () => {
+      if (settled) return;
+      try {
+        let status: { err: unknown; confirmationStatus?: string | null } | null = null;
+        if (canPollStatuses) {
+          const res = await connection.getSignatureStatuses([params.signature], {
+            searchTransactionHistory: true,
+          });
+          status = res?.value?.[0] ?? null;
+        } else if (canPollSingle) {
+          const res = await connection.getSignatureStatus(params.signature, {
+            searchTransactionHistory: true,
+          });
+          status = res?.value ?? null;
+        }
+        if (settled) return;
+        if (status) {
+          if (status.err !== null && status.err !== undefined) {
+            reject(new ConfirmedTransactionError());
+            return;
+          }
+          if (
+            status.confirmationStatus === "confirmed" ||
+            status.confirmationStatus === "finalized"
+          ) {
+            resolve();
+            return;
+          }
+        }
+        if (typeof connection.getBlockHeight === "function") {
+          try {
+            const blockHeight = await connection.getBlockHeight("confirmed");
+            if (settled) return;
+            if (blockHeight > params.lastValidBlockHeight) {
+              reject(new Error("TransactionExpiredBlockheightExceededError: block height exceeded"));
+              return;
+            }
+          } catch {
+            // transient RPC error; keep polling
+          }
+        }
+      } catch {
+        // transient RPC error; keep polling
+      }
+      if (!settled) {
+        timer = setTimeout(() => void check(), pollIntervalMs);
+      }
+    };
+
+    timer = setTimeout(() => void check(), pollIntervalMs);
+  });
+
+  wsPromise.catch(() => {});
+  pollPromise.catch(() => {});
+
+  try {
+    await Promise.race([wsPromise, pollPromise]);
+  } finally {
+    cleanup();
+  }
+}
+
 export async function sendIxs(
   connection: Connection,
   wallet: AnchorWalletLike,
@@ -46,15 +144,11 @@ export async function sendIxs(
     skipPreflight: false,
     preflightCommitment: "confirmed",
   });
-  const res = await connection.confirmTransaction(
-    {
-      signature: sig,
-      blockhash: latest.blockhash,
-      lastValidBlockHeight: latest.lastValidBlockHeight,
-    },
-    "confirmed"
-  );
-  if (res.value.err) throw new ConfirmedTransactionError();
+  await confirmSignatureWithPolling(connection, {
+    signature: sig,
+    blockhash: latest.blockhash,
+    lastValidBlockHeight: latest.lastValidBlockHeight,
+  });
   return sig;
 }
 

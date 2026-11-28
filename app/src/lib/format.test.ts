@@ -245,12 +245,12 @@ describe("format", () => {
       expect(explorerAccount("addr", "localnet")).toBeNull();
     });
     it("mainnet-beta has no cluster param", () => {
-      expect(explorerTx("abc", "mainnet-beta")).toBe("https://solscan.io/tx/abc");
-      expect(explorerAccount("xyz", "mainnet-beta")).toBe("https://solscan.io/account/xyz");
+      expect(explorerTx("abc", "mainnet-beta")).toBe("https://explorer.solana.com/tx/abc");
+      expect(explorerAccount("xyz", "mainnet-beta")).toBe("https://explorer.solana.com/address/xyz");
     });
     it("devnet/testnet include cluster param", () => {
-      expect(explorerTx("abc", "devnet")).toBe("https://solscan.io/tx/abc?cluster=devnet");
-      expect(explorerAccount("xyz", "testnet")).toBe("https://solscan.io/account/xyz?cluster=testnet");
+      expect(explorerTx("abc", "devnet")).toBe("https://explorer.solana.com/tx/abc?cluster=devnet");
+      expect(explorerAccount("xyz", "testnet")).toBe("https://explorer.solana.com/address/xyz?cluster=testnet");
     });
   });
 

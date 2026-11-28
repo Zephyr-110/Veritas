@@ -67,11 +67,12 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
       : 0n;
   const canMerge = market.status === "open" && mergeable > 0n;
   const canClaimWinner = market.status === "resolved" && winningAmount > 0n;
+  const isLegacyV1 = !(market.startTs && market.startTs > 0);
   const isBackfilledVoid = market.status === "windowBurn" && market.finishTs <= 0;
   const canClaimVoid =
     isMarketVoided(market) && !isBackfilledVoid && claimableOf(market, position) > 0n;
-  const showSnapshot = phase.inSnapshotWindow && !isSandbox;
-  const showResolve = market.status === "open" && phase.expired;
+  const showSnapshot = phase.inSnapshotWindow && !isSandbox && !isLegacyV1;
+  const showResolve = market.status === "open" && phase.expired && !isLegacyV1;
   const isCreator = Boolean(realPublicKey && realPublicKey.equals(market.creator));
   const showBurn = phase.canBurn && isCreator;
 

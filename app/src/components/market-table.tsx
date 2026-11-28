@@ -61,12 +61,13 @@ export function MarketTable({
         const unsettled = kind === "awaiting" || kind === "voidable";
         const expiredLabel =
           unsettled && effectiveNow > 0 ? formatExpiredAgo(market.expiry, effectiveNow) : null;
+        const isLegacyV1 = !(market.startTs && market.startTs > 0);
         const actionKey =
           kind === "live"
             ? "markets.open"
-            : kind === "awaiting"
+            : !isLegacyV1 && kind === "awaiting"
               ? "markets.actionSettle"
-              : kind === "voidable"
+              : !isLegacyV1 && kind === "voidable"
                 ? "markets.actionVoid"
                 : "markets.view";
         const feedPreset = feedByState(market.ocr2State);
@@ -202,7 +203,8 @@ export function MarketTable({
                     type="button"
                     tone="secondary"
                     className={
-                      "h-8 min-w-[5rem] px-3 text-[11px]" + (kind === "voidable" ? " btn-void" : "")
+                      "h-8 min-w-[5rem] px-3 text-[11px]" +
+                      (!isLegacyV1 && kind === "voidable" ? " btn-void" : "")
                     }
                   >
                     <StableText k={actionKey} align="center" />

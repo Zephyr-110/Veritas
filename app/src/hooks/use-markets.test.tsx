@@ -139,6 +139,7 @@ describe("use-markets hooks", () => {
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     );
 
+    const beforeFetch = Date.now();
     const { result: pageHook } = renderHook(
       () => useMarketsPage({ section: "live", duration: "15m", page: 1, pageSize: 2 }),
       { wrapper }
@@ -146,15 +147,32 @@ describe("use-markets hooks", () => {
     await waitFor(() => expect(pageHook.current.markets).toHaveLength(2));
     expect(pageHook.current.total).toBe(3);
     expect(pageHook.current.hasMore).toBe(true);
-    // Freshness prefers server indexedAt over local query.dataUpdatedAt
-    expect(pageHook.current.updatedAt).toBe(1_800_000_000 * 1000);
+    // Freshness reflects the actual fetch completion timestamp, not static server indexedAt
+    expect(pageHook.current.updatedAt).toBeGreaterThanOrEqual(beforeFetch);
+
+    const firstUpdatedAt = pageHook.current.updatedAt!;
+    await new Promise((r) => setTimeout(r, 30));
+    await act(async () => {
+      await pageHook.current.reload();
+    });
+    await waitFor(() => expect(pageHook.current.updatedAt).toBeGreaterThan(firstUpdatedAt));
+
+    // Failed refetch must NOT advance updatedAt
+    const afterSuccessAt = pageHook.current.updatedAt!;
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500 });
+    await new Promise((r) => setTimeout(r, 30));
+    await act(async () => {
+      await pageHook.current.reload();
+    });
+    await waitFor(() => expect(pageHook.current.isStaleError).toBe(true));
+    expect(pageHook.current.updatedAt).toBe(afterSuccessAt);
 
     const { result: infHook } = renderHook(
       () => useMarketsInfinite({ section: "ended", duration: "all", pageSize: 2 }),
       { wrapper }
     );
     await waitFor(() => expect(infHook.current.markets).toHaveLength(2));
-    expect(infHook.current.updatedAt).toBe(1_800_000_000 * 1000);
+    expect(infHook.current.updatedAt).toBeGreaterThanOrEqual(beforeFetch);
     await act(async () => {
       await infHook.current.loadMore();
     });

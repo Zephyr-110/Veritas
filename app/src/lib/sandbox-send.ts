@@ -1,4 +1,5 @@
 import { ConfirmedTransactionError } from "./errors";
+import { confirmSignatureWithPolling } from "./send";
 import {
   Connection,
   Keypair,
@@ -51,6 +52,7 @@ export async function sendSandboxIxs(
   opts?: {
     onStage?: (stage: SandboxTxStage) => void;
     maxBlockhashRetries?: number;
+    pollIntervalMs?: number;
   }
 ): Promise<string> {
   if (!ixs.length) throw new Error("errors.noIxs");
@@ -84,15 +86,15 @@ export async function sendSandboxIxs(
     opts?.onStage?.({ stage: "broadcasted", signature: sig });
 
     try {
-      const res = await connection.confirmTransaction(
+      await confirmSignatureWithPolling(
+        connection,
         {
           signature: sig,
           blockhash: latest.blockhash,
           lastValidBlockHeight: latest.lastValidBlockHeight,
         },
-        "confirmed"
+        { pollIntervalMs: opts?.pollIntervalMs }
       );
-      if (res.value.err) throw new ConfirmedTransactionError();
       opts?.onStage?.({ stage: "confirmed", signature: sig });
       return sig;
     } catch (confirmErr) {

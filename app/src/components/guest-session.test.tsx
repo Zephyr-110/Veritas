@@ -197,7 +197,7 @@ describe("GuestSessionProvider state machine", () => {
     expect(screen.getByText(/Broadcasted/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Sent to Solana Devnet/i })).toHaveAttribute(
       "href",
-      "https://solscan.io/tx/live-sig-1?cluster=devnet"
+      "https://explorer.solana.com/tx/live-sig-1?cluster=devnet"
     );
 
     // Exit and reset must be ignored while tx is pending

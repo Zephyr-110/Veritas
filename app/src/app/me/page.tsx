@@ -309,7 +309,7 @@ export default function MePage() {
   const claimCount = summary.claimCount;
   const claimTotal = summary.claimTotal;
   const lpUnclaimed = summary.lpUnclaimed;
-  const solscanAccount = explorerAccount(wallet, settings.cluster);
+  const explorerAccountHref = explorerAccount(wallet, settings.cluster);
 
   const availableUsdt = walletBalance.data
     ? Number(walletBalance.data.usdtAtoms) / 10 ** walletBalance.data.usdtDecimals
@@ -358,14 +358,14 @@ export default function MePage() {
               <StableText k="sandbox.title" />
             </span>
             <CopyText value={wallet} label={shorten(wallet, 6, 6)} />
-            {solscanAccount ? (
+            {explorerAccountHref ? (
               <a
-                href={solscanAccount}
+                href={explorerAccountHref}
                 target="_blank"
                 rel="noreferrer"
                 className="link-accent inline-flex items-center gap-1"
               >
-                <span>Solscan</span>
+                <span>Solana Explorer</span>
                 <ExternalLink className="h-3 w-3" />
               </a>
             ) : null}
@@ -562,15 +562,16 @@ export default function MePage() {
                     const hasLp =
                       !isBackfilledVoid &&
                       (position.lpShares > 0n || position.pendingYes > 0n || position.pendingNo > 0n);
+                    const isLegacyV1 = !(market.startTs && market.startTs > 0);
                     const action: {
                       key: "markets.open" | "markets.actionSettle" | "markets.actionVoid" | "me.actionClaim" | "markets.view";
                       cls: string;
                     } =
                       kind === "live"
                         ? { key: "markets.open", cls: "text-zinc-200" }
-                        : kind === "awaiting"
+                        : !isLegacyV1 && kind === "awaiting"
                           ? { key: "markets.actionSettle", cls: "text-zinc-200" }
-                          : kind === "voidable"
+                          : !isLegacyV1 && kind === "voidable"
                             ? { key: "markets.actionVoid", cls: "void-text" }
                             : (kind === "resolved" || kind === "staleVoid" || kind === "windowVoid") &&
                                 (claimable > 0n || hasLp)
