@@ -1079,6 +1079,12 @@ async function settle(opts, marketPubkey) {
   }
 
   const market = decodeMarket(Buffer.from(marketInfo.data));
+  if (marketInfo.data.length !== MARKET_ACCOUNT_SIZE_V2 || !(Number(market.startTs) > 0)) {
+    console.log(
+      `[settle] skip legacy market ${marketPubkey.toBase58()} (size=${marketInfo.data.length}, startTs=${market.startTs})`
+    );
+    return;
+  }
   console.log(`Title:    ${market.title || "(untitled)"}`);
   console.log(`Status:   ${market.status}`);
 

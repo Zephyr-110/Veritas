@@ -310,22 +310,32 @@ describe("MarketsPage duration filter chips", () => {
 
     renderMarkets();
 
-    // Live tape + All: shows all 3 live markets
+    // Live tape + All: shows all 3 live markets, and 2 min chip is NOT rendered on Live tape
     expect(screen.getByRole("link", { name: /in 2 min\?/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /in 15 min\?/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /in 24 hours\?/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "2 min" })).toBeNull();
 
-    // Filter live 2 min
-    await userEvent.click(screen.getByRole("button", { name: "2 min" }));
-    expect(screen.getByRole("link", { name: /in 2 min\?/ })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /in 15 min\?/ })).toBeNull();
-    expect(screen.queryByRole("link", { name: /in 24 hours\?/ })).toBeNull();
+    // Unsettled tape also does not render 2 min chip
+    await userEvent.click(screen.getByRole("button", { name: "Unsettled" }));
+    expect(screen.queryByRole("button", { name: "2 min" })).toBeNull();
 
-    // Switch to History while 2 min chip is active
+    // Switch to History: 2 min chip appears and filters historical 2m markets
     await userEvent.click(screen.getByRole("button", { name: "History" }));
+    await userEvent.click(screen.getByRole("button", { name: "2 min" }));
     expect(screen.getByRole("link", { name: /in 120 sec\?/ })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /ETH\/USD at or above opening price in 15 min\?/ })).toBeNull();
     expect(screen.queryByRole("link", { name: /LINK\/USD/ })).toBeNull();
+
+    // Switching back to Live tape while 2 min is active resets duration to All
+    await userEvent.click(screen.getByRole("button", { name: "Live tape" }));
+    expect(screen.queryByRole("button", { name: "2 min" })).toBeNull();
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("link", { name: /in 15 min\?/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /in 24 hours\?/ })).toBeInTheDocument();
+
+    // Switch back to History and test 15 min / 24 hours / All chips
+    await userEvent.click(screen.getByRole("button", { name: "History" }));
 
     // Filter History 15 min
     await userEvent.click(screen.getByRole("button", { name: "15 min" }));
@@ -342,6 +352,33 @@ describe("MarketsPage duration filter chips", () => {
     expect(screen.getByRole("link", { name: /in 120 sec\?/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /ETH\/USD at or above opening price in 15 min\?/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /LINK\/USD.*in 1 day\?/ })).toBeInTheDocument();
+  });
+
+  it("renders Legacy tag without Trade button for legacy v1 live rows while keeping row clickable and normal live rows untouched", () => {
+    const legacyLive = makeMarket(20, {
+      title: "BTC/USD at or above opening price in 24 hours?",
+      startTs: undefined,
+      expiry: NOW + 7200,
+      endTs: NOW + 7200,
+    });
+    const v2Live = makeMarket(21, {
+      title: "BTC/USD at or above opening price in 15 min?",
+      startTs: NOW - 300,
+      expiry: NOW + 600,
+      endTs: NOW + 600,
+    });
+    marketState.markets = [legacyLive, v2Live];
+
+    renderMarkets();
+
+    // Legacy v1 live row shows Legacy tag, still links to detail page, and has no Trade button
+    expect(screen.getByTestId("legacy-market-tag")).toHaveTextContent("Legacy");
+    expect(screen.getByRole("link", { name: /in 24 hours\?/ })).toHaveAttribute(
+      "href",
+      `/markets/${legacyLive.address.toBase58()}`
+    );
+    // Only the normal v2 live row renders a Trade button
+    expect(screen.getAllByRole("button", { name: "Trade" })).toHaveLength(1);
   });
 
   it("supports 'Other' duration filter chip for custom parseable durations", async () => {

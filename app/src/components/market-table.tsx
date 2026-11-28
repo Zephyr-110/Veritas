@@ -13,7 +13,7 @@ import { useT } from "@/i18n/provider";
 import { AssetBadge } from "./asset-badge";
 import { TickingCountdown } from "./live";
 import { PriceAge } from "./price-age";
-import { Button, onSpot, StableText, StatusChip } from "./ui";
+import { Button, Chip, onSpot, StableText, StatusChip } from "./ui";
 
 const EMPTY_MARKETS: MarketView[] = [];
 
@@ -62,6 +62,7 @@ export function MarketTable({
         const expiredLabel =
           unsettled && effectiveNow > 0 ? formatExpiredAgo(market.expiry, effectiveNow) : null;
         const isLegacyV1 = !(market.startTs && market.startTs > 0);
+        const isLegacyLive = isLegacyV1 && kind === "live";
         const actionKey =
           kind === "live"
             ? "markets.open"
@@ -195,21 +196,31 @@ export function MarketTable({
                 </div>
               </div>
               <div className="c-status justify-end">
-                <StatusChip market={market} now={now} compact />
+                {isLegacyLive ? (
+                  <span data-testid="legacy-market-tag" className="inline-flex">
+                    <Chip tone="mute">
+                      <StableText k="markets.legacyTag" align="center" />
+                    </Chip>
+                  </span>
+                ) : (
+                  <StatusChip market={market} now={now} compact />
+                )}
               </div>
               <div className="c-trade text-right">
-                <Link href={href} className="relative z-20">
-                  <Button
-                    type="button"
-                    tone="secondary"
-                    className={
-                      "h-8 min-w-[5rem] px-3 text-[11px]" +
-                      (!isLegacyV1 && kind === "voidable" ? " btn-void" : "")
-                    }
-                  >
-                    <StableText k={actionKey} align="center" />
-                  </Button>
-                </Link>
+                {isLegacyLive ? null : (
+                  <Link href={href} className="relative z-20">
+                    <Button
+                      type="button"
+                      tone="secondary"
+                      className={
+                        "h-8 min-w-[5rem] px-3 text-[11px]" +
+                        (!isLegacyV1 && kind === "voidable" ? " btn-void" : "")
+                      }
+                    >
+                      <StableText k={actionKey} align="center" />
+                    </Button>
+                  </Link>
+                )}
               </div>
             </div>
           </article>

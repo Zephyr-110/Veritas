@@ -804,10 +804,24 @@ function entryTargetEndTs(entry) {
   return Number(entry.endTs > 0 ? entry.endTs : entry.expiry);
 }
 
+function isLegacyMarketAccount(info, decoded) {
+  if (info && info.data && info.data.length !== MARKET_ACCOUNT_SIZE_V2) return true;
+  if (decoded && !(Number(decoded.startTs) > 0)) return true;
+  return false;
+}
+
+function isLegacyEntry(entry) {
+  if (!entry) return false;
+  if (entry.legacy === true) return true;
+  if (entry.accountSize != null && Number(entry.accountSize) !== MARKET_ACCOUNT_SIZE_V2) return true;
+  if (entry.startTs !== undefined && !(Number(entry.startTs) > 0)) return true;
+  return false;
+}
+
 function selectWatchEntries(entries, nowSec = Date.now() / 1000) {
   return (entries || [])
     .filter((e) => {
-      if (e.status !== "open" || !e.address) return false;
+      if (e.status !== "open" || !e.address || isLegacyEntry(e)) return false;
       const targetEndTs = entryTargetEndTs(e);
       return targetEndTs > nowSec - WATCH_AFTER_SEC && targetEndTs <= nowSec + 60 + WAKE_SEC;
     })
@@ -829,7 +843,9 @@ function selectExpiredSettleEntries(
 ) {
   return (entries || [])
     .filter((e) => {
-      if (e.status !== "open" || !e.address || excludedAddresses.has(e.address)) return false;
+      if (e.status !== "open" || !e.address || excludedAddresses.has(e.address) || isLegacyEntry(e)) {
+        return false;
+      }
       const targetEndTs = entryTargetEndTs(e);
       if (!Number.isFinite(targetEndTs) || targetEndTs <= 0) return false;
       const pastWatchWindow = targetEndTs <= nowSec - WATCH_AFTER_SEC;
@@ -1026,28 +1042,34 @@ async function probeFreeSettleSlots(slotCount = DEFAULT_SETTLE_SLOTS, lockFn = t
 
 function scheduleWatches(cfg, settleScriptPath, entries, nowSec = Date.now() / 1000) {
   const due = selectWatchEntries(entries, nowSec);
+  const scheduled = [];
   for (const entry of due) {
-    const asset = resolveAssetForEntry(cfg, entry);
-    if (!asset) continue;
-    const child = spawn(
-      process.execPath,
-      [settleScriptPath, entry.address, "--watch", asset.feed.toBase58()],
-      {
-        env: {
-          ...process.env,
-          PROGRAM_ID: cfg.programId.toBase58(),
-          SOLANA_RPC: cfg.rpcUrl,
-          ANCHOR_WALLET: cfg.walletPath,
-        },
-        detached: true,
-        windowsHide: true,
-        stdio: ["ignore", "inherit", "inherit"],
-      }
-    );
-    child.on("error", (err) => console.warn(`[wake] ${entry.address}: ${err.message}`));
-    child.unref();
+    try {
+      const asset = resolveAssetForEntry(cfg, entry);
+      if (!asset) continue;
+      const child = spawn(
+        process.execPath,
+        [settleScriptPath, entry.address, "--watch", asset.feed.toBase58()],
+        {
+          env: {
+            ...process.env,
+            PROGRAM_ID: cfg.programId.toBase58(),
+            SOLANA_RPC: cfg.rpcUrl,
+            ANCHOR_WALLET: cfg.walletPath,
+          },
+          detached: true,
+          windowsHide: true,
+          stdio: ["ignore", "inherit", "inherit"],
+        }
+      );
+      child.on("error", (err) => console.warn(`[wake] ${entry.address}: ${err.message}`));
+      child.unref();
+      scheduled.push(entry);
+    } catch (err) {
+      console.warn(`[wake] failed to schedule ${entry.address}: ${err?.message || err}`);
+    }
   }
-  return due;
+  return scheduled;
 }
 
 async function scheduleExpiredSettlements(
@@ -1091,29 +1113,35 @@ async function scheduleExpiredSettlements(
 
   const budget = Math.min(cfg.settleMaxPerTick ?? 4, freeSlots, maxTotal - totalRunning);
   const due = selectExpiredSettleEntries(entries, nowSec, budget, excludedAddresses);
+  const scheduled = [];
   for (const entry of due) {
-    const ageSec = Math.max(0, Math.round(nowSec - entryTargetEndTs(entry)));
-    console.log(`[self-settle] waking ${entry.address} (expired ${ageSec}s ago)`);
-    const child = spawnFn(
-      process.execPath,
-      [settleScriptPath, entry.address, "--self-settle", "--keypair", cfg.walletPath, "--rpc", cfg.rpcUrl],
-      {
-        env: {
-          ...process.env,
-          PROGRAM_ID: cfg.programId.toBase58(),
-          SOLANA_RPC: cfg.rpcUrl,
-          ANCHOR_WALLET: cfg.walletPath,
-        },
-        detached: true,
-        windowsHide: true,
-        stdio: ["ignore", "inherit", "inherit"],
-      }
-    );
-    child.on("error", (err) => console.warn(`[self-settle] ${entry.address}: ${err.message}`));
-    child.unref();
-    entry.lastSettleAttemptAt = nowSec;
+    try {
+      const ageSec = Math.max(0, Math.round(nowSec - entryTargetEndTs(entry)));
+      console.log(`[self-settle] waking ${entry.address} (expired ${ageSec}s ago)`);
+      const child = spawnFn(
+        process.execPath,
+        [settleScriptPath, entry.address, "--self-settle", "--keypair", cfg.walletPath, "--rpc", cfg.rpcUrl],
+        {
+          env: {
+            ...process.env,
+            PROGRAM_ID: cfg.programId.toBase58(),
+            SOLANA_RPC: cfg.rpcUrl,
+            ANCHOR_WALLET: cfg.walletPath,
+          },
+          detached: true,
+          windowsHide: true,
+          stdio: ["ignore", "inherit", "inherit"],
+        }
+      );
+      child.on("error", (err) => console.warn(`[self-settle] ${entry.address}: ${err.message}`));
+      child.unref();
+      entry.lastSettleAttemptAt = nowSec;
+      scheduled.push(entry);
+    } catch (err) {
+      console.warn(`[self-settle] failed to wake ${entry.address}: ${err?.message || err}`);
+    }
   }
-  return due;
+  return scheduled;
 }
 
 async function safeTokenAmount(connection, ata, tokenProgram) {
@@ -1134,6 +1162,19 @@ async function recycleMarketFunds(connection, program, payer, cfg, entry) {
     return;
   }
   const market = decodeMarket(Buffer.from(info.data));
+  entry.accountSize = info.data.length;
+  entry.startTs = market.startTs;
+  if (isLegacyMarketAccount(info, market)) {
+    entry.legacy = true;
+    entry.recycled = true;
+    if (!entry.legacyLogged) {
+      entry.legacyLogged = true;
+      console.log(
+        `[recycle] skip legacy market ${entry.address} (size=${info.data.length}, startTs=${market.startTs})`
+      );
+    }
+    return;
+  }
   if (market.status === "open") return;
 
   const pdas = findMarketPdas(program.programId, market.id);
@@ -1220,6 +1261,18 @@ async function recycleFinalizedEntries(connection, program, payer, cfg, state) {
   for (const entry of state.markets) {
     if (entry.recycled) continue;
     if (!["resolved", "windowBurn", "staleBurn"].includes(entry.status)) continue;
+    if (isLegacyEntry(entry)) {
+      entry.legacy = true;
+      entry.recycled = true;
+      if (!entry.legacyLogged) {
+        entry.legacyLogged = true;
+        console.log(
+          `[recycle] skip legacy market ${entry.address} (size=${entry.accountSize ?? "unknown"}, startTs=${entry.startTs ?? null})`
+        );
+      }
+      saveState(cfg.statePath, state);
+      continue;
+    }
     try {
       await recycleMarketFunds(connection, program, payer, cfg, entry);
       saveState(cfg.statePath, state);
@@ -1345,17 +1398,38 @@ async function batchSyncOpenMarkets(connection, state, nowSec) {
         entry.recycled = true;
         continue;
       }
-      const decoded = decodeMarket(Buffer.from(info.data));
-      entry.asset = inferAssetKey(entry, decoded.ocr2State);
-      entry.expiry = decoded.expiry;
-      entry.endTs = decoded.endTs;
-      if (decoded.status !== "open") {
-        entry.status = decoded.status;
-        entry.winner = decoded.winner;
-        continue;
-      }
-      if (decoded.expiry > nowSec) {
-        liveAssets.add(entry.asset);
+      try {
+        const decoded = decodeMarket(Buffer.from(info.data));
+        entry.asset = inferAssetKey(entry, decoded.ocr2State);
+        entry.expiry = decoded.expiry;
+        entry.endTs = decoded.endTs;
+        entry.accountSize = info.data.length;
+        entry.startTs = decoded.startTs;
+        if (isLegacyMarketAccount(info, decoded)) {
+          entry.legacy = true;
+          if (!entry.legacyLogged) {
+            entry.legacyLogged = true;
+            console.log(
+              `[tick] skip legacy market ${entry.address} (size=${info.data.length}, startTs=${decoded.startTs})`
+            );
+          }
+          if (decoded.status !== "open") {
+            entry.status = decoded.status;
+            entry.winner = decoded.winner;
+            entry.recycled = true;
+          }
+          continue;
+        }
+        if (decoded.status !== "open") {
+          entry.status = decoded.status;
+          entry.winner = decoded.winner;
+          continue;
+        }
+        if (decoded.expiry > nowSec) {
+          liveAssets.add(entry.asset);
+        }
+      } catch (err) {
+        console.warn(`[tick] failed to sync market ${entry.address}: ${err?.message || err}`);
       }
     }
   }
@@ -1485,18 +1559,31 @@ async function runTick() {
   let nowSec = Math.floor(Date.now() / 1000);
 
   // 1. Batch-sync open tracked markets, infer asset keys, and self-sweep settlement
-  await batchSyncOpenMarkets(connection, state, nowSec);
-  saveState(cfg.statePath, state);
-  const watchDue = scheduleWatches(cfg, settleScriptPath, state.markets, nowSec);
-  const watchedAddrs = new Set(watchDue.map((e) => e.address));
-  const settledDue = await scheduleExpiredSettlements(
-    cfg,
-    settleScriptPath,
-    state.markets,
-    nowSec,
-    watchedAddrs
-  );
-  if (settledDue.length > 0) saveState(cfg.statePath, state);
+  try {
+    await batchSyncOpenMarkets(connection, state, nowSec);
+    saveState(cfg.statePath, state);
+  } catch (err) {
+    console.warn(`[tick] batchSyncOpenMarkets error (continuing): ${err?.message || err}`);
+  }
+  let watchedAddrs = new Set();
+  try {
+    const watchDue = scheduleWatches(cfg, settleScriptPath, state.markets, nowSec);
+    watchedAddrs = new Set(watchDue.map((e) => e.address));
+  } catch (err) {
+    console.warn(`[tick] scheduleWatches error (continuing): ${err?.message || err}`);
+  }
+  try {
+    const settledDue = await scheduleExpiredSettlements(
+      cfg,
+      settleScriptPath,
+      state.markets,
+      nowSec,
+      watchedAddrs
+    );
+    if (settledDue.length > 0) saveState(cfg.statePath, state);
+  } catch (err) {
+    console.warn(`[tick] scheduleExpiredSettlements error (continuing): ${err?.message || err}`);
+  }
 
   // 2. Open missing staggered markets FIRST (guarantees zero gap even if settlement RPC stalls)
   const liveMarkets = state.markets.filter((m) => m.status === "open" && Number(m.expiry) > nowSec);
@@ -1562,85 +1649,89 @@ async function runTick() {
         break;
       }
 
-      const feedInfo = await connection.getAccountInfo(asset.feed, "confirmed");
-      if (!feedInfo) {
-        console.warn(`[tick] Chainlink feed account not found for ${asset.symbol}: ${asset.feed.toBase58()}`);
-        continue;
+      try {
+        const feedInfo = await connection.getAccountInfo(asset.feed, "confirmed");
+        if (!feedInfo) {
+          console.warn(`[tick] Chainlink feed account not found for ${asset.symbol}: ${asset.feed.toBase58()}`);
+          continue;
+        }
+
+        const feed = decodeChainlinkFeed(Buffer.from(feedInfo.data));
+        const title = titleForAsset(cfg, asset);
+        const expiry =
+          cfg.slots > cfg.assets.length
+            ? plannedExpiry
+            : computeStaggeredExpiry(nowSec, cfg.durationSec, slotIndex, cfg.assets.length);
+        const marketId = Array.from(crypto.randomBytes(MARKET_ID_BYTES));
+        const prediction = encodePrediction(title);
+
+        const { pdas, ixs: createIxs } = await buildCreateMarketIxs(program, {
+          creator: payer.publicKey,
+          collateralMint: cfg.collateralMint,
+          ocr2State: asset.ocr2State,
+          marketId,
+          prediction,
+          expiry,
+          collateralAmount: seedAtoms,
+          threshold: feed.answer,
+          settleAbove: true,
+          tokenProgram: mintMeta.tokenProgram,
+        });
+
+        const createSig = await sendAndConfirm(connection, payer, createIxs);
+        const marketAddr = pdas.market.toBase58();
+        const entry = {
+          address: marketAddr,
+          asset: asset.key,
+          idHex: Buffer.from(marketId).toString("hex"),
+          title,
+          expiry,
+          threshold: feed.answer.toString(),
+          priceDecimals: feed.decimals,
+          status: "open",
+          winner: null,
+          createdAt: nowSec,
+          createTx: createSig,
+          betSide: null,
+          betTx: null,
+          recycled: false,
+        };
+        state.markets.push(entry);
+        scheduleWatches(cfg, settleScriptPath, [entry]);
+        state.dailyCounts[today] = todayCount + 1;
+        saveState(cfg.statePath, state);
+        console.log(
+          `[create] (${asset.symbol}) ${marketAddr} seed=${marketSeedUsdt.toFixed(2)} USDT expiry=${expiry} threshold=${feed.answer.toString()} tx=${createSig}`
+        );
+        await persistCreatedMarketToDb(connection, cfg.programId, pdas.market, nowSec);
+
+        // Place alternating 2 USDT opening bet on the new market
+        const side = state.nextBetSide === "no" ? "no" : "yes";
+        const betIxs = await buildUserBetOnIxs(program, {
+          market: pdas.market,
+          pdas,
+          signer: payer.publicKey,
+          collateralMint: cfg.collateralMint,
+          tokenProgram: mintMeta.tokenProgram,
+          collateralAmount: betAtoms,
+          side,
+          minOut: betAtoms / 2n,
+        });
+        const betSig = await sendAndConfirm(connection, payer, betIxs);
+        entry.betSide = side;
+        entry.betTx = betSig;
+        state.nextBetSide = side === "yes" ? "no" : "yes";
+        saveState(cfg.statePath, state);
+        console.log(`[bet] (${asset.symbol}) ${marketAddr} side=${side} amount=${cfg.betUsdt} USDT tx=${betSig}`);
+        await persistCreatedMarketToDb(connection, cfg.programId, pdas.market, nowSec);
+
+        [solLamports, usdtBal] = await Promise.all([
+          connection.getBalance(payer.publicKey, "confirmed"),
+          safeTokenAmount(connection, creatorCollateralAta, mintMeta.tokenProgram),
+        ]);
+      } catch (err) {
+        console.error(`[create] error on ${asset.symbol} (continuing): ${err?.message || err}`);
       }
-
-      const feed = decodeChainlinkFeed(Buffer.from(feedInfo.data));
-      const title = titleForAsset(cfg, asset);
-      const expiry =
-        cfg.slots > cfg.assets.length
-          ? plannedExpiry
-          : computeStaggeredExpiry(nowSec, cfg.durationSec, slotIndex, cfg.assets.length);
-      const marketId = Array.from(crypto.randomBytes(MARKET_ID_BYTES));
-      const prediction = encodePrediction(title);
-
-      const { pdas, ixs: createIxs } = await buildCreateMarketIxs(program, {
-        creator: payer.publicKey,
-        collateralMint: cfg.collateralMint,
-        ocr2State: asset.ocr2State,
-        marketId,
-        prediction,
-        expiry,
-        collateralAmount: seedAtoms,
-        threshold: feed.answer,
-        settleAbove: true,
-        tokenProgram: mintMeta.tokenProgram,
-      });
-
-      const createSig = await sendAndConfirm(connection, payer, createIxs);
-      const marketAddr = pdas.market.toBase58();
-      const entry = {
-        address: marketAddr,
-        asset: asset.key,
-        idHex: Buffer.from(marketId).toString("hex"),
-        title,
-        expiry,
-        threshold: feed.answer.toString(),
-        priceDecimals: feed.decimals,
-        status: "open",
-        winner: null,
-        createdAt: nowSec,
-        createTx: createSig,
-        betSide: null,
-        betTx: null,
-        recycled: false,
-      };
-      state.markets.push(entry);
-      scheduleWatches(cfg, settleScriptPath, [entry]);
-      state.dailyCounts[today] = todayCount + 1;
-      saveState(cfg.statePath, state);
-      console.log(
-        `[create] (${asset.symbol}) ${marketAddr} seed=${marketSeedUsdt.toFixed(2)} USDT expiry=${expiry} threshold=${feed.answer.toString()} tx=${createSig}`
-      );
-      await persistCreatedMarketToDb(connection, cfg.programId, pdas.market, nowSec);
-
-      // Place alternating 2 USDT opening bet on the new market
-      const side = state.nextBetSide === "no" ? "no" : "yes";
-      const betIxs = await buildUserBetOnIxs(program, {
-        market: pdas.market,
-        pdas,
-        signer: payer.publicKey,
-        collateralMint: cfg.collateralMint,
-        tokenProgram: mintMeta.tokenProgram,
-        collateralAmount: betAtoms,
-        side,
-        minOut: betAtoms / 2n,
-      });
-      const betSig = await sendAndConfirm(connection, payer, betIxs);
-      entry.betSide = side;
-      entry.betTx = betSig;
-      state.nextBetSide = side === "yes" ? "no" : "yes";
-      saveState(cfg.statePath, state);
-      console.log(`[bet] (${asset.symbol}) ${marketAddr} side=${side} amount=${cfg.betUsdt} USDT tx=${betSig}`);
-      await persistCreatedMarketToDb(connection, cfg.programId, pdas.market, nowSec);
-
-      [solLamports, usdtBal] = await Promise.all([
-        connection.getBalance(payer.publicKey, "confirmed"),
-        safeTokenAmount(connection, creatorCollateralAta, mintMeta.tokenProgram),
-      ]);
     }
   }
 
@@ -1741,4 +1832,6 @@ module.exports = {
   computeStaggeredExpiry,
   gridAssetForExpiry,
   planMissingMarkets,
+  isLegacyMarketAccount,
+  isLegacyEntry,
 };

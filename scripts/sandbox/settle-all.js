@@ -246,6 +246,14 @@ function marketDiscriminatorBase58() {
   return utils.bytes.bs58.encode(Buffer.from(MARKET_DISCRIMINATOR));
 }
 
+const loggedLegacyMarkets = new Set();
+
+function isLegacyMarketAccount(data, market) {
+  if (data && data.length !== MARKET_ACCOUNT_SIZE_V2) return true;
+  if (market && !(Number(market.startTs) > 0)) return true;
+  return false;
+}
+
 function classifyOpenMarket(market, nowSec, minAgeSec) {
   if (!market || market.status !== "open") return null;
   const targetEndTs = market.endTs > 0 ? market.endTs : market.expiry;
@@ -500,6 +508,16 @@ async function runSweep(cfg, flags) {
       continue;
     }
     if (!market || market.status !== "open") continue;
+    if (isLegacyMarketAccount(item.account.data, market)) {
+      const addr = item.pubkey.toBase58();
+      if (!loggedLegacyMarkets.has(addr)) {
+        loggedLegacyMarkets.add(addr);
+        console.log(
+          `[settle-all] skip legacy market ${addr} (size=${item.account.data.length}, startTs=${market.startTs})`
+        );
+      }
+      continue;
+    }
     openCount += 1;
 
     const cls = classifyOpenMarket(market, nowSec, cfg.settleMinAgeSec);
@@ -602,6 +620,7 @@ module.exports = {
   MARKET_ACCOUNT_SIZE_V2,
   classifyOpenMarket,
   decodeMarket,
+  isLegacyMarketAccount,
   marketFilters,
   runMaintenance,
 };

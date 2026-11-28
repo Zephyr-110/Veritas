@@ -39,6 +39,16 @@ export default function MarketsPage() {
   const t = useT();
   const [tape, setTape] = useState<Tape>("hot");
   const [duration, setDuration] = useState<DurationFilter>("all");
+  const visibleDurationFilters = useMemo(
+    () => (tape === "history" ? DURATION_FILTERS : DURATION_FILTERS.filter((chip) => chip.id !== "2m")),
+    [tape]
+  );
+  const handleSelectTape = (nextTape: Tape) => {
+    setTape(nextTape);
+    if (nextTape !== "history" && duration === "2m") {
+      setDuration("all");
+    }
+  };
 
   const liveQuery = useMarketsPage({
     section: "live",
@@ -262,7 +272,7 @@ export default function MarketsPage() {
               <button
                 key={id}
                 type="button"
-                onClick={() => setTape(id)}
+                onClick={() => handleSelectTape(id)}
                 className={
                   "px-3 py-1 text-xs " +
                   (tape === id ? "seg-on font-medium" : "text-zinc-400 hover:text-white")
@@ -277,7 +287,7 @@ export default function MarketsPage() {
           </div>
         </div>
         <div className="cluster-2 flex-wrap" role="group" aria-label={t("markets.title")}>
-          {DURATION_FILTERS.map((chip) => {
+          {visibleDurationFilters.map((chip) => {
             const active = duration === chip.id;
             return (
               <button

@@ -8,6 +8,8 @@ const {
   DEFAULT_SEED_MIN_USDT,
   DEFAULT_SETTLE_MAX_TOTAL_PROCS,
   DEFAULT_SETTLE_SLOTS,
+  MARKET_ACCOUNT_SIZE,
+  MARKET_ACCOUNT_SIZE_V2,
   RESOLVE_WINDOW_SEC,
   SELF_SETTLE_SLOT_PREFIX,
   classifySettleProcess,
@@ -15,10 +17,13 @@ const {
   defaultTitleForAsset,
   getConfig,
   gridAssetForExpiry,
+  isLegacyEntry,
+  isLegacyMarketAccount,
   parseAssets,
   pickSeedUsdt,
   planMissingMarkets,
   reapStaleSettleProcesses,
+  recycleFinalizedEntries,
   resolveAssetForEntry,
   scheduleExpiredSettlements,
   selectExpiredSettleEntries,
@@ -413,4 +418,88 @@ test("planMissingMarkets preserves legacy 1-asset-per-slot behavior when slots =
   // Expiry matches computeStaggeredExpiry for each slot
   assert.equal(missing[0].expiry, computeStaggeredExpiry(now, 120, 2, 4));
   assert.equal(missing[1].expiry, computeStaggeredExpiry(now, 120, 3, 4));
+});
+
+test("legacy 409-byte / missing-startTs markets are excluded from watch, self-settle, and recycle", async () => {
+  const now = 1_800_000_000;
+  assert.equal(isLegacyMarketAccount({ data: Buffer.alloc(MARKET_ACCOUNT_SIZE) }, { startTs: null }), true);
+  assert.equal(isLegacyMarketAccount({ data: Buffer.alloc(MARKET_ACCOUNT_SIZE_V2) }, { startTs: 0 }), true);
+  assert.equal(isLegacyMarketAccount({ data: Buffer.alloc(MARKET_ACCOUNT_SIZE_V2) }, { startTs: now - 900 }), false);
+
+  const watchEntries = [
+    { address: "legacySize", status: "open", expiry: now + 10, endTs: now + 10, accountSize: MARKET_ACCOUNT_SIZE },
+    { address: "legacyStart", status: "open", expiry: now + 12, endTs: now + 12, startTs: null },
+    { address: "legacyFlag", status: "open", expiry: now + 14, endTs: now + 14, legacy: true },
+    { address: "v2Ok", status: "open", expiry: now + 20, endTs: now + 20, accountSize: MARKET_ACCOUNT_SIZE_V2, startTs: now - 880 },
+  ];
+  assert.deepEqual(
+    selectWatchEntries(watchEntries, now).map((e) => e.address),
+    ["v2Ok"]
+  );
+
+  const settleEntries = [
+    { address: "legacyExpired", status: "open", expiry: now - 60, endTs: now - 60, accountSize: MARKET_ACCOUNT_SIZE, startTs: null },
+    { address: "v2Expired", status: "open", expiry: now - 60, endTs: now - 60, accountSize: MARKET_ACCOUNT_SIZE_V2, startTs: now - 960 },
+  ];
+  assert.deepEqual(
+    selectExpiredSettleEntries(settleEntries, now, 4, new Set()).map((e) => e.address),
+    ["v2Expired"]
+  );
+  assert.equal(isLegacyEntry(settleEntries[0]), true);
+  assert.equal(isLegacyEntry(settleEntries[1]), false);
+});
+
+test("single-market failure in scheduleExpiredSettlements and recycleFinalizedEntries is isolated and does not abort batch", async () => {
+  const now = 1_800_000_000;
+  const entries = [
+    { address: "bad1", status: "open", expiry: now - 60, endTs: now - 60, startTs: now - 960 },
+    { address: "good2", status: "open", expiry: now - 70, endTs: now - 70, startTs: now - 970 },
+  ];
+
+  const spawned = [];
+  const res = await scheduleExpiredSettlements(makeTestCfg(), "/opt/veritas/scripts/settle.js", entries, now, new Set(), {
+    listProcesses: () => [],
+    tryLockFn: async () => () => {},
+    spawnFn: (cmd, args) => {
+      if (args[1] === "bad1") throw new Error("simulated spawn failure");
+      spawned.push(args[1]);
+      return { on() {}, unref() {} };
+    },
+  });
+  assert.deepEqual(spawned, ["good2"]);
+  assert.deepEqual(res.map((e) => e.address), ["good2"]);
+
+  // recycleFinalizedEntries: throwing on badAddr must not stop recycling goodAddr, and legacy entry is skipped & marked recycled
+  const badAddr = Keypair.generate().publicKey.toBase58();
+  const legacyAddr = Keypair.generate().publicKey.toBase58();
+  const goodAddr = Keypair.generate().publicKey.toBase58();
+  const tmpStatePath = require("path").join(require("os").tmpdir(), `veritas-tick-iso-${process.pid}.json`);
+  const state = {
+    version: 2,
+    markets: [
+      { address: badAddr, status: "resolved", recycled: false, startTs: now - 900 },
+      { address: legacyAddr, status: "windowBurn", recycled: false, accountSize: MARKET_ACCOUNT_SIZE, startTs: null },
+      { address: goodAddr, status: "resolved", recycled: false, startTs: now - 900 },
+    ],
+  };
+  const queried = [];
+  const fakeConn = {
+    async getAccountInfo(pk) {
+      const addr = pk.toBase58();
+      queried.push(addr);
+      if (addr === badAddr) throw new Error("simulated RPC error");
+      return null; // closed/already burned -> marks recycled = true cleanly
+    },
+  };
+  try {
+    await recycleFinalizedEntries(fakeConn, {}, { publicKey: Keypair.generate().publicKey }, { statePath: tmpStatePath }, state);
+    assert.deepEqual(queried, [badAddr, goodAddr]);
+    assert.equal(state.markets[0].recycled, false);
+    assert.equal(state.markets[1].recycled, true);
+    assert.equal(state.markets[1].legacy, true);
+    assert.equal(state.markets[2].recycled, true);
+  } finally {
+    const fs = require("fs");
+    if (fs.existsSync(tmpStatePath)) fs.unlinkSync(tmpStatePath);
+  }
 });

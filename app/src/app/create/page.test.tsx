@@ -97,7 +97,9 @@ describe("CreatePage sandbox lock reason", () => {
     expect(submit).toBeEnabled();
     expect(screen.queryByRole("status")).toBeNull();
     expect(
-      screen.getByText(/Sandbox Account \(Devnet\) supports trading and redemption only/i)
+      screen.getByText(
+        "Sandbox Account (Devnet) supports trading and redemption only — creating a market requires a real wallet: it binds persistent creator authority, and the wallet must hold at least 0.02 SOL to cover account rent and fees."
+      )
     ).toBeInTheDocument();
     // Preview threshold uses Unicode "≥" consistently with the rest of the site
     expect(screen.getByText(/BTC\/USD ≥ /)).toBeInTheDocument();
