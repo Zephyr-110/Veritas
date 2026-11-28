@@ -678,6 +678,9 @@ export default function CreatePage() {
             <StableText k="markets.rule2" block />
           </p>
           <p className="text-[13px] leading-5 text-zinc-400">
+            <StableText k="create.rentNote" block />
+          </p>
+          <p className="text-[13px] leading-5 text-zinc-400">
             <StableText k="create.noteFinal" block />
           </p>
         </div>

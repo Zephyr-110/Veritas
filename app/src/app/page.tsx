@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { useMemo, type CSSProperties } from "react";
 import { useMarketPhaseTime, useMarketsPage } from "@/hooks/use-markets";
-import { listSection, marketKind } from "@/lib/display";
+import {
+  listSection,
+  marketDurationBucket,
+  marketKind,
+  pickSandboxQuickMarket,
+} from "@/lib/display";
 import { localizeError } from "@/lib/errors";
 import { ORACLE_CENSUS_URL } from "@/lib/constants";
 import { DemoVideo } from "@/components/demo-video";
@@ -42,6 +47,13 @@ export default function HomePage() {
             .sort((a, b) => a.expiry - b.expiry)
         : [],
     [liveQuery.markets, mountedNow, now]
+  );
+  const sandboxQuickTarget = useMemo(
+    () =>
+      mode === "sandbox" && mountedNow && !liveQuery.isStaleError && !liveQuery.error
+        ? pickSandboxQuickMarket(live, now)
+        : null,
+    [live, liveQuery.error, liveQuery.isStaleError, mode, mountedNow, now]
   );
   const preview = useMemo(
     () =>
@@ -119,6 +131,22 @@ export default function HomePage() {
                       align="center"
                     />
                   </Button>
+                ) : mode === "sandbox" && sandboxQuickTarget ? (
+                  <Link
+                    href={`/markets/${sandboxQuickTarget.address.toBase58()}`}
+                    data-testid="home-sandbox-quick-jump"
+                  >
+                    <Button type="button" tone="secondary" className="h-11 px-6">
+                      <StableText
+                        k={
+                          marketDurationBucket(sandboxQuickTarget) === "2m"
+                            ? "sandbox.quickJump2m"
+                            : "sandbox.quickJumpLive"
+                        }
+                        align="center"
+                      />
+                    </Button>
+                  </Link>
                 ) : null}
                 <Link href="#how">
                   <Button type="button" tone="secondary" className="h-11 px-6">

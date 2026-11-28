@@ -139,6 +139,7 @@ export function TradeDesk({
     if (!effectivePublicKey || !program) return;
     if (tab === "bet") {
       const label = side === "yes" ? t("tx.buyYes") : t("tx.buyNo");
+      const toastMeta = { marketAddress: market.address.toBase58(), action: "bet" };
       const build = () =>
         ixUserBetOn(program, market, effectivePublicKey, {
           collateralAmount: parsed.value,
@@ -146,17 +147,20 @@ export function TradeDesk({
           minOut: applySlippage(betQuote.swapOut, slippage),
         });
       if (isSandbox) {
-        await runSandbox(label, build);
+        await runSandbox(label, build, toastMeta);
       } else if (realPublicKey) {
-        await run(label, build);
+        await run(label, build, toastMeta);
       }
     } else if (realPublicKey) {
-      await run(side === "yes" ? t("tx.switchYes") : t("tx.switchNo"), () =>
-        ixSwap(program, market, realPublicKey, {
-          amountIn: parsed.value,
-          tokenType: side,
-          minOut: applySlippage(swapOut, slippage),
-        })
+      await run(
+        side === "yes" ? t("tx.switchYes") : t("tx.switchNo"),
+        () =>
+          ixSwap(program, market, realPublicKey, {
+            amountIn: parsed.value,
+            tokenType: side,
+            minOut: applySlippage(swapOut, slippage),
+          }),
+        { marketAddress: market.address.toBase58(), action: "swap" }
       );
     }
   };

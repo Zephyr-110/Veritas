@@ -75,9 +75,15 @@ type SettingsCtx = {
   setSettings: (next: AppSettings) => void;
 };
 
+export const DEFAULT_TOAST_MS = 5200;
+export const DEFAULT_ERR_TOAST_MS = 6500;
+export const MAX_ERR_TOAST_MS = 10_000;
+
 export type ToastOptions = {
   sticky?: boolean;
   durationMs?: number;
+  marketAddress?: string;
+  action?: string;
 };
 
 export type ToastPatch = {
@@ -87,6 +93,8 @@ export type ToastPatch = {
   href?: string;
   sticky?: boolean;
   durationMs?: number;
+  marketAddress?: string;
+  action?: string;
 };
 
 type ToastCtx = {
@@ -100,6 +108,7 @@ type ToastCtx = {
   ) => number;
   update: (id: number, patch: ToastPatch) => void;
   dismiss: (id: number) => void;
+  clearMarketErrors: (marketAddress: string, action?: string) => void;
 };
 
 type RefreshCtx = {
@@ -183,13 +192,42 @@ function SettingsInner({ children }: { children: ReactNode }) {
   }, []);
 
   const scheduleToastDismiss = useCallback(
-    (id: number, durationMs = 5200) => {
+    (id: number, durationMs = DEFAULT_TOAST_MS) => {
       clearToastTimer(id);
       const timerId = window.setTimeout(() => {
         toastTimersRef.current.delete(id);
         setToasts((prev) => prev.filter((item) => item.id !== id));
       }, durationMs);
       toastTimersRef.current.set(id, timerId);
+    },
+    [clearToastTimer]
+  );
+
+  const boundedErrorDuration = useCallback((durationMs?: number) => {
+    const raw = durationMs ?? DEFAULT_ERR_TOAST_MS;
+    if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_ERR_TOAST_MS;
+    return Math.min(raw, MAX_ERR_TOAST_MS);
+  }, []);
+
+  const clearMarketErrors = useCallback(
+    (marketAddress: string, action?: string) => {
+      if (!marketAddress) return;
+      setToasts((prev) => {
+        let changed = false;
+        const next = prev.filter((item) => {
+          const match =
+            item.kind === "err" &&
+            item.marketAddress === marketAddress &&
+            (action === undefined || item.action === action);
+          if (match) {
+            clearToastTimer(item.id);
+            changed = true;
+            return false;
+          }
+          return true;
+        });
+        return changed ? next : prev;
+      });
     },
     [clearToastTimer]
   );
@@ -209,36 +247,83 @@ function SettingsInner({ children }: { children: ReactNode }) {
     ): number => {
       const id = Date.now() * 1000 + (nextToastIdRef.current++ % 1000);
       const safeDetail = resolveDetail(detail);
-      setToasts((prev) => [...prev.slice(-4), { id, kind, title, detail: safeDetail, href }]);
-      if (!opts?.sticky) {
-        scheduleToastDismiss(id, opts?.durationMs ?? 5200);
+      const marketAddress = opts?.marketAddress;
+      const action = opts?.action;
+      setToasts((prev) => {
+        const base =
+          kind === "ok" && marketAddress
+            ? prev.filter((item) => {
+                const staleErr =
+                  item.kind === "err" &&
+                  item.marketAddress === marketAddress &&
+                  (action === undefined || item.action === action);
+                if (staleErr) clearToastTimer(item.id);
+                return !staleErr;
+              })
+            : prev;
+        return [
+          ...base.slice(-4),
+          { id, kind, title, detail: safeDetail, href, marketAddress, action },
+        ];
+      });
+      if (kind === "err") {
+        scheduleToastDismiss(id, boundedErrorDuration(opts?.durationMs));
+      } else if (!opts?.sticky) {
+        scheduleToastDismiss(id, opts?.durationMs ?? DEFAULT_TOAST_MS);
       }
       return id;
     },
-    [resolveDetail, scheduleToastDismiss]
+    [boundedErrorDuration, clearToastTimer, resolveDetail, scheduleToastDismiss]
   );
 
   const update = useCallback(
     (id: number, patch: ToastPatch) => {
-      setToasts((prev) =>
-        prev.map((item) => {
-          if (item.id !== id) return item;
-          return {
-            ...item,
-            kind: patch.kind ?? item.kind,
-            title: patch.title ?? item.title,
-            detail: "detail" in patch ? resolveDetail(patch.detail) : item.detail,
-            href: "href" in patch ? patch.href : item.href,
-          };
-        })
-      );
-      if (patch.sticky) {
+      let resolvedKind: ToastKind | undefined = patch.kind;
+      setToasts((prev) => {
+        const current = prev.find((item) => item.id === id);
+        if (!current) return prev;
+        const nextKind = patch.kind ?? current.kind;
+        resolvedKind = nextKind;
+        const nextMarket = "marketAddress" in patch ? patch.marketAddress : current.marketAddress;
+        const nextAction = "action" in patch ? patch.action : current.action;
+        const nextItem: ToastItem = {
+          ...current,
+          kind: nextKind,
+          title: patch.title ?? current.title,
+          detail: "detail" in patch ? resolveDetail(patch.detail) : current.detail,
+          href: "href" in patch ? patch.href : current.href,
+          marketAddress: nextMarket,
+          action: nextAction,
+        };
+        const out: ToastItem[] = [];
+        for (const item of prev) {
+          if (item.id === id) {
+            out.push(nextItem);
+            continue;
+          }
+          if (
+            nextKind === "ok" &&
+            nextMarket &&
+            item.kind === "err" &&
+            item.marketAddress === nextMarket &&
+            (nextAction === undefined || item.action === nextAction)
+          ) {
+            clearToastTimer(item.id);
+            continue;
+          }
+          out.push(item);
+        }
+        return out;
+      });
+      if (resolvedKind === "err") {
+        scheduleToastDismiss(id, boundedErrorDuration(patch.durationMs));
+      } else if (patch.sticky) {
         clearToastTimer(id);
       } else {
-        scheduleToastDismiss(id, patch.durationMs ?? 5200);
+        scheduleToastDismiss(id, patch.durationMs ?? DEFAULT_TOAST_MS);
       }
     },
-    [clearToastTimer, resolveDetail, scheduleToastDismiss]
+    [boundedErrorDuration, clearToastTimer, resolveDetail, scheduleToastDismiss]
   );
 
   const dismiss = useCallback(
@@ -291,7 +376,7 @@ function SettingsInner({ children }: { children: ReactNode }) {
 
   return (
     <SettingsContext.Provider value={{ settings, setSettings }}>
-      <ToastContext.Provider value={{ toasts, push, update, dismiss }}>
+      <ToastContext.Provider value={{ toasts, push, update, dismiss, clearMarketErrors }}>
         <RefreshContext.Provider value={{ nonce, bump }}>
           <ConnectionProvider endpoint={settings.rpcUrl} config={{ commitment: "confirmed" }}>
             <WalletProvider wallets={wallets} autoConnect onError={onWalletError}>

@@ -284,3 +284,17 @@ test("pickSeedUsdt randomizes within 120-180 USDT by default with ~150 mean and 
   const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
   assert.ok(mean > 135 && mean < 165, `expected mean near 150, got ${mean}`);
 });
+
+test("getConfig defaults SANDBOX_ACTIVE_WINDOW_SEC to 3600 and honors env override", () => {
+  const prev = process.env.SANDBOX_ACTIVE_WINDOW_SEC;
+  try {
+    delete process.env.SANDBOX_ACTIVE_WINDOW_SEC;
+    assert.equal(getConfig().activeWindowSec, 3600);
+
+    process.env.SANDBOX_ACTIVE_WINDOW_SEC = "900";
+    assert.equal(getConfig().activeWindowSec, 900);
+  } finally {
+    if (prev === undefined) delete process.env.SANDBOX_ACTIVE_WINDOW_SEC;
+    else process.env.SANDBOX_ACTIVE_WINDOW_SEC = prev;
+  }
+});

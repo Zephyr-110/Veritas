@@ -60,6 +60,7 @@ const {
   Kv,
   LangSwitch,
   Reveal,
+  SandboxCapsule,
   SegTabs,
   StateBlock,
   ThemeToggle,
@@ -321,5 +322,113 @@ describe("ui primitives", () => {
       </LocaleProvider>
     );
     expect(innerContainer.querySelector("footer")?.innerHTML).toBe(homeFooterHtml);
+  });
+
+  it("SandboxCapsule 实时拉取 /api/markets：优先直达最短 2 分钟盘，否则最短开启盘，无开启盘时不渲染", async () => {
+    const { GuestSessionProvider, SANDBOX_STORAGE_KEY } = await import("@/components/guest-session");
+    const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+    const { Keypair } = await import("@solana/web3.js");
+    const { FEEDS } = await import("@/lib/feeds");
+    const kp = Keypair.generate();
+    localStorage.setItem(
+      SANDBOX_STORAGE_KEY,
+      JSON.stringify({ secretKey: Array.from(kp.secretKey), active: true })
+    );
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const makeDto = (seed: number, title: string, expiry: number) => {
+      const addr = new PublicKey(Buffer.alloc(32, seed)).toBase58();
+      const idHex = Buffer.alloc(16, seed).toString("hex");
+      return {
+        address: addr,
+        programId: "CYVpaizqcMaoqPfBaMABPAH3xpPaC6iCuWiViXjeHuER",
+        idHex,
+        bump: 255,
+        creator: addr,
+        title,
+        feedKey: "btc",
+        feedSymbol: "BTC/USD",
+        ocr2State: FEEDS[0].state,
+        collateralMint: addr,
+        tokenProgram: PublicKey.default.toBase58(),
+        decimals: 6,
+        yesMint: addr,
+        noMint: addr,
+        openedAt: nowSec - 10,
+        startTs: nowSec - 10,
+        expiry,
+        endTs: expiry,
+        finishTs: 0,
+        durationSec: null,
+        durationBucket: null,
+        status: "open",
+        winner: null,
+        threshold: "6000000000000",
+        priceDecimals: 8,
+        settleAbove: true,
+        settledPrice: "0",
+        settledPublishTime: 0,
+        feeBps: 50,
+        lZero: "150000000",
+        lastAccrualTs: nowSec,
+        cumYesPerShare: "0",
+        cumNoPerShare: "0",
+        reserveYes: "150000000",
+        reserveNo: "150000000",
+        totalLpShares: "150000000",
+        yesPool: "0",
+        noPool: "0",
+        vault: "150000000",
+        yesPrice: 0.5,
+        noPrice: 0.5,
+        updatedAt: nowSec,
+      };
+    };
+
+    const m15Short = makeDto(11, "BTC/USD at or above opening price in 15 min?", nowSec + 40);
+    const m2Short = makeDto(12, "ETH/USD at or above opening price in 2 min?", nowSec + 80);
+    const m2Long = makeDto(13, "SOL/USD at or above opening price in 2 min?", nowSec + 110);
+
+    let mode: "both" | "only15" | "empty" = "both";
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (url === "/api/sandbox/activate") {
+        return { ok: true, json: async () => ({ ok: true, touched: true }) };
+      }
+      const items = mode === "both" ? [m15Short, m2Long, m2Short] : mode === "only15" ? [m15Short] : [];
+      return {
+        ok: true,
+        json: async () => ({ items, total: items.length, page: 1, pageSize: 50, hasMore: false, indexedAt: nowSec }),
+      };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const qc = new QueryClient();
+    render(
+      <QueryClientProvider client={qc}>
+        <LocaleProvider>
+          <GuestSessionProvider>
+            <SandboxCapsule />
+          </GuestSessionProvider>
+        </LocaleProvider>
+      </QueryClientProvider>
+    );
+
+    const capsuleBtn = await screen.findByRole("button", { name: /Sandbox/i });
+    await userEvent.click(capsuleBtn);
+    const jump2m = await screen.findByTestId("sandbox-quick-jump");
+    expect(jump2m).toHaveAttribute("href", `/markets/${m2Short.address}`);
+
+    // Close and reopen with only 15m market
+    await userEvent.click(capsuleBtn);
+    mode = "only15";
+    await userEvent.click(capsuleBtn);
+    const jumpLive = await screen.findByTestId("sandbox-quick-jump");
+    expect(jumpLive).toHaveAttribute("href", `/markets/${m15Short.address}`);
+
+    // Close and reopen with no live markets -> not rendered
+    await userEvent.click(capsuleBtn);
+    mode = "empty";
+    await userEvent.click(capsuleBtn);
+    await waitFor(() => expect(screen.queryByTestId("sandbox-quick-jump")).toBeNull());
   });
 });

@@ -234,6 +234,9 @@ export default function HelpPage() {
             <p className="text-[15px] leading-relaxed text-zinc-400">
               <StableText k="help.a0Fee" block />
             </p>
+            <p className="text-[15px] leading-relaxed text-zinc-400">
+              <StableText k="create.rentNote" block />
+            </p>
           </DeepItem>
           <DeepItem id="settlement" titleKey="help.a2Title" whyKey="help.a2" howKey="help.a2Sub">
             <a href={ORACLE_CENSUS_URL} className="link-accent text-sm">

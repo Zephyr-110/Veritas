@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync } from "fs";
 import {
   createAssociatedTokenAccountIdempotentInstruction,
   createTransferInstruction,
@@ -22,6 +22,7 @@ import {
   recordIpClaim,
   releaseAddressLock,
 } from "@/lib/sandbox-faucet-guard";
+import { touchSandboxActiveSignal } from "@/lib/sandbox-active";
 import {
   checkDailyCountCap,
   checkRateLimit,
@@ -52,13 +53,7 @@ function loadPayer(keypairPath: string): Keypair {
 }
 
 function touchActiveSignal(): void {
-  const activeFile = process.env.SANDBOX_ACTIVE_FILE?.trim();
-  if (!activeFile) return;
-  try {
-    writeFileSync(activeFile, JSON.stringify({ lastActiveTs: Math.floor(Date.now() / 1000) }));
-  } catch {
-    // best-effort signal for optional on-demand scheduler
-  }
+  touchSandboxActiveSignal();
 }
 
 export async function POST(req: Request) {

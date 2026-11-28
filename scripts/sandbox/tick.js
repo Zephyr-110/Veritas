@@ -174,7 +174,7 @@ Environment variables:
   SANDBOX_DAILY_MAX_MARKETS    Max markets created per UTC day, 0=unlimited (default: 0)
   SANDBOX_MIN_SOL_LAMPORTS     Minimum operator SOL balance guard (default: 30000000)
   SANDBOX_ACTIVE_FILE          Optional JSON file {lastActiveTs} gating creation to active windows
-  SANDBOX_ACTIVE_WINDOW_SEC    Active window duration in seconds (default: 1800)
+  SANDBOX_ACTIVE_WINDOW_SEC    Active window duration in seconds (default: 3600)
   BTC_FEED_ACCOUNT / BTC_OCR2_STATE   Override BTC/USD Chainlink feed/state accounts
   ETH_FEED_ACCOUNT / ETH_OCR2_STATE   Override ETH/USD Chainlink feed/state accounts
   SOL_FEED_ACCOUNT / SOL_OCR2_STATE   Override SOL/USD Chainlink feed/state accounts
@@ -316,7 +316,7 @@ function getConfig() {
     dailyMaxMarkets: Math.max(0, Math.round(envNum("SANDBOX_DAILY_MAX_MARKETS", 0))),
     minSolLamports: Math.max(0, Math.round(envNum("SANDBOX_MIN_SOL_LAMPORTS", 30_000_000))),
     activeFile: envStr(["SANDBOX_ACTIVE_FILE"], ""),
-    activeWindowSec: Math.max(60, Math.round(envNum("SANDBOX_ACTIVE_WINDOW_SEC", 1800))),
+    activeWindowSec: Math.max(60, Math.round(envNum("SANDBOX_ACTIVE_WINDOW_SEC", 3600))),
   };
 }
 

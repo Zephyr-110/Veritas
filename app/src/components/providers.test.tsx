@@ -19,7 +19,7 @@ vi.mock("@solana/wallet-adapter-react-ui", () => ({
   WalletModalProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
-const { Providers, useRefresh } = await import("@/components/providers");
+const { Providers, useRefresh, useToasts, MAX_ERR_TOAST_MS } = await import("@/components/providers");
 
 afterEach(() => {
   cleanup();
@@ -93,6 +93,123 @@ describe("Providers refresh invalidation", () => {
       await vi.advanceTimersByTimeAsync(2500);
     });
     expect(spy.mock.calls.length).toBeGreaterThan(midCalls);
+    vi.useRealTimers();
+  });
+});
+
+function ToastProbe() {
+  const { push, clearMarketErrors } = useToasts();
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() =>
+          push("err", "Submit settlement failed", "errors.notOpen", undefined, {
+            marketAddress: "MKT_A",
+            action: "resolve",
+            sticky: true,
+          })
+        }
+      >
+        push-err-a
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          push("err", "Other market failed", "errors.txFailed", undefined, {
+            marketAddress: "MKT_B",
+            action: "resolve",
+          })
+        }
+      >
+        push-err-b
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          push("ok", "Submit settlement", "Confirmed", undefined, {
+            marketAddress: "MKT_A",
+            action: "resolve",
+          })
+        }
+      >
+        push-ok-a
+      </button>
+      <button type="button" onClick={() => clearMarketErrors("MKT_A")}>
+        clear-a
+      </button>
+    </div>
+  );
+}
+
+describe("Toast lifecycle for market-bound errors", () => {
+  it("clears market-bound error toasts when market status changes, without clearing other markets", async () => {
+    render(
+      <Providers>
+        <ToastProbe />
+      </Providers>
+    );
+
+    await act(async () => {
+      screen.getByRole("button", { name: "push-err-a" }).click();
+      screen.getByRole("button", { name: "push-err-b" }).click();
+    });
+    expect(screen.getByText("Submit settlement failed")).toBeInTheDocument();
+    expect(screen.getByText("Other market failed")).toBeInTheDocument();
+
+    await act(async () => {
+      screen.getByRole("button", { name: "clear-a" }).click();
+    });
+    expect(screen.queryByText("Submit settlement failed")).toBeNull();
+    expect(screen.getByText("Other market failed")).toBeInTheDocument();
+  });
+
+  it("clears pending market error toast when the same action succeeds", async () => {
+    render(
+      <Providers>
+        <ToastProbe />
+      </Providers>
+    );
+
+    await act(async () => {
+      screen.getByRole("button", { name: "push-err-a" }).click();
+    });
+    expect(screen.getByText("Submit settlement failed")).toBeInTheDocument();
+
+    await act(async () => {
+      screen.getByRole("button", { name: "push-ok-a" }).click();
+    });
+    expect(screen.queryByText("Submit settlement failed")).toBeNull();
+    expect(screen.getByText("Submit settlement")).toBeInTheDocument();
+  });
+
+  it("auto-dismisses error toasts within bounded lifetime even if sticky=true, and preserves manual dismiss", async () => {
+    vi.useFakeTimers();
+    render(
+      <Providers>
+        <ToastProbe />
+      </Providers>
+    );
+
+    await act(async () => {
+      screen.getByRole("button", { name: "push-err-a" }).click();
+    });
+    expect(screen.getByText("Submit settlement failed")).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(MAX_ERR_TOAST_MS);
+    });
+    expect(screen.queryByText("Submit settlement failed")).toBeNull();
+
+    // Manual dismiss still works immediately
+    await act(async () => {
+      screen.getByRole("button", { name: "push-err-b" }).click();
+    });
+    const alertBtn = screen.getByText("Other market failed").closest("button")!;
+    await act(async () => {
+      alertBtn.click();
+    });
+    expect(screen.queryByText("Other market failed")).toBeNull();
     vi.useRealTimers();
   });
 });

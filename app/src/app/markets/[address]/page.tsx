@@ -346,18 +346,24 @@ function BandCell({
   children,
   sub,
   valueClassName,
+  wrap = false,
 }: {
   labelKey: string;
   children: ReactNode;
   sub?: ReactNode;
   valueClassName?: string;
+  wrap?: boolean;
 }) {
   return (
     <div className="min-w-0 px-5 py-4">
       <div className="section-title">
         <StableText k={labelKey} />
       </div>
-      <div className={`num mt-1.5 truncate text-[19px] font-semibold ${valueClassName ?? "text-zinc-50"}`}>
+      <div
+        className={`num mt-1.5 ${
+          wrap ? "whitespace-normal break-words leading-snug" : "truncate"
+        } ${valueClassName ?? "text-[19px] font-semibold text-zinc-50"}`}
+      >
         {children}
       </div>
       <div className="mt-0.5 min-h-[1.25rem] truncate text-xs text-zinc-500">{sub ?? ""}</div>
@@ -483,10 +489,15 @@ function StatusBand({
       <>
         <BandCell labelKey="band.expiredFor">{countdown(now, market.expiry)}</BandCell>
         <BandCell labelKey="market.threshold">{humanThreshold}</BandCell>
-        <BandCell labelKey="market.settleRule" valueClassName="text-[15px] font-medium text-zinc-200">
+        <BandCell
+          labelKey="market.settleRule"
+          wrap
+          valueClassName="text-[14px] font-medium leading-snug text-zinc-200 sm:text-[15px]"
+        >
           <StableText
             k={market.settleAbove ? "market.settleAbove" : "market.settleBelow"}
             vars={{ price: humanThreshold }}
+            block
           />
         </BandCell>
         <BandCell labelKey="band.voidWindow">

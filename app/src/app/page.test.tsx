@@ -14,6 +14,7 @@ const homeState = vi.hoisted(() => ({
   live: [] as MarketView[],
   ended: [] as MarketView[],
   endedTotal: 0,
+  mode: "none" as "none" | "sandbox" | "real",
 }));
 
 vi.mock("next/link", () => ({
@@ -42,13 +43,18 @@ vi.mock("@/hooks/use-markets", () => ({
     };
   },
   useMarketPhaseTime: () => NOW,
+  useVisibleVaults: () => (market: MarketView) => market.vault,
+}));
+
+vi.mock("@/hooks/use-feeds", () => ({
+  useFeeds: () => ({ quotes: {}, ready: false }),
 }));
 
 vi.mock("@/components/guest-session", () => ({
   useGuestSession: () => ({
     hydrated: true,
-    mode: "none",
-    effectivePublicKey: null,
+    mode: homeState.mode,
+    effectivePublicKey: homeState.mode === "none" ? null : USER_KEY,
     hasSavedKey: false,
     entering: false,
     locked: false,
@@ -132,6 +138,7 @@ beforeEach(() => {
   homeState.live = [];
   homeState.ended = [];
   homeState.endedTotal = 0;
+  homeState.mode = "none";
 });
 
 afterEach(() => cleanup());
@@ -230,5 +237,56 @@ describe("HomePage hero copy, layout order, and why cards", () => {
 
     renderHome();
     expect(screen.getByText("No markets this round.")).toBeInTheDocument();
+  });
+
+  it("renders sandbox one-click jump prioritizing shortest 2m market, falling back to shortest live, and omitting when empty", () => {
+    homeState.mode = "sandbox";
+    const m15 = makeEndedMarket(21, 0, {
+      status: "open",
+      winner: null,
+      expiry: NOW + 30,
+      endTs: NOW + 30,
+      title: "BTC/USD at or above opening price in 15 min?",
+    });
+    const m2Short = makeEndedMarket(22, 1, {
+      status: "open",
+      winner: null,
+      expiry: NOW + 70,
+      endTs: NOW + 70,
+      title: "ETH/USD at or above opening price in 2 min?",
+    });
+    const m2Long = makeEndedMarket(23, 2, {
+      status: "open",
+      winner: null,
+      expiry: NOW + 110,
+      endTs: NOW + 110,
+      title: "SOL/USD at or above opening price in 2 min?",
+    });
+    homeState.live = [m15, m2Long, m2Short];
+
+    const { rerender } = renderHome();
+    expect(screen.getByTestId("home-sandbox-quick-jump")).toHaveAttribute(
+      "href",
+      `/markets/${m2Short.address.toBase58()}`
+    );
+
+    homeState.live = [m15];
+    rerender(
+      <LocaleProvider>
+        <HomePage />
+      </LocaleProvider>
+    );
+    expect(screen.getByTestId("home-sandbox-quick-jump")).toHaveAttribute(
+      "href",
+      `/markets/${m15.address.toBase58()}`
+    );
+
+    homeState.live = [];
+    rerender(
+      <LocaleProvider>
+        <HomePage />
+      </LocaleProvider>
+    );
+    expect(screen.queryByTestId("home-sandbox-quick-jump")).toBeNull();
   });
 });

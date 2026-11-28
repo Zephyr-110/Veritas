@@ -112,10 +112,18 @@ export function LpDesk({
       return;
     }
     if (!publicKey || !program) return;
+    const marketAddress = market.address.toBase58();
     if (activeTab === "add") {
-      await run(t("tx.addPool"), () => ixAddLiquidity(program, market, publicKey, parsed.value));
+      await run(t("tx.addPool"), () => ixAddLiquidity(program, market, publicKey, parsed.value), {
+        marketAddress,
+        action: "lpAdd",
+      });
     } else {
-      const sig = await run(t("tx.withdrawPool"), () => ixGetLiquidity(program, market, publicKey, parsed.value));
+      const sig = await run(
+        t("tx.withdrawPool"),
+        () => ixGetLiquidity(program, market, publicKey, parsed.value),
+        { marketAddress, action: "lpWithdraw" }
+      );
       if (sig) setWithdrawn(true);
     }
   };

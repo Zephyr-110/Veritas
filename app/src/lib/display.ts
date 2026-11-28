@@ -68,6 +68,15 @@ export function marketDurationBucket(
   return null;
 }
 
+/** Picks the shortest-remaining live 2m market, or else the shortest-remaining live market, or null if none. */
+export function pickSandboxQuickMarket(markets: MarketView[], nowSec: number): MarketView | null {
+  const live = markets
+    .filter((market) => market.status === "open" && market.expiry > nowSec)
+    .sort((a, b) => a.expiry - b.expiry);
+  if (live.length === 0) return null;
+  return live.find((market) => marketDurationBucket(market) === "2m") ?? live[0];
+}
+
 function formatDurationTitle(
   symbol: string,
   above: boolean,

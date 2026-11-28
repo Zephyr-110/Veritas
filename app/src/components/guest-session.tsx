@@ -25,6 +25,15 @@ import { useT } from "@/i18n/provider";
 import { useRefresh, useSettings, useToasts } from "./providers";
 
 export const SANDBOX_STORAGE_KEY = "veritas.sandbox.v1";
+export const SANDBOX_ACTIVATE_INTERVAL_MS = 10 * 60 * 1000;
+
+export type SandboxRunOptions =
+  | boolean
+  | {
+      submissionErrorsOnly?: boolean;
+      marketAddress?: string;
+      action?: string;
+    };
 
 export type SessionMode = "real" | "sandbox" | "none";
 
@@ -68,7 +77,7 @@ type GuestSessionCtx = {
   runSandbox: (
     label: string,
     build: () => Promise<TransactionInstruction[]>,
-    submissionErrorsOnly?: boolean
+    opts?: SandboxRunOptions
   ) => Promise<string | null>;
   beginTx: () => boolean;
   endTx: () => void;
@@ -291,6 +300,22 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
 
   const isReal = mode === "real";
   const isSandbox = mode === "sandbox";
+
+  useEffect(() => {
+    if (!isSandbox) return;
+    const pingActivate = () => {
+      void fetch("/api/sandbox/activate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }).catch(() => {
+        // best-effort keep-alive; never coupled to faucet or sandbox UX
+      });
+    };
+    pingActivate();
+    const timerId = window.setInterval(pingActivate, SANDBOX_ACTIVATE_INTERVAL_MS);
+    return () => window.clearInterval(timerId);
+  }, [isSandbox]);
   const locked = entering || txPending;
   const sandboxPublicKey = keypair ? keypair.publicKey : null;
   const effectivePublicKey =
@@ -774,11 +799,18 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
     async (
       label: string,
       build: () => Promise<TransactionInstruction[]>,
-      submissionErrorsOnly = false
+      opts?: SandboxRunOptions
     ): Promise<string | null> => {
+      const submissionErrorsOnly =
+        typeof opts === "boolean" ? opts : Boolean(opts?.submissionErrorsOnly);
+      const marketAddress = typeof opts === "object" ? opts?.marketAddress : undefined;
+      const action = typeof opts === "object" ? opts?.action : undefined;
       const kp = keypairRef.current;
       if (isRealConnected || !activeRef.current || !kp) {
-        push(submissionErrorsOnly ? "info" : "err", label, "errors.connectWallet");
+        push(submissionErrorsOnly ? "info" : "err", label, "errors.connectWallet", undefined, {
+          marketAddress,
+          action,
+        });
         return null;
       }
       if (!beginTx()) return null;
@@ -788,7 +820,7 @@ export function GuestSessionProvider({ children }: { children: ReactNode }) {
         t("sandbox.txSigningTitle", { label }),
         t("sandbox.txSigningBody"),
         undefined,
-        { sticky: true }
+        { sticky: true, marketAddress, action }
       );
 
       const applyStage = (stage: SandboxTxStage) => {

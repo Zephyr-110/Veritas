@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ReactNode } from "react";
-import { render, screen, cleanup } from "@testing-library/react";
+import { act, render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { emptyQuotes } from "@/lib/chainlink";
 import { LocaleProvider } from "@/i18n/provider";
+import { setLocale } from "@/i18n/store";
 
 const guestState = vi.hoisted(() => ({
   isSandbox: true,
@@ -79,7 +80,10 @@ beforeEach(() => {
   openWalletModal.mockReset();
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  setLocale("en");
+});
 
 describe("CreatePage sandbox lock reason", () => {
   it("沙盒未锁定时可点击连接真实钱包，不显示锁定原因", async () => {
@@ -136,5 +140,32 @@ describe("CreatePage sandbox lock reason", () => {
     expect(screen.getByRole("status")).toHaveTextContent(
       /A sandbox account action is in progress/i
     );
+  });
+
+  it("在创建须知区逐字展示中英双语账户租金说明", () => {
+    const { rerender } = render(
+      <LocaleProvider>
+        <CreatePage />
+      </LocaleProvider>
+    );
+    expect(
+      screen.getByText(
+        "Creating a market also requires roughly 0.014 SOL of account rent, locked until the market's accounts are burned 30 days after it finalises."
+      )
+    ).toBeInTheDocument();
+
+    act(() => {
+      setLocale("zh");
+    });
+    rerender(
+      <LocaleProvider>
+        <CreatePage />
+      </LocaleProvider>
+    );
+    expect(
+      screen.getByText(
+        "创建市场另需约 0.014 SOL 的账户租金，锁定至市场完结 30 天后烧毁账户时回收。"
+      )
+    ).toBeInTheDocument();
   });
 });

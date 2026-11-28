@@ -31,6 +31,8 @@ export type ToastItem = {
   title: string;
   detail?: string;
   href?: string;
+  marketAddress?: string;
+  action?: string;
 };
 
 export type FeedQuote = {

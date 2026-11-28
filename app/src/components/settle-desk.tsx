@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useConnection, useAnchorWallet, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import {
@@ -43,7 +43,18 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
   const { effectivePublicKey, isSandbox, locked } = useGuestSession();
   const { busy, run } = useTx();
   const { busy: sandboxBusy, runSandbox } = useSandboxTx();
+  const { clearMarketErrors } = useToasts();
   const anyBusy = busy || sandboxBusy;
+  const marketAddr = market.address.toBase58();
+  const prevMarketRef = useRef<{ address: string; status: MarketView["status"] } | null>(null);
+
+  useEffect(() => {
+    const prev = prevMarketRef.current;
+    if (prev && prev.address === marketAddr && prev.status !== market.status) {
+      clearMarketErrors?.(marketAddr);
+    }
+    prevMarketRef.current = { address: marketAddr, status: market.status };
+  }, [clearMarketErrors, market.status, marketAddr]);
   const now = useNow();
   const t = useT();
   const phase = marketPhase(market, now);
@@ -93,7 +104,11 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
                     onClick={() =>
                       realPublicKey &&
                       program &&
-                      run(t("tx.cashOut"), () => ixMergeToken(program, market, realPublicKey, mergeable))
+                      run(
+                        t("tx.cashOut"),
+                        () => ixMergeToken(program, market, realPublicKey, mergeable),
+                        { marketAddress: marketAddr, action: "merge" }
+                      )
                     }
                   >
                     <StableText
@@ -117,9 +132,15 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
                   const build = () =>
                     ixGetCollateral(program, market, effectivePublicKey, mint, winningAmount);
                   if (isSandbox) {
-                    return runSandbox(t("tx.collectWinnings"), build);
+                    return runSandbox(t("tx.collectWinnings"), build, {
+                      marketAddress: marketAddr,
+                      action: "redeem",
+                    });
                   }
-                  return run(t("tx.collectWinnings"), build);
+                  return run(t("tx.collectWinnings"), build, {
+                    marketAddress: marketAddr,
+                    action: "redeem",
+                  });
                 }}
               >
                 <StableText
@@ -179,7 +200,11 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
                 onClick={() =>
                   realPublicKey &&
                   program &&
-                  run(t("tx.cancelMarket"), () => ixVoidMarket(program, market, realPublicKey))
+                  run(
+                    t("tx.cancelMarket"),
+                    () => ixVoidMarket(program, market, realPublicKey),
+                    { marketAddress: marketAddr, action: "void" }
+                  )
                 }
               >
                 <StableText k="settle.cancelRefund" align="center" />
@@ -212,7 +237,11 @@ export function SettleDesk({ market, position }: { market: MarketView; position:
             onClick={() =>
               realPublicKey &&
               program &&
-              run(t("tx.burnAccount"), () => ixBurnAccount(program, market, realPublicKey))
+              run(
+                t("tx.burnAccount"),
+                () => ixBurnAccount(program, market, realPublicKey),
+                { marketAddress: marketAddr, action: "burn" }
+              )
             }
           >
             <StableText k="settle.burnSubmit" align="center" />
@@ -270,8 +299,10 @@ function SnapshotCard({ market, now }: { market: MarketView; now: number }) {
         onClick={() =>
           publicKey &&
           program &&
-          run(t("tx.takeSnapshot"), () =>
-            ixTakeSnapshot(program, market, publicKey, new PublicKey(preset.feed))
+          run(
+            t("tx.takeSnapshot"),
+            () => ixTakeSnapshot(program, market, publicKey, new PublicKey(preset.feed)),
+            { marketAddress: market.address.toBase58(), action: "snapshot" }
           )
         }
       >
@@ -323,12 +354,18 @@ function ResolveButton({ market, disabled }: { market: MarketView; disabled: boo
   const onClick = async () => {
     if (!program || !reports || disabled) return;
     const label = t("tx.submitResolve");
+    const toastMeta = { marketAddress: market.address.toBase58(), action: "resolve" };
     if (isSandbox && effectivePublicKey) {
-      await runSandbox(label, () => ixResolveMarket(program, market, effectivePublicKey, {
-        rawPre: reports.pre.raw,
-        rawPost: reports.post.raw,
-        hasSnapshot: reports.hasSnapshot,
-      }), true);
+      await runSandbox(
+        label,
+        () =>
+          ixResolveMarket(program, market, effectivePublicKey, {
+            rawPre: reports.pre.raw,
+            rawPost: reports.post.raw,
+            hasSnapshot: reports.hasSnapshot,
+          }),
+        { submissionErrorsOnly: true, ...toastMeta }
+      );
       return;
     }
     if (!wallet) return;
@@ -336,11 +373,17 @@ function ResolveButton({ market, disabled }: { market: MarketView; disabled: boo
     try {
       const sig = await resolveMarketWithChainlink(connection, wallet, program, market, reports);
       const link = sig ? explorerTx(sig, settings.cluster) : null;
-      push("ok", label, link ? t("tx.view") : t("tx.confirmed"), link ?? undefined);
+      push("ok", label, link ? t("tx.view") : t("tx.confirmed"), link ?? undefined, toastMeta);
       bump();
     } catch (err) {
       const rejected = isSubmissionRejection(err);
-      push(rejected ? "err" : "info", rejected ? t("tx.failed", { label }) : label, parseTxError(err));
+      push(
+        rejected ? "err" : "info",
+        rejected ? t("tx.failed", { label }) : label,
+        parseTxError(err),
+        undefined,
+        toastMeta
+      );
     } finally {
       setBusy(false);
     }
@@ -436,10 +479,11 @@ function VoidClaim({ market, position }: { market: MarketView; position: UserPos
           const mint = side === "yes" ? market.pdas.yesMint : market.pdas.noMint;
           const build = () =>
             ixGetCollateral(program, market, effectivePublicKey, mint, parsed.value);
+          const toastMeta = { marketAddress: market.address.toBase58(), action: "redeemVoid" };
           if (isSandbox) {
-            return runSandbox(t("tx.collectRefund"), build);
+            return runSandbox(t("tx.collectRefund"), build, toastMeta);
           }
-          return run(t("tx.collectRefund"), build);
+          return run(t("tx.collectRefund"), build, toastMeta);
         }}
       >
         <StableText

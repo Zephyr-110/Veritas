@@ -22,8 +22,15 @@ import {
   DEFAULT_RPC,
   GITHUB_REPO,
 } from "@/lib/constants";
-import { kindLabelKey, kindTone, marketKind } from "@/lib/display";
+import {
+  kindLabelKey,
+  kindTone,
+  marketDurationBucket,
+  marketKind,
+  pickSandboxQuickMarket,
+} from "@/lib/display";
 import { explorerAccount, explorerTx, formatFixed, shorten } from "@/lib/format";
+import { deserializeMarket, type MarketsPageResponse } from "@/lib/market-dto";
 import type { MarketView } from "@/lib/markets";
 import { parseTxError } from "@/lib/errors";
 import { sendIxs, mustWallet } from "@/lib/send";
@@ -461,7 +468,8 @@ export function useTx() {
 
   const run = async (
     label: string,
-    build: () => Promise<import("@solana/web3.js").TransactionInstruction[]>
+    build: () => Promise<import("@solana/web3.js").TransactionInstruction[]>,
+    opts?: { marketAddress?: string; action?: string }
   ): Promise<string | null> => {
     setBusy(true);
     try {
@@ -469,11 +477,11 @@ export function useTx() {
       const ixs = await build();
       const sig = await sendIxs(connection, w, ixs);
       const link = explorerTx(sig, settings.cluster);
-      push("ok", label, link ? t("tx.view") : t("tx.confirmed"), link ?? undefined);
+      push("ok", label, link ? t("tx.view") : t("tx.confirmed"), link ?? undefined, opts);
       bump();
       return sig;
     } catch (err) {
-      push("err", t("tx.failed", { label }), parseTxError(err));
+      push("err", t("tx.failed", { label }), parseTxError(err), undefined, opts);
       return null;
     } finally {
       setBusy(false);
@@ -1051,9 +1059,42 @@ export function SandboxCapsule() {
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [quickTarget, setQuickTarget] = useState<MarketView | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const clearErrorRef = useRef(clearError);
   clearErrorRef.current = clearError;
+
+  useEffect(() => {
+    if (!isSandbox || !menuOpen || !settings.programId) {
+      setQuickTarget(null);
+      return;
+    }
+    let cancelled = false;
+    const params = new URLSearchParams({
+      programId: settings.programId,
+      section: "live",
+      duration: "all",
+      page: "1",
+      pageSize: "50",
+    });
+    void fetch(`/api/markets?${params.toString()}`, { cache: "no-store" })
+      .then((res) => (res.ok ? (res.json() as Promise<MarketsPageResponse>) : null))
+      .then((json) => {
+        if (cancelled) return;
+        if (!json || !Array.isArray(json.items)) {
+          setQuickTarget(null);
+          return;
+        }
+        const markets = json.items.map(deserializeMarket);
+        setQuickTarget(pickSandboxQuickMarket(markets, Math.floor(Date.now() / 1000)));
+      })
+      .catch(() => {
+        if (!cancelled) setQuickTarget(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isSandbox, menuOpen, settings.programId]);
 
   useEffect(() => {
     if (!menuOpen) {
@@ -1202,9 +1243,26 @@ export function SandboxCapsule() {
             ) : null}
 
             <div className="stack-2">
+              {quickTarget ? (
+                <Link
+                  href={`/markets/${quickTarget.address.toBase58()}`}
+                  onClick={() => setMenuOpen(false)}
+                  data-testid="sandbox-quick-jump"
+                  className="btn-primary inline-flex h-8 w-full items-center justify-center px-3 text-xs font-semibold"
+                >
+                  <StableText
+                    k={
+                      marketDurationBucket(quickTarget) === "2m"
+                        ? "sandbox.quickJump2m"
+                        : "sandbox.quickJumpLive"
+                    }
+                    align="center"
+                  />
+                </Link>
+              ) : null}
               <Button
                 type="button"
-                tone="primary"
+                tone={quickTarget ? "secondary" : "primary"}
                 className="h-8 w-full text-xs"
                 disabled={locked}
                 onClick={() => {

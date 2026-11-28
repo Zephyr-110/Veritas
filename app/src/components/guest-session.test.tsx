@@ -35,9 +35,13 @@ vi.mock("@/lib/sandbox-send", () => ({
 }));
 
 const { Providers } = await import("@/components/providers");
-const { SANDBOX_STORAGE_KEY, faucetErrorKey, useGuestSession, useSandboxTx } = await import(
-  "@/components/guest-session"
-);
+const {
+  SANDBOX_ACTIVATE_INTERVAL_MS,
+  SANDBOX_STORAGE_KEY,
+  faucetErrorKey,
+  useGuestSession,
+  useSandboxTx,
+} = await import("@/components/guest-session");
 
 function Harness() {
   const session = useGuestSession();
@@ -122,7 +126,10 @@ describe("GuestSessionProvider state machine", () => {
     });
 
     await waitFor(() => expect(screen.getByTestId("mode")).toHaveTextContent("sandbox"));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const faucetCalls = fetchMock.mock.calls.filter(([url]) => url === "/api/faucet/sandbox");
+    const activateCalls = fetchMock.mock.calls.filter(([url]) => url === "/api/sandbox/activate");
+    expect(faucetCalls).toHaveLength(1);
+    expect(activateCalls).toHaveLength(1);
     const sandboxAddr = screen.getByTestId("sandbox").textContent!;
     expect(sandboxAddr).not.toBe("none");
     expect(screen.getByTestId("eff")).toHaveTextContent(sandboxAddr);
@@ -271,10 +278,18 @@ describe("GuestSessionProvider state machine", () => {
 
   it("shows a target-reached receipt for zero top-ups and logs the backend reason privately on failure", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, signature: "seed" }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, skipped: true, signature: null }) })
-      .mockResolvedValueOnce({ ok: false, json: async () => ({ error: "upstream_specific_error" }) });
+    const faucetResponses = [
+      { ok: true, json: async () => ({ ok: true, signature: "seed" }) },
+      { ok: true, json: async () => ({ ok: true, skipped: true, signature: null }) },
+      { ok: false, json: async () => ({ error: "upstream_specific_error" }) },
+    ];
+    let faucetIdx = 0;
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (url === "/api/sandbox/activate") {
+        return { ok: true, json: async () => ({ ok: true, touched: true }) };
+      }
+      return faucetResponses[faucetIdx++];
+    });
     vi.stubGlobal("fetch", fetchMock);
     renderWithProviders(<Harness />);
     await userEvent.click(screen.getByRole("button", { name: "enter" }));
@@ -283,6 +298,49 @@ describe("GuestSessionProvider state machine", () => {
     await userEvent.click(screen.getByRole("button", { name: "refill" }));
     expect(await screen.findByRole("alert")).not.toHaveTextContent("upstream_specific_error");
     expect(warn).toHaveBeenCalledWith("Sandbox faucet", "upstream_specific_error");
+  });
+
+  it("pings /api/sandbox/activate on restored sandbox session and refreshes every 10 minutes until exit", async () => {
+    vi.useFakeTimers();
+    const savedKp = (await import("@solana/web3.js")).Keypair.generate();
+    localStorage.setItem(
+      SANDBOX_STORAGE_KEY,
+      JSON.stringify({ secretKey: Array.from(savedKp.secretKey), active: true })
+    );
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, touched: true }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithProviders(<Harness />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    const activateCalls = () =>
+      fetchMock.mock.calls.filter(([url]) => url === "/api/sandbox/activate");
+    expect(screen.getByTestId("mode")).toHaveTextContent("sandbox");
+    expect(activateCalls()).toHaveLength(1);
+    // Restored session must not call faucet
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/faucet/sandbox")).toHaveLength(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SANDBOX_ACTIVATE_INTERVAL_MS);
+    });
+    expect(activateCalls()).toHaveLength(2);
+
+    await act(async () => {
+      screen.getByRole("button", { name: "exit" }).click();
+    });
+    expect(screen.getByTestId("mode")).toHaveTextContent("none");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SANDBOX_ACTIVATE_INTERVAL_MS * 2);
+    });
+    expect(activateCalls()).toHaveLength(2);
+    vi.useRealTimers();
   });
 
   it("exposes localized lastError and alert toast when sandbox faucet fails", async () => {

@@ -28,10 +28,11 @@ vi.mock("@/hooks/use-program", () => ({
 
 const bump = vi.hoisted(() => vi.fn());
 const push = vi.hoisted(() => vi.fn());
+const clearMarketErrors = vi.hoisted(() => vi.fn());
 vi.mock("@/components/providers", () => ({
   useRefresh: () => ({ nonce: 0, bump }),
   useSettings: () => ({ settings: { cluster: "devnet" } }),
-  useToasts: () => ({ push }),
+  useToasts: () => ({ push, clearMarketErrors }),
 }));
 
 const ixMergeToken = vi.hoisted(() => vi.fn());
@@ -163,6 +164,7 @@ beforeEach(() => {
   fetchMarketSnapshot.mockReset().mockResolvedValue(null);
   bump.mockReset();
   push.mockReset();
+  clearMarketErrors.mockReset();
   run.mockReset().mockImplementation(async (_label: string, build: () => Promise<unknown>) => {
     await build();
     return null;
@@ -341,21 +343,58 @@ describe("SettleDesk 裁决与超时作废", () => {
 
     await userEvent.click(resolveBtn);
     await waitFor(() => expect(resolveMarketWithChainlink).toHaveBeenCalledTimes(1));
+    const expectedMeta = { marketAddress: market.address.toBase58(), action: "resolve" };
     expect(push).toHaveBeenCalledWith(
       "ok",
       "Submit settlement",
       "View transaction",
-      "https://solscan.io/tx/resolve-sig-1?cluster=devnet"
+      "https://solscan.io/tx/resolve-sig-1?cluster=devnet",
+      expectedMeta
     );
     expect(bump).toHaveBeenCalledTimes(1);
 
     resolveMarketWithChainlink.mockRejectedValueOnce(new Error("429 rate limit"));
     await userEvent.click(resolveBtn);
     await waitFor(() => expect(push).toHaveBeenCalledTimes(2));
-    expect(push).toHaveBeenLastCalledWith("info", "Submit settlement", "errors.rpcRate");
+    expect(push).toHaveBeenLastCalledWith(
+      "info",
+      "Submit settlement",
+      "errors.rpcRate",
+      undefined,
+      expectedMeta
+    );
     resolveMarketWithChainlink.mockRejectedValueOnce(new ConfirmedTransactionError());
     await userEvent.click(resolveBtn);
-    await waitFor(() => expect(push).toHaveBeenLastCalledWith("err", "Submit settlement failed", "errors.txFailed"));
+    await waitFor(() =>
+      expect(push).toHaveBeenLastCalledWith(
+        "err",
+        "Submit settlement failed",
+        "errors.txFailed",
+        undefined,
+        expectedMeta
+      )
+    );
+  });
+
+  it("市场状态从 open 变为 resolved 或 windowBurn 时清除该市场的待处理错误 toast", () => {
+    const openMarket = makeMarket({ status: "open" });
+    const { rerender } = render(
+      <LocaleProvider>
+        <SettleDesk market={openMarket} position={makePosition()} />
+      </LocaleProvider>
+    );
+    expect(clearMarketErrors).not.toHaveBeenCalled();
+
+    rerender(
+      <LocaleProvider>
+        <SettleDesk
+          market={makeMarket({ status: "resolved", winner: "yes" })}
+          position={makePosition({ yes: 2_000_000n })}
+        />
+      </LocaleProvider>
+    );
+    expect(clearMarketErrors).toHaveBeenCalledTimes(1);
+    expect(clearMarketErrors).toHaveBeenCalledWith(openMarket.address.toBase58());
   });
 
   it("keeps settlement disabled while the first post-expiry report is unavailable", async () => {

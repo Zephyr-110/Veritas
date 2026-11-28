@@ -210,7 +210,6 @@ The client IDL under `app/src/idl/` is generated via `npm run gen-idl` (from `ap
 
 - **Oracle configuration rotation.** Settlement verifies both straddling reports against the bound `ocr2_state` account's live `latest_config_digest` and oracle roster at settlement time. If a feed's configuration rotates before expiry, reports signed under the new configuration continue to settle normally; however, if rotation occurs across expiry or before `resolve_market` executes, straddling reports signed under the superseded configuration fail `OracleDigestMismatch`, and the market voids after the 48-hour window with a 0.5 refund. By design, configuration drift can only ever produce a void, never a wrong winner.
 - **Collateral scope.** Markets accept standard SPL Token mints only; Token-2022 mints are rejected at creation so transfer-tax and hook extensions stay out of the vault accounting. The seed floor (strictly more than 1,000,000 smallest units) assumes a 6-decimal stablecoin; the contract does not enforce mint decimals or a minimum market duration.
-- **Devnet binary sync.** The currently deployed Devnet binary predates the latest source-level contract hardening commits (`add_liquidity` minor-side ceiling rounding and pm-AMM swap solver domain bounds); `app/src/lib/quote.ts` intentionally mirrors the live Devnet binary until the next program upgrade. See [SCENARIO_REPORT.md](programs/prediction_market/tests/SCENARIO_REPORT.md) for current build status.
 
 ---
 
