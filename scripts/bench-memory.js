@@ -120,13 +120,13 @@ function seedSyntheticDb(dbPath, marketCount) {
             feed_address: feed.feed,
             snapshot_address: Keypair.generate().publicKey.toBase58(),
             resolve_signature: `resolve-${i}`,
-            resolve_tx_url: `https://solscan.io/tx/resolve-${i}?cluster=devnet`,
+            resolve_tx_url: `https://explorer.solana.com/tx/resolve-${i}?cluster=devnet`,
             pre_ts: expiry - 2,
             pre_sig: `pre-${i}`,
-            pre_url: `https://solscan.io/tx/pre-${i}?cluster=devnet`,
+            pre_url: `https://explorer.solana.com/tx/pre-${i}?cluster=devnet`,
             post_ts: expiry + 1,
             post_sig: `post-${i}`,
-            post_url: `https://solscan.io/tx/post-${i}?cluster=devnet`,
+            post_url: `https://explorer.solana.com/tx/post-${i}?cluster=devnet`,
             created_at: nowSec,
           });
           if (i < 45) {

@@ -567,7 +567,7 @@ function findLpPosition(programId, market, owner) {
 function explorerTxUrl(sig, cluster = "devnet") {
   if (!sig || cluster === "localnet") return null;
   const q = cluster === "mainnet-beta" ? "" : `?cluster=${cluster}`;
-  return `https://solscan.io/tx/${sig}${q}`;
+  return `https://explorer.solana.com/tx/${sig}${q}`;
 }
 
 function isVoidedStatus(status) {

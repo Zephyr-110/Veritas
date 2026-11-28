@@ -250,7 +250,7 @@ test("upsertSettlementEvidence is immutable once set and only fills missing push
     feed_address: dbLib.FEEDS[0].feed,
     snapshot_address: Keypair.generate().publicKey.toBase58(),
     resolve_signature: "sig-resolve-1",
-    resolve_tx_url: "https://solscan.io/tx/sig-resolve-1?cluster=devnet",
+    resolve_tx_url: "https://explorer.solana.com/tx/sig-resolve-1?cluster=devnet",
     settled_price: "9600000000000",
     price_decimals: 8,
     winner: "yes",
@@ -268,7 +268,7 @@ test("upsertSettlementEvidence is immutable once set and only fills missing push
     post_price: "9600000000000",
     post_timestamp: 1800000901,
     post_push_signature: "sig-post-1",
-    post_push_tx_url: "https://solscan.io/tx/sig-post-1?cluster=devnet",
+    post_push_tx_url: "https://explorer.solana.com/tx/sig-post-1?cluster=devnet",
     missing_count: null,
     created_at: 1800000905,
   });
@@ -280,7 +280,7 @@ test("upsertSettlementEvidence is immutable once set and only fills missing push
     feed_address: dbLib.FEEDS[0].feed,
     snapshot_address: Keypair.generate().publicKey.toBase58(),
     resolve_signature: "sig-resolve-SHOULD-NOT-OVERWRITE",
-    resolve_tx_url: "https://solscan.io/tx/bad",
+    resolve_tx_url: "https://explorer.solana.com/tx/bad",
     settled_price: "1",
     price_decimals: 8,
     winner: "no",
@@ -291,14 +291,14 @@ test("upsertSettlementEvidence is immutable once set and only fills missing push
     pre_price: "1",
     pre_timestamp: 1,
     pre_push_signature: "sig-pre-1",
-    pre_push_tx_url: "https://solscan.io/tx/sig-pre-1?cluster=devnet",
+    pre_push_tx_url: "https://explorer.solana.com/tx/sig-pre-1?cluster=devnet",
     post_epoch: 999,
     post_round: 10,
     post_counter: 43,
     post_price: "1",
     post_timestamp: 2,
     post_push_signature: "sig-post-SHOULD-NOT-OVERWRITE",
-    post_push_tx_url: "https://solscan.io/tx/bad-post",
+    post_push_tx_url: "https://explorer.solana.com/tx/bad-post",
     missing_count: 0,
     created_at: 1999999999,
   });
@@ -652,4 +652,17 @@ test("marketDurationBucket maps non-standard parseable durations to 'other' and 
   assert.equal(dbLib.marketDurationBucket("BTC/USD above 95,000 in 10 min?"), "other");
   assert.equal(dbLib.marketDurationBucket("BTC/USD >= 73,479 @ 2026-01-01"), null);
   assert.equal(dbLib.marketDurationBucket("Custom freeform title"), null);
+});
+
+test("explorerTxUrl builds explorer.solana.com links with cluster query", () => {
+  assert.equal(
+    dbLib.explorerTxUrl("sig123", "devnet"),
+    "https://explorer.solana.com/tx/sig123?cluster=devnet"
+  );
+  assert.equal(
+    dbLib.explorerTxUrl("sig123", "mainnet-beta"),
+    "https://explorer.solana.com/tx/sig123"
+  );
+  assert.equal(dbLib.explorerTxUrl("sig123", "localnet"), null);
+  assert.equal(dbLib.explorerTxUrl("", "devnet"), null);
 });
