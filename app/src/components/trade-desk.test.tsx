@@ -3,16 +3,32 @@ import { act, render, screen, cleanup, fireEvent, waitFor } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 import { PublicKey } from "@solana/web3.js";
 import type { MarketView, UserPosition } from "@/lib/markets";
-import { applySlippage, quoteBet, quoteSwapOut } from "@/lib/quote";
-import { DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
+import { applySlippage, pmAmmReservesFromPrice, quoteBet, quoteSwapDetail, quoteSwapOut } from "@/lib/quote";
+import { DEFAULT_COLLATERAL_MINT, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
 import { formatFixed } from "@/lib/format";
 
 // ---- 依赖替身：只替换外部链路，保留真实业务计算与真实渲染 ----
 const wallet = vi.hoisted(() => ({ publicKey: null as PublicKey | null }));
+const walletBalanceState = vi.hoisted(() => ({
+  data: null as { usdtAtoms: bigint; usdtDecimals: number; solLamports: number } | null,
+}));
 
 vi.mock("@solana/wallet-adapter-react", () => ({
   useWallet: () => ({ publicKey: wallet.publicKey, connected: !!wallet.publicKey }),
   useConnection: () => ({ connection: undefined }),
+}));
+
+vi.mock("@/hooks/use-wallet-balance", () => ({
+  useWalletBalance: () => ({
+    data: walletBalanceState.data,
+    loading: false,
+    refreshing: false,
+    stale: false,
+    updatedAt: walletBalanceState.data ? Date.now() : null,
+    error: null,
+    isSandbox: false,
+    refetch: vi.fn(),
+  }),
 }));
 
 vi.mock("@/hooks/use-program", () => ({
@@ -127,6 +143,7 @@ async function typeAmount(value: string) {
 
 beforeEach(() => {
   wallet.publicKey = new PublicKey(Buffer.alloc(32, 7));
+  walletBalanceState.data = null;
   ixBet.mockReset();
   ixBet.mockResolvedValue([]);
   ixSwap.mockReset();
@@ -373,35 +390,104 @@ describe("TradeDesk 提交", () => {
     await userEvent.click(screen.getByRole("button", { name: "Show balances" }));
     expect(screen.getByText("Balance 12.50 USDT")).toBeInTheDocument();
   });
+});
 
-  it("动态费率市场在下注区仅展示单腿费率，换仓区才展示双腿括注", async () => {
+function makePmAmmMarket(
+  yesPrice: number,
+  overrides: Partial<MarketView> = {}
+): MarketView {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const remainSec = 900;
+  const endTs = overrides.endTs ?? nowSec + remainSec;
+  const lastAccrualTs = overrides.lastAccrualTs ?? nowSec;
+  const tRem = Math.max(1, endTs - lastAccrualTs);
+  // Target L_eff ≈ 375_994_241 (~150 USDT pool per side at P=0.5)
+  const lZeroInt = BigInt(Math.round(375_994_241 / Math.sqrt(tRem)));
+  const lEff = Number(lZeroInt) * Math.sqrt(tRem);
+  const { yes, no } = pmAmmReservesFromPrice(yesPrice, lEff);
+  return makeMarket({
+    lZero: lZeroInt << 48n,
+    lastAccrualTs,
+    endTs,
+    expiry: overrides.expiry ?? endTs,
+    reserveYes: BigInt(Math.round(yes)),
+    reserveNo: BigInt(Math.round(no)),
+    yesPrice,
+    noPrice: 1 - yesPrice,
+    ...overrides,
+  });
+}
+
+describe("TradeDesk 手续费估算与余额口径", () => {
+  it("动态费率市场在下注区仅展示单腿费率，换仓区才展示双腿括注；P=0.5 下单估算按两腿折算 USDT 与锚点一致", async () => {
     const nowSec = Math.floor(Date.now() / 1000);
     // 900s flagship market at 50% time remaining -> 123 bps/leg = 1.23% / leg
-    renderDesk(
-      makeMarket({
-        startTs: nowSec - 450,
-        endTs: nowSec + 450,
-        expiry: nowSec + 450,
-        feeBps: 0,
-      })
-    );
+    const market = makePmAmmMarket(0.5, {
+      startTs: nowSec - 450,
+      endTs: nowSec + 450,
+      expiry: nowSec + 450,
+      lastAccrualTs: nowSec + 5,
+      feeBps: 0,
+    });
+    renderDesk(market, makePosition({ collateral: 50_000_000n, yes: 50_000_000n, no: 50_000_000n }));
     expect(screen.getByText("Current fee")).toBeInTheDocument();
     expect(screen.getByText("1.23% / leg")).toBeInTheDocument();
     expect(screen.queryByText(/total\)/)).toBeNull();
-    // 2 USDT default input * 1.23% = 0.0246 -> 0.025 USDT
+
+    // 5 USDT at P=0.5, 123 bps/leg: feeIn=0.0615 NO, feeOut≈0.0595 YES -> 0.5*(feeIn+feeOut) ≈ 0.0605 -> 0.060 USDT
+    await typeAmount("5");
+    expect(screen.getByTestId("trade-fee-estimate")).toHaveTextContent("Fee ≈ 0.060 USDT");
+
+    // 5 USDT anchor at P=0.5, 50 bps/leg -> 0.025 USDT (matches feeRate * principal)
+    cleanup();
+    const openMarket = makePmAmmMarket(0.5, {
+      startTs: nowSec + 5,
+      endTs: nowSec + 905,
+      expiry: nowSec + 905,
+      lastAccrualTs: nowSec + 5,
+      feeBps: 0,
+    });
+    renderDesk(openMarket, makePosition({ collateral: 50_000_000n, yes: 50_000_000n, no: 50_000_000n }));
+    await typeAmount("5");
     expect(screen.getByTestId("trade-fee-estimate")).toHaveTextContent("Fee ≈ 0.025 USDT");
 
-    // Swap tab keeps the two-leg combined parenthetical
+    // Swap tab keeps the two-leg combined parenthetical and reports token-unit two-leg fees (never USDT)
     await userEvent.click(screen.getByRole("button", { name: "Swap" }));
-    expect(screen.getByText(/1\.23% \/ leg \(~2\.44% total\)/)).toBeInTheDocument();
+    expect(screen.getByText(/0\.50% \/ leg \(~1\.00% total\)/)).toBeInTheDocument();
+    const swapEstimate = screen.getByTestId("trade-fee-estimate").textContent ?? "";
+    expect(swapEstimate).toMatch(/Fee ≈ [0-9.]+ NO \+ [0-9.]+ YES/);
+    expect(swapEstimate).not.toContain("USDT");
   });
 
-  it("买入与换仓均展示本腿手续费金额，小额不截断为 0.00，且支持中英双语", async () => {
-    // 175 bps/leg -> 2 USDT = 0.035 USDT; 0.2 USDT = 0.0035 -> 0.004 USDT; 0.01 USDT = 0.000175 USDT
-    const market = makeMarket({ feeBps: 175 });
-    const { rerender } = renderDesk(market, makePosition({ collateral: 10_000_000n, yes: 10_000_000n, no: 10_000_000n }));
+  it("Buy 页签在偏价市场按当前两侧价格折算两腿 USDT 费用，并随价格正确增减", async () => {
+    // Skewed market: YES = 0.80, NO = 0.20, 100 bps/leg (1%)
+    const skewedMarket = makePmAmmMarket(0.8, { feeBps: 100 });
+    renderDesk(skewedMarket, makePosition({ collateral: 50_000_000n }));
+    await typeAmount("5");
 
-    expect(screen.getByTestId("trade-fee-estimate")).toHaveTextContent("Fee ≈ 0.035 USDT");
+    // Buying expensive YES (0.80): swaps 5 NO (worth 1 USDT) -> ~0.020 USDT total fee (< 0.050 at P=0.5)
+    const buyYesText = screen.getByTestId("trade-fee-estimate").textContent ?? "";
+    const buyYesMatch = buyYesText.match(/Fee ≈ ([0-9.]+) USDT/);
+    expect(buyYesMatch).not.toBeNull();
+    const buyYesFee = Number(buyYesMatch![1]);
+    expect(buyYesFee).toBeGreaterThan(0.015);
+    expect(buyYesFee).toBeLessThan(0.025);
+
+    // Buying cheap NO (0.20): swaps 5 YES (worth 4 USDT) -> ~0.077 USDT total fee (> 0.050 at P=0.5)
+    await userEvent.click(screen.getByRole("button", { name: "Buy NO" }));
+    const buyNoText = screen.getByTestId("trade-fee-estimate").textContent ?? "";
+    const buyNoMatch = buyNoText.match(/Fee ≈ ([0-9.]+) USDT/);
+    expect(buyNoMatch).not.toBeNull();
+    const buyNoFee = Number(buyNoMatch![1]);
+    expect(buyNoFee).toBeGreaterThan(0.06);
+    expect(buyNoFee).toBeLessThan(0.09);
+    expect(buyNoFee).toBeGreaterThan(buyYesFee * 3);
+  });
+
+  it("买入小额不截断为 0.00，换仓展示双腿代币符号（YES/NO 双向），且支持中英双语", async () => {
+    const market = makePmAmmMarket(0.5, { feeBps: 175 });
+    const pos = makePosition({ collateral: 100_000_000n, yes: 100_000_000n, no: 100_000_000n });
+    const { rerender } = renderDesk(market, pos);
 
     // Sub-0.01 USDT must keep >= 3 decimals / sig figs, never 0.00
     await typeAmount("0.1");
@@ -409,21 +495,97 @@ describe("TradeDesk 提交", () => {
     expect(screen.getByTestId("trade-fee-estimate").textContent).not.toContain("0.00 USDT");
 
     await typeAmount("0.01");
-    expect(screen.getByTestId("trade-fee-estimate")).toHaveTextContent("Fee ≈ 0.000175 USDT");
+    expect(screen.getByTestId("trade-fee-estimate").textContent).toMatch(/Fee ≈ 0\.00017[0-9] USDT/);
 
-    // Swap path also updates live with input
+    // Swap NO -> YES (default side=yes): shows NO (in) + YES (out), no USDT
     await userEvent.click(screen.getByRole("button", { name: "Swap" }));
-    await typeAmount("2");
-    expect(screen.getByTestId("trade-fee-estimate")).toHaveTextContent("Fee ≈ 0.035 USDT");
+    await typeAmount("10");
+    const lEff = Number(market.lZero! >> 48n) * Math.sqrt(market.endTs - market.lastAccrualTs);
+    const swapYes = quoteSwapDetail(market.reserveYes, market.reserveNo, 10_000_000n, lEff, 175);
+    expect(swapYes.feeIn).toBe(175_000n);
+    expect(swapYes.feeOut).toBeGreaterThan(0n);
+    expect(screen.getByTestId("trade-fee-estimate")).toHaveTextContent(/Fee ≈ 0\.175 NO \+ 0\.16[0-9] YES/);
+    expect(screen.getByTestId("trade-fee-estimate").textContent).not.toContain("USDT");
 
+    // Swap YES -> NO (side=no): shows YES (in) + NO (out), no USDT
+    await userEvent.click(screen.getByRole("button", { name: "Buy NO" }));
+    expect(screen.getByTestId("trade-fee-estimate")).toHaveTextContent(/Fee ≈ 0\.175 YES \+ 0\.16[0-9] NO/);
+    expect(screen.getByTestId("trade-fee-estimate").textContent).not.toContain("USDT");
+
+    // Chinese locale for both Swap and Buy
     act(() => {
       setLocale("zh");
     });
     rerender(
       <LocaleProvider>
-        <TradeDesk market={market} position={makePosition({ collateral: 10_000_000n, yes: 10_000_000n, no: 10_000_000n })} />
+        <TradeDesk market={market} position={pos} />
       </LocaleProvider>
     );
+    expect(screen.getByTestId("trade-fee-estimate")).toHaveTextContent(/手续费约 0\.175 YES \+ 0\.16[0-9] NO/);
+    expect(screen.getByTestId("trade-fee-estimate").textContent).not.toContain("USDT");
+
+    await userEvent.click(screen.getByRole("button", { name: "买入" }));
+    await typeAmount("2");
     expect(screen.getByTestId("trade-fee-estimate")).toHaveTextContent("手续费约 0.035 USDT");
+  });
+
+  it("真实钱包场景：walletBalance 有余额且同 mint、position.collateral 为 0 时，门禁放行、Max 填入 effectiveCollateral、无领币提示", async () => {
+    walletBalanceState.data = {
+      usdtAtoms: 15_000_000n,
+      usdtDecimals: 6,
+      solLamports: 100_000_000,
+    };
+    const market = makeMarket({
+      collateralMint: new PublicKey(DEFAULT_COLLATERAL_MINT),
+    });
+    renderDesk(market, makePosition({ collateral: 0n }));
+
+    // Top displays walletBalance (15.00 USDT) and NO faucet prompt
+    expect(screen.getByText("Balance 15.00 USDT")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "faucet" })).toBeNull();
+
+    // Default 2 USDT passes order gate
+    expect(submitBtn()).toBeEnabled();
+    expect(submitBtn()).toHaveTextContent("Buy YES");
+
+    // Max fills effectiveCollateral (15) and allows submit
+    await userEvent.click(screen.getByRole("button", { name: "Max" }));
+    expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("15");
+    expect(submitBtn()).toBeEnabled();
+
+    await userEvent.click(submitBtn());
+    await waitFor(() => expect(ixBet).toHaveBeenCalledTimes(1));
+    expect(ixBet.mock.calls[0][3]).toMatchObject({ collateralAmount: 15_000_000n });
+
+    // Exceeding effectiveCollateral (20 > 15) blocks with Insufficient USDT
+    await typeAmount("20");
+    expect(submitBtn()).toBeDisabled();
+    expect(submitBtn()).toHaveTextContent("Insufficient USDT");
+  });
+
+  it("市场 collateralMint 与 settings.collateralMint 不一致时回退 position.collateral，不误用 walletBalance", async () => {
+    walletBalanceState.data = {
+      usdtAtoms: 50_000_000n,
+      usdtDecimals: 6,
+      solLamports: 100_000_000,
+    };
+    const otherMintMarket = makeMarket({
+      collateralMint: new PublicKey(Buffer.alloc(32, 9)),
+    });
+    renderDesk(otherMintMarket, makePosition({ collateral: 1_000_000n }));
+
+    expect(screen.getByText("Balance 1.00 USDT")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Max" }));
+    expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("1");
+
+    await typeAmount("5");
+    expect(submitBtn()).toBeDisabled();
+    expect(submitBtn()).toHaveTextContent("Insufficient USDT");
+
+    // When position.collateral is 0 on a mismatched mint, faucet prompt still shows
+    cleanup();
+    renderDesk(otherMintMarket, makePosition({ collateral: 0n }));
+    expect(screen.getByText("Balance 0.00 USDT")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "faucet" })).toBeInTheDocument();
   });
 });

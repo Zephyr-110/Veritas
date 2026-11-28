@@ -2,6 +2,10 @@
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const { execFile } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { Keypair } = require("@solana/web3.js");
 const {
   DEFAULT_SEED_MAX_USDT,
@@ -10,6 +14,7 @@ const {
   DEFAULT_SETTLE_SLOTS,
   MARKET_ACCOUNT_SIZE,
   MARKET_ACCOUNT_SIZE_V2,
+  MAX_ARCHIVED_MARKETS,
   PLAN_ONLY_PRE_OPEN_LEAD_SEC,
   RESOLVE_WINDOW_SEC,
   SELF_SETTLE_SLOT_PREFIX,
@@ -20,6 +25,7 @@ const {
   gridAssetForExpiry,
   isLegacyEntry,
   isLegacyMarketAccount,
+  loadState,
   mergeStates,
   parseAssets,
   pickSeedUsdt,
@@ -27,12 +33,14 @@ const {
   reapStaleSettleProcesses,
   recycleFinalizedEntries,
   resolveAssetForEntry,
+  saveState,
   scheduleExpiredSettlements,
   selectExpiredSettleEntries,
   selectWatchEntries,
   settleRetryCooldownSec,
   shouldCreateInRun,
   slotOffsetSec,
+  stateLockName,
 } = require("./tick");
 const { tryLock } = require("./expiry-watch");
 
@@ -632,4 +640,202 @@ test("planMissingMarkets with 30s --plan-only cadence achieves >=840s steady lif
   assert.ok(minLifetime >= 880, `minLifetime=${minLifetime}s < 880s`);
   assert.ok(avgLifetime >= 890, `avgLifetime=${avgLifetime.toFixed(1)}s < 890s`);
   assert.ok(transientRatio <= 0.1, `transientRatio=${(transientRatio * 100).toFixed(2)}% > 10%`);
+});
+
+test("saveState serializes interleaved concurrent writes via tryLock so both new market records survive", async (t) => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "veritas-savestate-race-"));
+  const statePath = path.join(tmpDir, "state.json");
+  t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
+
+  await saveState(statePath, {
+    version: 2,
+    nextBetSide: "yes",
+    dailyCounts: { "2026-11-28": 1 },
+    markets: [{ address: "M_base", asset: "btc", status: "open", recycled: false }],
+  });
+
+  // Deterministic interleaving: writer A enters critical section, pauses 100ms before writing,
+  // while writer B starts 15ms later carrying a distinct new market record from the stale snapshot.
+  const order = [];
+  const staleA = loadState(statePath);
+  const staleB = loadState(statePath);
+  staleA.markets.push({ address: "M_plan", asset: "eth", status: "open", recycled: false });
+  staleA.dailyCounts["2026-11-28"] = 2;
+  staleB.markets.push({ address: "M_tick", asset: "sol", status: "open", recycled: false });
+  staleB.dailyCounts["2026-11-28"] = 2;
+
+  const pA = saveState(statePath, staleA, {
+    _onLockedBeforeWrite: async () => {
+      order.push("A:enter");
+      await new Promise((r) => setTimeout(r, 100));
+      order.push("A:write");
+    },
+  });
+  await new Promise((r) => setTimeout(r, 15));
+  const pB = saveState(statePath, staleB, {
+    _onLockedBeforeWrite: async () => {
+      order.push("B:enter");
+    },
+  });
+
+  await Promise.all([pA, pB]);
+  assert.deepEqual(order, ["A:enter", "A:write", "B:enter"]);
+
+  const finalState = loadState(statePath);
+  const addrs = new Set(finalState.markets.map((m) => m.address));
+  assert.equal(addrs.has("M_base"), true);
+  assert.equal(addrs.has("M_plan"), true);
+  assert.equal(addrs.has("M_tick"), true);
+  assert.equal(finalState.markets.length, 3);
+
+  // Real cross-process concurrent saveState verification
+  const tickModulePath = path.resolve(__dirname, "tick.js");
+  const runWorker = (addr, delayMs) =>
+    new Promise((resolve, reject) => {
+      const script = `
+        const { loadState, saveState } = require(${JSON.stringify(tickModulePath)});
+        (async () => {
+          const s = loadState(${JSON.stringify(statePath)});
+          s.markets.push({ address: ${JSON.stringify(addr)}, asset: "link", status: "open", recycled: false });
+          await saveState(${JSON.stringify(statePath)}, s, {
+            _onLockedBeforeWrite: () => new Promise((r) => setTimeout(r, ${delayMs})),
+          });
+        })().catch((e) => { console.error(e); process.exit(1); });
+      `;
+      execFile(process.execPath, ["-e", script], (err, _stdout, stderr) => {
+        if (err) reject(new Error(stderr || err.message));
+        else resolve();
+      });
+    });
+
+  await Promise.all([runWorker("M_proc_1", 60), runWorker("M_proc_2", 60)]);
+  const crossProcState = loadState(statePath);
+  const crossAddrs = new Set(crossProcState.markets.map((m) => m.address));
+  assert.equal(crossAddrs.has("M_proc_1"), true);
+  assert.equal(crossAddrs.has("M_proc_2"), true);
+  assert.equal(crossProcState.markets.length, 5);
+});
+
+test("saveState degrades to unlocked write with warning on lock timeout or error without throwing", async (t) => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "veritas-savestate-timeout-"));
+  const statePath = path.join(tmpDir, "state.json");
+  t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
+
+  const held = await tryLock(stateLockName(statePath));
+  assert.ok(held);
+  t.after(async () => releaseLock(held));
+
+  const warnings = [];
+  const origWarn = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  try {
+    await saveState(
+      statePath,
+      {
+        version: 2,
+        nextBetSide: "no",
+        dailyCounts: {},
+        markets: [{ address: "M_timeout_fallback", asset: "btc", status: "open", recycled: false }],
+      },
+      { maxWaitMs: 60, retryMs: 15 }
+    );
+    assert.equal(warnings.some((w) => /timed out/i.test(w) && /unlocked write/i.test(w)), true);
+    assert.equal(loadState(statePath).markets[0].address, "M_timeout_fallback");
+
+    warnings.length = 0;
+    await saveState(
+      statePath,
+      {
+        version: 2,
+        nextBetSide: "yes",
+        dailyCounts: {},
+        markets: [{ address: "M_error_fallback", asset: "eth", status: "open", recycled: false }],
+      },
+      {
+        tryLockFn: async () => {
+          throw new Error("simulated lock permission error");
+        },
+      }
+    );
+    assert.equal(warnings.some((w) => /simulated lock permission error/i.test(w)), true);
+    const saved = loadState(statePath);
+    assert.deepEqual(
+      saved.markets.map((m) => m.address),
+      ["M_timeout_fallback", "M_error_fallback"]
+    );
+  } finally {
+    console.warn = origWarn;
+  }
+});
+
+test("saveState prunes recycled terminal history to MAX_ARCHIVED_MARKETS on disk and pruned entries do not revive", async (t) => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "veritas-savestate-prune-"));
+  const statePath = path.join(tmpDir, "state.json");
+  t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
+
+  assert.equal(MAX_ARCHIVED_MARKETS, 200);
+
+  // Seed disk directly with 205 recycled terminal entries + 2 open + 1 unrecycled resolved entry
+  const initialMarkets = [];
+  for (let i = 0; i < 205; i += 1) {
+    initialMarkets.push({
+      address: `R_${i}`,
+      asset: "btc",
+      status: i % 2 === 0 ? "resolved" : "windowBurn",
+      recycled: true,
+    });
+  }
+  initialMarkets.push(
+    { address: "OPEN_1", asset: "eth", status: "open", recycled: false },
+    { address: "UNRECYCLED_1", asset: "sol", status: "resolved", recycled: false },
+    { address: "OPEN_2", asset: "link", status: "open", recycled: false }
+  );
+  fs.writeFileSync(
+    statePath,
+    JSON.stringify({ version: 2, nextBetSide: "yes", dailyCounts: {}, markets: initialMarkets }, null, 2),
+    "utf8"
+  );
+
+  // Round 1: load full unpruned state, add 1 more recycled entry -> saveState merges then prunes to 200 archived + 3 active
+  const round1 = loadState(statePath);
+  round1.markets.push({ address: "R_205", asset: "btc", status: "resolved", recycled: true });
+  await saveState(statePath, round1);
+
+  const afterRound1 = loadState(statePath);
+  const archived1 = afterRound1.markets.filter((m) => m.status !== "open" && m.recycled);
+  const active1 = afterRound1.markets.filter((m) => m.status === "open" || !m.recycled);
+  assert.equal(archived1.length, 200);
+  assert.equal(archived1[0].address, "R_6");
+  assert.equal(archived1[archived1.length - 1].address, "R_205");
+  assert.deepEqual(
+    active1.map((m) => m.address),
+    ["OPEN_1", "UNRECYCLED_1", "OPEN_2"]
+  );
+  assert.equal(afterRound1.markets.some((m) => m.address === "R_0" || m.address === "R_5"), false);
+
+  // Same-process subsequent save using round1 object must not resurrect R_0..R_5
+  round1.markets.push({ address: "OPEN_3", asset: "btc", status: "open", recycled: false });
+  await saveState(statePath, round1);
+  const afterSameProc = loadState(statePath);
+  const archivedSame = afterSameProc.markets.filter((m) => m.status !== "open" && m.recycled);
+  assert.equal(archivedSame.length, 200);
+  assert.equal(archivedSame[0].address, "R_6");
+  assert.equal(afterSameProc.markets.some((m) => m.address === "R_0" || m.address === "R_5"), false);
+
+  // Round 2 (next process): load from disk, add 1 more recycled entry -> stays capped at 200, R_0..R_6 never revive
+  const round2 = loadState(statePath);
+  round2.markets.push({ address: "R_206", asset: "eth", status: "staleBurn", recycled: true });
+  await saveState(statePath, round2);
+
+  const afterRound2 = loadState(statePath);
+  const archived2 = afterRound2.markets.filter((m) => m.status !== "open" && m.recycled);
+  const active2 = afterRound2.markets.filter((m) => m.status === "open" || !m.recycled);
+  assert.equal(archived2.length, 200);
+  assert.equal(archived2[0].address, "R_7");
+  assert.equal(archived2[archived2.length - 1].address, "R_206");
+  assert.deepEqual(
+    active2.map((m) => m.address),
+    ["OPEN_1", "UNRECYCLED_1", "OPEN_2", "OPEN_3"]
+  );
+  assert.equal(afterRound2.markets.some((m) => m.address === "R_0" || m.address === "R_6"), false);
 });

@@ -452,14 +452,99 @@ function mergeStates(diskState, localState) {
   };
 }
 
-function saveState(statePath, state) {
+const STATE_LOCK_MAX_WAIT_MS = 2_000;
+const STATE_LOCK_RETRY_MS = 25;
+const MAX_ARCHIVED_MARKETS = 200;
+
+function stateLockName(statePath) {
+  const resolved = path.resolve(String(statePath || ""));
+  const normalized = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  const digest = crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 24);
+  return `state-${digest}`;
+}
+
+function pruneStateMarkets(state, maxArchived = MAX_ARCHIVED_MARKETS) {
+  if (!state || !Array.isArray(state.markets)) return state;
+  const archivedEntries = state.markets.filter((m) => m && m.status !== "open" && m.recycled);
+  if (archivedEntries.length <= maxArchived) return state;
+  const activeEntries = state.markets.filter((m) => !m || m.status === "open" || !m.recycled);
+  return {
+    ...state,
+    markets: [...archivedEntries.slice(-maxArchived), ...activeEntries],
+  };
+}
+
+async function acquireStateLock(
+  lockName,
+  { tryLockFn = tryLock, maxWaitMs = STATE_LOCK_MAX_WAIT_MS, retryMs = STATE_LOCK_RETRY_MS } = {}
+) {
+  const waitBudget = Math.max(0, Number(maxWaitMs ?? STATE_LOCK_MAX_WAIT_MS));
+  const retryDelay = Math.max(1, Number(retryMs ?? STATE_LOCK_RETRY_MS));
+  const deadline = Date.now() + waitBudget;
+  while (true) {
+    try {
+      const release = await tryLockFn(lockName);
+      if (release) return { release, timedOut: false, error: null };
+    } catch (err) {
+      return { release: null, timedOut: false, error: err };
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      return { release: null, timedOut: true, error: null };
+    }
+    await pause(Math.min(retryDelay, remaining));
+  }
+}
+
+async function saveState(statePath, state, opts = {}) {
+  const {
+    tryLockFn = tryLock,
+    maxWaitMs = STATE_LOCK_MAX_WAIT_MS,
+    retryMs = STATE_LOCK_RETRY_MS,
+    maxArchived = MAX_ARCHIVED_MARKETS,
+    _onLockedBeforeWrite,
+  } = opts;
   const dir = path.dirname(statePath);
   fs.mkdirSync(dir, { recursive: true });
-  const disk = fs.existsSync(statePath) ? loadState(statePath) : null;
-  const merged = disk ? mergeStates(disk, state) : state;
-  const tmpPath = `${statePath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmpPath, JSON.stringify(merged, null, 2) + "\n", "utf8");
-  fs.renameSync(tmpPath, statePath);
+  const lockName = stateLockName(statePath);
+  const { release, timedOut, error } = await acquireStateLock(lockName, {
+    tryLockFn,
+    maxWaitMs,
+    retryMs,
+  });
+  if (!release) {
+    if (error) {
+      console.warn(
+        `[state] failed to acquire lock ${lockName} for ${statePath} (${error?.message || error}); falling back to unlocked write`
+      );
+    } else if (timedOut) {
+      console.warn(
+        `[state] lock ${lockName} timed out after ${maxWaitMs}ms for ${statePath}; falling back to unlocked write`
+      );
+    }
+  }
+  try {
+    const disk = fs.existsSync(statePath) ? loadState(statePath) : null;
+    const merged = disk ? mergeStates(disk, state) : state;
+    const pruned = pruneStateMarkets(merged, maxArchived);
+    if (typeof _onLockedBeforeWrite === "function") {
+      await _onLockedBeforeWrite(pruned);
+    }
+    const tmpPath = `${statePath}.${process.pid}.${Date.now()}.${crypto.randomBytes(4).toString("hex")}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(pruned, null, 2) + "\n", "utf8");
+    fs.renameSync(tmpPath, statePath);
+    if (pruned !== merged && Array.isArray(state?.markets) && !Object.isFrozen(state)) {
+      const keptAddrs = new Set(pruned.markets.map((m) => m && m.address).filter(Boolean));
+      state.markets = state.markets.filter(
+        (m) => !m || m.status === "open" || !m.recycled || keptAddrs.has(m.address)
+      );
+    }
+    return pruned;
+  } finally {
+    if (release) {
+      await releaseLockAndWait(release);
+    }
+  }
 }
 
 function encodePrediction(title) {
@@ -1325,12 +1410,12 @@ async function recycleFinalizedEntries(connection, program, payer, cfg, state) {
           `[recycle] skip legacy market ${entry.address} (size=${entry.accountSize ?? "unknown"}, startTs=${entry.startTs ?? null})`
         );
       }
-      saveState(cfg.statePath, state);
+      await saveState(cfg.statePath, state);
       continue;
     }
     try {
       await recycleMarketFunds(connection, program, payer, cfg, entry);
-      saveState(cfg.statePath, state);
+      await saveState(cfg.statePath, state);
     } catch (err) {
       console.error(`[recycle] error on ${entry.address}:`, err.message || err);
     }
@@ -1585,7 +1670,7 @@ async function runSelfCheck() {
   // Atomic state round-trip in OS temp dir
   const tmpStatePath = path.join(os.tmpdir(), `veritas-sandbox-selfcheck-${process.pid}.json`);
   try {
-    saveState(tmpStatePath, {
+    await saveState(tmpStatePath, {
       version: 2,
       nextBetSide: "no",
       dailyCounts: {},
@@ -1630,7 +1715,7 @@ async function runTick({ planOnly = false } = {}) {
   // 1. Batch-sync open tracked markets, infer asset keys, and (in full mode) self-sweep settlement
   try {
     await batchSyncOpenMarkets(connection, state, nowSec);
-    saveState(cfg.statePath, state);
+    await saveState(cfg.statePath, state);
   } catch (err) {
     console.warn(`[${tag}] batchSyncOpenMarkets error (continuing): ${err?.message || err}`);
   }
@@ -1650,7 +1735,7 @@ async function runTick({ planOnly = false } = {}) {
         nowSec,
         watchedAddrs
       );
-      if (settledDue.length > 0) saveState(cfg.statePath, state);
+      if (settledDue.length > 0) await saveState(cfg.statePath, state);
     } catch (err) {
       console.warn(`[tick] scheduleExpiredSettlements error (continuing): ${err?.message || err}`);
     }
@@ -1782,7 +1867,7 @@ async function runTick({ planOnly = false } = {}) {
             scheduleWatches(cfg, settleScriptPath, [entry]);
           }
           state.dailyCounts[today] = todayCount + 1;
-          saveState(cfg.statePath, state);
+          await saveState(cfg.statePath, state);
           createdCount += 1;
           console.log(
             `[create] (${asset.symbol}) ${marketAddr} seed=${marketSeedUsdt.toFixed(2)} USDT expiry=${expiry} threshold=${feed.answer.toString()} tx=${createSig}`
@@ -1805,7 +1890,7 @@ async function runTick({ planOnly = false } = {}) {
           entry.betSide = side;
           entry.betTx = betSig;
           state.nextBetSide = side === "yes" ? "no" : "yes";
-          saveState(cfg.statePath, state);
+          await saveState(cfg.statePath, state);
           console.log(`[bet] (${asset.symbol}) ${marketAddr} side=${side} amount=${cfg.betUsdt} USDT tx=${betSig}`);
           await persistCreatedMarketToDb(connection, cfg.programId, pdas.market, nowSec);
 
@@ -1828,16 +1913,6 @@ async function runTick({ planOnly = false } = {}) {
   // Expiry watchers and the global sweep run independently of fund recycling.
   if (cfg.recycleFunds) {
     await recycleFinalizedEntries(connection, program, payer, cfg, state);
-  }
-
-  // Prune old recycled history beyond 200 entries
-  if (state.markets.length > 200) {
-    const activeEntries = state.markets.filter((m) => m.status === "open" || !m.recycled);
-    const archivedEntries = state.markets
-      .filter((m) => m.status !== "open" && m.recycled)
-      .slice(-200);
-    state.markets = [...archivedEntries, ...activeEntries];
-    saveState(cfg.statePath, state);
   }
 
   await runIncrementalSyncSafe(connection, cfg.programId, 2);
@@ -1885,6 +1960,10 @@ module.exports = {
   utcDayKey,
   loadState,
   saveState,
+  stateLockName,
+  pruneStateMarkets,
+  STATE_LOCK_MAX_WAIT_MS,
+  MAX_ARCHIVED_MARKETS,
   encodePrediction,
   decodeMarket,
   decodeChainlinkFeed,

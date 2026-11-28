@@ -321,11 +321,62 @@ describe("quote", () => {
       expect(swapPm.feeIn).toBe(35_000n);
       expect(swapPm.amountOut).toBe(betPm.swapOut);
 
-      // Constant-product fallback (no lEff): 1 USDT at 50 bps -> 0.005 USDT = 5_000 atoms
+      // Constant-product fallback (no lEff): 1 USDT at 50 bps -> 0.005 USDT = 5_000 atoms, no output leg fee
       const betFallback = quoteBet(100_000_000n, 100_000_000n, 1_000_000n, "yes", undefined, 50);
       expect(betFallback.feeIn).toBe(5_000n);
+      expect(betFallback.feeOut).toBe(0n);
       const swapFallback = quoteSwapDetail(100_000_000n, 100_000_000n, 1_000_000n, undefined, 50);
       expect(swapFallback.feeIn).toBe(5_000n);
+      expect(swapFallback.feeOut).toBe(0n);
+    });
+
+    it("quoteSwapDetail / quoteBet / pmAmmQuoteBet 返回与 outAfterFee 互洽的出腿费 feeOut", async () => {
+      const { quoteSwapDetail } = await import("@/lib/quote");
+      const lEff = 375_994_241; // ~150 USDT pool at P=0.5
+
+      // 1. Balanced P=0.5 pool, 5 USDT at 123 bps
+      const bal = pmAmmReservesFromPrice(0.5, lEff);
+      const balYes = BigInt(Math.round(bal.yes));
+      const balNo = BigInt(Math.round(bal.no));
+      const feeBps = 123;
+      const swapBal = quoteSwapDetail(balYes, balNo, 5_000_000n, lEff, feeBps);
+      const betBal = quoteBet(balYes, balNo, 5_000_000n, "yes", lEff, feeBps);
+      const pmBal = pmAmmQuoteBet(Number(balYes), Number(balNo), lEff, 5_000_000, "yes", feeBps);
+
+      // feeOut / (amountOut + feeOut) === feeBps / 10_000 (within ±1 atom integer rounding)
+      expect(swapBal.feeOut).toBeGreaterThan(0n);
+      expect(betBal.feeOut).toBe(swapBal.feeOut);
+      expect(pmBal.feeOut).toBe(swapBal.feeOut);
+      expect(pmBal.feeIn).toBe(swapBal.feeIn);
+      const expectedFeeOutFromAfterFee = (Number(swapBal.amountOut) * feeBps) / (10_000 - feeBps);
+      expect(Math.abs(Number(swapBal.feeOut) - expectedFeeOutFromAfterFee)).toBeLessThanOrEqual(2);
+
+      // 2. Skewed P=0.80 pool: buying expensive YES yields fewer YES shares -> feeOut < feeIn;
+      //    buying cheap NO yields more NO shares -> feeOut > feeIn
+      const skewed = pmAmmReservesFromPrice(0.8, lEff);
+      const skewYes = BigInt(Math.round(skewed.yes));
+      const skewNo = BigInt(Math.round(skewed.no));
+      const betExpensive = quoteBet(skewYes, skewNo, 5_000_000n, "yes", lEff, 100);
+      const betCheap = quoteBet(skewYes, skewNo, 5_000_000n, "no", lEff, 100);
+
+      expect(betExpensive.feeIn).toBe(50_000n);
+      expect(betCheap.feeIn).toBe(50_000n);
+      expect(betExpensive.feeOut).toBeGreaterThan(0n);
+      expect(betExpensive.feeOut).toBeLessThan(betExpensive.feeIn);
+      expect(betCheap.feeOut).toBeGreaterThan(betCheap.feeIn);
+
+      // Mutual consistency with amountOut for both skewed directions
+      const expCheck = (Number(betExpensive.swapOut) * 100) / (10_000 - 100);
+      const cheapCheck = (Number(betCheap.swapOut) * 100) / (10_000 - 100);
+      expect(Math.abs(Number(betExpensive.feeOut) - expCheck)).toBeLessThanOrEqual(2);
+      expect(Math.abs(Number(betCheap.feeOut) - cheapCheck)).toBeLessThanOrEqual(2);
+
+      // Zero inputs yield zero feeOut
+      expect(quoteSwapDetail(0n, balNo, 5_000_000n, lEff, 100)).toEqual({
+        amountOut: 0n,
+        feeIn: 0n,
+        feeOut: 0n,
+      });
     });
   });
 });

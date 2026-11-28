@@ -116,4 +116,31 @@ describe("HelpPage low-threshold Solana fee breakdown", () => {
       )
     ).toBeInTheDocument();
   });
+
+  it("renders updated Tier 3 and fallback settlement copy without lossless claim or mismatched button names", () => {
+    const { rerender } = render(
+      <LocaleProvider>
+        <HelpPage />
+      </LocaleProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /02 · No dispute window/i }));
+    expect(
+      screen.getByText(/either by submitting the settlement directly on the market page \(where your browser extracts the OCR2 signatures straight from the RPC with zero backend dependency\)/)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/clicking "Settle now"/)).toBeNull();
+
+    setLocale("zh");
+    rerender(
+      <LocaleProvider>
+        <HelpPage />
+      </LocaleProvider>
+    );
+    expect(screen.getByText(/自动转入作废并按每枚 0\.5 USDT 退回。/)).toBeInTheDocument();
+    expect(screen.queryByText(/无损退回/)).toBeNull();
+    expect(
+      screen.getByText(/您既可以在该市场页面直接提交结算（由浏览器直连 RPC 提取 OCR2 签名上链，不依赖任何后端）/)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/直接点击「立即结算」/)).toBeNull();
+  });
 });

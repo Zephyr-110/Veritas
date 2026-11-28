@@ -268,7 +268,7 @@ async function runDailyTick({ forceOpen = false } = {}) {
 
   // 1. Sync existing open daily markets and run immediate self-sweep settlement
   await batchSyncOpenMarkets(connection, state, nowSec);
-  saveState(cfg.statePath, state);
+  await saveState(cfg.statePath, state);
   const watchDue = selectWatchEntries(state.markets, nowSec);
   scheduleWatches(cfg, settleScriptPath, watchDue, nowSec);
   const watchedAddrs = new Set(watchDue.map((e) => e.address));
@@ -279,7 +279,7 @@ async function runDailyTick({ forceOpen = false } = {}) {
     nowSec,
     watchedAddrs
   );
-  if (settledDue.length > 0) saveState(cfg.statePath, state);
+  if (settledDue.length > 0) await saveState(cfg.statePath, state);
 
   // 2. Check whether today's fixed-time 24h slot should open
   const slot = computeDailySlot(
@@ -380,7 +380,7 @@ async function runDailyTick({ forceOpen = false } = {}) {
         state.markets.push(entry);
         const today = utcDayKey(nowSec);
         state.dailyCounts[today] = Number(state.dailyCounts[today] || 0) + 1;
-        saveState(cfg.statePath, state);
+        await saveState(cfg.statePath, state);
         console.log(
           `[daily:create] slot=${slot.slotKey} (${slot.asset.symbol}) ${marketAddr} expiry=${slot.expiry} seed=${cfg.seedUsdt} USDT tx=${createSig}`
         );
@@ -402,7 +402,7 @@ async function runDailyTick({ forceOpen = false } = {}) {
           entry.betSide = side;
           entry.betTx = betSig;
           state.nextBetSide = side === "yes" ? "no" : "yes";
-          saveState(cfg.statePath, state);
+          await saveState(cfg.statePath, state);
           console.log(`[daily:bet] (${slot.asset.symbol}) ${marketAddr} side=${side} amount=${cfg.betUsdt} USDT tx=${betSig}`);
           await persistCreatedMarketToDb(connection, cfg.programId, pdas.market, nowSec);
         }
@@ -412,15 +412,6 @@ async function runDailyTick({ forceOpen = false } = {}) {
 
   if (cfg.recycleFunds) {
     await recycleFinalizedEntries(connection, program, payer, cfg, state);
-  }
-
-  if (state.markets.length > 200) {
-    const activeEntries = state.markets.filter((m) => m.status === "open" || !m.recycled);
-    const archivedEntries = state.markets
-      .filter((m) => m.status !== "open" && m.recycled)
-      .slice(-200);
-    state.markets = [...archivedEntries, ...activeEntries];
-    saveState(cfg.statePath, state);
   }
 }
 

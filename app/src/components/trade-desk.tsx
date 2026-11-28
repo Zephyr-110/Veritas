@@ -21,6 +21,7 @@ import { useProgram } from "@/hooks/use-program";
 import { useNow } from "@/hooks/use-now";
 import { useWalletBalance } from "@/hooks/use-wallet-balance";
 import { maskAmount, useBalanceVisibility } from "@/hooks/use-balance-visibility";
+import { useSettings } from "@/components/providers";
 import type { Side } from "@/lib/types";
 import { useT } from "@/i18n/provider";
 import { Button, Card, Field, Kv, PopNum, SegTabs, StableText, TextInput, openWalletModal, useTx } from "./ui";
@@ -53,6 +54,7 @@ export function TradeDesk({
     useGuestSession();
   const { busy, run } = useTx();
   const { busy: sandboxBusy, runSandbox } = useSandboxTx();
+  const { settings } = useSettings();
   const walletBalance = useWalletBalance();
   const { hidden: hideBalances, toggle: toggleBalances } = useBalanceVisibility();
   const now = useNow();
@@ -60,8 +62,16 @@ export function TradeDesk({
   const phase = marketPhase(market, now);
   const sim = !effectivePublicKey;
   const anyBusy = busy || sandboxBusy;
-  const effectiveCollateral = walletBalance.data ? walletBalance.data.usdtAtoms : position.collateral;
-  const effectiveCollateralDecimals = walletBalance.data ? walletBalance.data.usdtDecimals : market.decimals;
+  const walletMatchesMarketMint = Boolean(
+    walletBalance.data &&
+      market.collateralMint.toBase58() === settings.collateralMint.trim()
+  );
+  const effectiveCollateral = walletMatchesMarketMint
+    ? walletBalance.data!.usdtAtoms
+    : position.collateral;
+  const effectiveCollateralDecimals = walletMatchesMarketMint
+    ? walletBalance.data!.usdtDecimals
+    : market.decimals;
 
   const [tab, setTab] = useState<"bet" | "swap">("bet");
   const [side, setSide] = useState<Side>("yes");
@@ -98,10 +108,11 @@ export function TradeDesk({
           leg: (liveFeeBps / 100).toFixed(2),
           combined: combinedFeePct(liveFeeBps).toFixed(2),
         });
-  let betQuote: { swapOut: bigint; totalOut: bigint; feeIn: bigint } = {
+  let betQuote: { swapOut: bigint; totalOut: bigint; feeIn: bigint; feeOut: bigint } = {
     swapOut: 0n,
     totalOut: 0n,
     feeIn: 0n,
+    feeOut: 0n,
   };
   let betQuoteError: string | null = null;
   try {
@@ -110,11 +121,24 @@ export function TradeDesk({
     betQuoteError = err instanceof Error ? err.message : "errors.invalidPrice";
   }
   const baseYesPrice = accrued ? accrued.yesPrice : market.yesPrice;
+  const clampedYesPrice = Number.isFinite(baseYesPrice) ? Math.min(1, Math.max(0, baseYesPrice)) : 0.5;
+  const inLegPrice = side === "yes" ? 1 - clampedYesPrice : clampedYesPrice;
+  const outLegPrice = side === "yes" ? clampedYesPrice : 1 - clampedYesPrice;
+  const betFeeUsdtAtoms = BigInt(
+    Math.max(
+      0,
+      Math.round(Number(betQuote.feeIn) * inLegPrice + Number(betQuote.feeOut) * outLegPrice)
+    )
+  );
   const curSideCents = (side === "yes" ? baseYesPrice : 1 - baseYesPrice) * 100;
   const avgCents =
     betQuote.totalOut > 0n && parsed.value > 0n ? (Number(parsed.value) / Number(betQuote.totalOut)) * 100 : null;
   const impactPct = avgCents != null && curSideCents > 0 ? (avgCents / curSideCents - 1) * 100 : null;
-  let swapQuote: { amountOut: bigint; feeIn: bigint } = { amountOut: 0n, feeIn: 0n };
+  let swapQuote: { amountOut: bigint; feeIn: bigint; feeOut: bigint } = {
+    amountOut: 0n,
+    feeIn: 0n,
+    feeOut: 0n,
+  };
   let swapQuoteError: string | null = null;
   try {
     swapQuote = quoteSwapDetail(
@@ -128,8 +152,12 @@ export function TradeDesk({
     swapQuoteError = err instanceof Error ? err.message : "errors.invalidPrice";
   }
   const swapOut = swapQuote.amountOut;
-  const activeFeeAtoms = tab === "bet" ? betQuote.feeIn : swapQuote.feeIn;
   const activeQuoteError = tab === "bet" ? betQuoteError : swapQuoteError;
+  const hasSwapFee = swapQuote.feeIn > 0n || swapQuote.feeOut > 0n;
+  const showFeeEstimate =
+    parsed.value > 0n &&
+    !activeQuoteError &&
+    (tab === "bet" ? betFeeUsdtAtoms > 0n : hasSwapFee);
   const sellBalance = side === "yes" ? position.no : position.yes;
   const sideLabel = side === "yes" ? t("common.yes") : t("common.no");
   const otherLabel = side === "yes" ? t("common.no") : t("common.yes");
@@ -148,7 +176,7 @@ export function TradeDesk({
             ? { key: activeQuoteError }
             : sim
               ? null
-            : tab === "bet" && parsed.value > position.collateral
+            : tab === "bet" && parsed.value > effectiveCollateral
               ? { key: "tradeDisable.noCollateral", vars: { symbol: COLLATERAL_SYMBOL } }
               : tab === "swap" && parsed.value > sellBalance
                 ? { key: "tradeDisable.noShares", vars: { side: otherLabel } }
@@ -340,7 +368,7 @@ export function TradeDesk({
           </button>
         </div>
       )}
-      {!sim && tab === "bet" && position.collateral === 0n ? (
+      {!sim && tab === "bet" && effectiveCollateral === 0n ? (
         <div className="-mt-2 flex justify-end">
           {isSandbox ? (
             <Button
@@ -374,7 +402,15 @@ export function TradeDesk({
           <button
             type="button"
             className="border border-[var(--hair)] px-3 py-1 text-xs text-zinc-400 transition hover:border-[var(--line)] hover:text-white active:scale-95"
-            onClick={() => setAmount(toUi(tab === "bet" ? position.collateral : sellBalance, market.decimals, 6))}
+            onClick={() =>
+              setAmount(
+                toUi(
+                  tab === "bet" ? effectiveCollateral : sellBalance,
+                  tab === "bet" ? effectiveCollateralDecimals : market.decimals,
+                  6
+                )
+              )
+            }
           >
             <StableText k="common.max" align="center" />
           </button>
@@ -402,16 +438,41 @@ export function TradeDesk({
             k={<StableText k="trade.currentFee" />}
             v={<PopNum text={feeText} />}
           />
-          {activeFeeAtoms > 0n && parsed.value > 0n && !activeQuoteError ? (
+          {showFeeEstimate ? (
             <div className="num text-right text-xs text-zinc-400" data-testid="trade-fee-estimate">
-              <StableText
-                k="trade.feeEstimate"
-                vars={{
-                  amount: formatFeeAmount(activeFeeAtoms, market.decimals),
-                  symbol: COLLATERAL_SYMBOL,
-                }}
-                align="end"
-              />
+              {tab === "bet" ? (
+                <StableText
+                  k="trade.feeEstimate"
+                  vars={{
+                    amount: formatFeeAmount(betFeeUsdtAtoms, market.decimals),
+                    symbol: COLLATERAL_SYMBOL,
+                  }}
+                  align="end"
+                />
+              ) : swapQuote.feeIn > 0n && swapQuote.feeOut > 0n ? (
+                <StableText
+                  k="trade.feeEstimateTwoLeg"
+                  vars={{
+                    inAmount: formatFeeAmount(swapQuote.feeIn, market.decimals),
+                    inSymbol: otherLabel,
+                    outAmount: formatFeeAmount(swapQuote.feeOut, market.decimals),
+                    outSymbol: sideLabel,
+                  }}
+                  align="end"
+                />
+              ) : (
+                <StableText
+                  k="trade.feeEstimate"
+                  vars={{
+                    amount: formatFeeAmount(
+                      swapQuote.feeIn > 0n ? swapQuote.feeIn : swapQuote.feeOut,
+                      market.decimals
+                    ),
+                    symbol: swapQuote.feeIn > 0n ? otherLabel : sideLabel,
+                  }}
+                  align="end"
+                />
+              )}
             </div>
           ) : null}
         </div>
