@@ -324,7 +324,7 @@ describe("ui primitives", () => {
     expect(innerContainer.querySelector("footer")?.innerHTML).toBe(homeFooterHtml);
   });
 
-  it("SandboxCapsule 实时拉取 /api/markets：优先直达最短 2 分钟盘，否则最短开启盘，无开启盘时不渲染", async () => {
+  it("SandboxCapsule 实时拉取 /api/markets：优先直达剩余 ≥60s 的最短在架盘，否则最短开启盘，无开启盘时不渲染", async () => {
     const { GuestSessionProvider, SANDBOX_STORAGE_KEY } = await import("@/components/guest-session");
     const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
     const { Keypair } = await import("@solana/web3.js");

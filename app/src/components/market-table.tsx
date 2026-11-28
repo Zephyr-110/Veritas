@@ -118,7 +118,7 @@ export function MarketTable({
                     <div className="mt-1 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 text-xs text-zinc-500">
                       <span className="num font-medium text-zinc-300">{targetSpec}</span>
                       {yesPrice != null ? (
-                        <span className="lg:hidden">{formatYesNo(yesPrice)}</span>
+                        <span className="whitespace-nowrap lg:hidden">{formatYesNo(yesPrice)}</span>
                       ) : null}
                       {live ? (
                         <span className="lg:hidden">
@@ -163,7 +163,7 @@ export function MarketTable({
                     <div className="num text-[17px] font-semibold text-zinc-50">
                       {formatCents(yesPrice)}
                     </div>
-                    <div className="mt-0.5 hidden text-[11px] text-zinc-500 lg:block">
+                    <div className="mt-0.5 hidden whitespace-nowrap text-[11px] text-zinc-500 lg:block">
                       {formatYesNo(yesPrice)}
                     </div>
                   </>
@@ -194,6 +194,18 @@ export function MarketTable({
                 <div className="num truncate text-[15px] text-zinc-200">
                   {vault === undefined ? "—" : money(vault, market.decimals)}
                 </div>
+                {live && !isLegacyV1 ? (
+                  <div
+                    data-testid="market-row-fee"
+                    className="num mt-0.5 whitespace-nowrap text-[11px] text-zinc-500"
+                  >
+                    <StableText
+                      k="markets.feeRate"
+                      vars={{ pct: (market.feeBps / 100).toFixed(2) }}
+                      align="end"
+                    />
+                  </div>
+                ) : null}
               </div>
               <div className="c-status justify-end">
                 {isLegacyLive ? (

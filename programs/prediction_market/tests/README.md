@@ -36,7 +36,7 @@ A green run means settlement and economic security hold against the README spec:
   - `assert_walk_ok(max_surplus, max_deficit)`: separates signed pool surplus from dangerous `book + pending > phys` deficits — `p_random_walk_invariants` `(11.0, 2.0)`, `e_walk_open_backing_then_settle_and_claim` `(9.0, 2.0)`, and `e_warped_multi_lp_walk_full_exit_and_claim` `(30.0, 3.0)`.
 - B1 vs Python: bet output exact, bet reserve-step <= 0.002, chain vs crate quote exact. Swaps under 1,000 tokens stay within 1 token (reserve-step <= 1.5). The tail swap (~4e5 out) may differ by at most 22 tokens and 8e-5 relative; that gap is python float versus I80F48, and the relative cap is what stops it from hiding a small-swap bug. Withdraw reserve-step <= 2.
 - B2 aging <= 0.05 (measured 0.014). Near-the-money reserves in `c_swap` / partial withdraw <= 0.05. Integer payouts that matched exactly are asserted exactly; a 1-token floor difference on LP withdraw stays at 1.
-- CU ceilings: create < 450k, bet < 400k, swap < 300k.
+- CU ceilings (LiteSVM local simulation): create < 450k, bet < 400k, swap < 300k. On-chain Devnet measurements differ — a `user_bet_on` transaction measures roughly 540,000–560,000 CU on Devnet (see root README).
 
 ## Notes
 

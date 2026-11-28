@@ -72,6 +72,17 @@ export default function HomePage() {
     await Promise.all([liveQuery.reload(), endedQuery.reload()]);
   };
 
+  const subtitle = tPair("home.subtitle", undefined, locale);
+  const renderNoBreakUsdt = (text: string) =>
+    text.split(/(1 USDT)/g).map((part, idx) =>
+      part === "1 USDT" ? (
+        <span key={idx} className="whitespace-nowrap">
+          {part}
+        </span>
+      ) : (
+        part
+      )
+    );
   const feesLead = tPair("home.howFeesLead", undefined, locale);
   const feesHelp = tPair("home.howHelp", undefined, locale);
   const feesTail = tPair("home.howFeesTail", undefined, locale);
@@ -105,7 +116,21 @@ export default function HomePage() {
             </div>
             <div className="mt-6 flex flex-col items-start">
               <p className="home-sub rise-in text-left" style={{ animationDelay: "130ms" }}>
-                <StableText k="home.subtitle" block />
+                <span className="grid justify-items-start text-left" data-stable="true">
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none col-start-1 row-start-1 select-none invisible"
+                    lang={locale === "zh" ? "en" : "zh-CN"}
+                  >
+                    {renderNoBreakUsdt(locale === "zh" ? subtitle.en : subtitle.zh)}
+                  </span>
+                  <span
+                    className="col-start-1 row-start-1"
+                    lang={locale === "zh" ? "zh-CN" : "en"}
+                  >
+                    {renderNoBreakUsdt(subtitle.active)}
+                  </span>
+                </span>
               </p>
               <div
                 className="rise-in mt-7 flex flex-wrap justify-start gap-3"

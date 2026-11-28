@@ -146,6 +146,9 @@ fn a_closed_loop() {
 
     let trader = env.fund_user(2_000_000);
     env.bet(&keys, &trader, 400_000, MarketOutcome::Yes);
+    // LiteSVM local simulation CU ceiling (< 400k). On-chain Devnet measurements
+    // differ — a `user_bet_on` transaction measures roughly 540,000–560,000 CU on
+    // Devnet (see root README and tests/README.md).
     println!("bet cu={}", env.last_cu);
     assert!(
         env.last_cu < 400_000,

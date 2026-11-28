@@ -169,7 +169,7 @@ function LiveNowCard() {
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1.5 text-right">
         <LiveCountdown expiry={live.expiry} now={now} className="text-lg font-semibold text-white" />
-        <span className="num text-sm text-zinc-400">{formatYesNo(live.yesPrice)}</span>
+        <span className="num whitespace-nowrap text-sm text-zinc-400">{formatYesNo(live.yesPrice)}</span>
         <span className="text-sm font-medium text-white">
           <StableText k="help.cta" align="end" /> →
         </span>

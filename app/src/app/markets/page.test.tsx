@@ -381,6 +381,45 @@ describe("MarketsPage duration filter chips", () => {
     expect(screen.getAllByRole("button", { name: "Trade" })).toHaveLength(1);
   });
 
+  it("renders live fee rate only on non-legacy live rows and hides it on legacy live and history rows", async () => {
+    const v2Live = makeMarket(30, {
+      title: "BTC/USD at or above opening price in 15 min?",
+      startTs: NOW - 450,
+      expiry: NOW + 450,
+      endTs: NOW + 450,
+      feeBps: 123,
+    });
+    const legacyLive = makeMarket(31, {
+      title: "BTC/USD at or above opening price in 24 hours?",
+      startTs: undefined,
+      expiry: NOW + 7200,
+      endTs: NOW + 7200,
+      feeBps: 30,
+    });
+    const histEnded = makeMarket(32, {
+      title: "ETH/USD at or above opening price in 15 min?",
+      status: "resolved",
+      winner: "yes",
+      startTs: NOW - 1800,
+      expiry: NOW - 900,
+      endTs: NOW - 900,
+      finishTs: NOW - 895,
+      feeBps: 300,
+    });
+    marketState.markets = [v2Live, legacyLive, histEnded];
+
+    renderMarkets();
+
+    // Live tape: only v2 live row shows fee rate (1.23%); legacy live row does not
+    const feeNodes = screen.getAllByTestId("market-row-fee");
+    expect(feeNodes).toHaveLength(1);
+    expect(feeNodes[0]).toHaveTextContent("Fee 1.23%");
+
+    // History tape: resolved row does not show fee rate
+    await userEvent.click(screen.getByRole("button", { name: "History" }));
+    expect(screen.queryByTestId("market-row-fee")).toBeNull();
+  });
+
   it("supports 'Other' duration filter chip for custom parseable durations", async () => {
     const live15m = makeMarket(10, {
       title: "BTC/USD at or above opening price in 15 min?",

@@ -46,7 +46,7 @@ export function FeatureCard({
       {yesPrice == null ? (
         <div className="num text-right text-sm text-zinc-500">{"\u2014"}</div>
       ) : (
-        <div className="num text-right text-sm text-zinc-200">{formatYesNo(yesPrice)}</div>
+        <div className="num whitespace-nowrap text-right text-sm text-zinc-200">{formatYesNo(yesPrice)}</div>
       )}
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-xs text-zinc-500">
