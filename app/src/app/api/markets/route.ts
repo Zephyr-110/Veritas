@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const VALID_SECTIONS = new Set<ListSectionFilter>(["live", "unsettled", "ended", "all"]);
-const VALID_DURATIONS = new Set<DurationFilter>(["all", "2m", "15m", "24h"]);
+const VALID_DURATIONS = new Set<DurationFilter>(["all", "2m", "15m", "24h", "other"]);
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);

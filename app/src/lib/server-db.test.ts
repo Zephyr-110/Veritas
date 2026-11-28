@@ -768,4 +768,70 @@ describe("server-db & API routes", () => {
     expect(posPage.summary.claimTotal).toBe(0);
     expect(posPage.summary.lpUnclaimed).toBe(false);
   });
+
+  it("emits real dynamic feeBps for v2 markets (15m=123, 24h=79 at midpoint) and preserves stored feeBps for v1", () => {
+    const nowSec = 1_800_000_000;
+    const addresses = seedMarkets(dbPath, 3, nowSec);
+    const db = getServerDb(dbPath);
+    const [m15m, m24h, mV1] = addresses;
+
+    // 15m v2 market at exact midpoint: startTs = now - 450, endTs = now + 450 -> 123 bps
+    db.prepare(
+      "UPDATE markets SET status = 'open', start_ts = ?, expiry = ?, end_ts = ?, fee_bps = 0 WHERE address = ?"
+    ).run(nowSec - 450, nowSec + 450, nowSec + 450, m15m);
+    // 24h v2 market at exact midpoint: startTs = now - 43200, endTs = now + 43200 -> 79 bps
+    db.prepare(
+      "UPDATE markets SET status = 'open', start_ts = ?, expiry = ?, end_ts = ?, fee_bps = 0 WHERE address = ?"
+    ).run(nowSec - 43_200, nowSec + 43_200, nowSec + 43_200, m24h);
+    // v1 legacy market (start_ts NULL): keeps stored fee_bps = 30
+    db.prepare(
+      "UPDATE markets SET status = 'open', start_ts = NULL, expiry = ?, end_ts = ?, fee_bps = 30 WHERE address = ?"
+    ).run(nowSec + 450, nowSec + 450, mV1);
+
+    const page = queryMarketsPage({
+      programId: DEFAULT_PROGRAM_ID,
+      section: "live",
+      duration: "all",
+      page: 1,
+      pageSize: 10,
+      nowSec,
+      dbPath,
+    });
+    const byAddr = new Map(page.items.map((m) => [m.address, m]));
+    expect(byAddr.get(m15m)?.feeBps).toBe(123);
+    expect(byAddr.get(m24h)?.feeBps).toBe(79);
+    expect(byAddr.get(mV1)?.feeBps).toBe(30);
+  });
+
+  it("backfills custom-duration markets into 'other' bucket so bucket totals sum to total count", () => {
+    const nowSec = 1_800_000_000;
+    const addresses = seedMarkets(dbPath, 5, nowSec);
+    const db = getServerDb(dbPath);
+
+    // 2m, 15m, 24h, plus two custom-duration markets initially stored with duration_bucket = NULL
+    db.prepare("UPDATE markets SET status = 'open', expiry = ?, end_ts = ?, title = ?, duration_bucket = '2m' WHERE address = ?")
+      .run(nowSec + 100, nowSec + 100, "BTC/USD at or above opening price in 2 min?", addresses[0]);
+    db.prepare("UPDATE markets SET status = 'open', expiry = ?, end_ts = ?, title = ?, duration_bucket = '15m' WHERE address = ?")
+      .run(nowSec + 200, nowSec + 200, "ETH/USD at or above opening price in 15 min?", addresses[1]);
+    db.prepare("UPDATE markets SET status = 'open', expiry = ?, end_ts = ?, title = ?, duration_bucket = '24h' WHERE address = ?")
+      .run(nowSec + 300, nowSec + 300, "SOL/USD at or above opening price in 24 hours?", addresses[2]);
+    db.prepare("UPDATE markets SET status = 'open', expiry = ?, end_ts = ?, title = ?, duration_bucket = NULL WHERE address = ?")
+      .run(nowSec + 400, nowSec + 400, "LINK/USD above 20 in 1 hour?", addresses[3]);
+    db.prepare("UPDATE markets SET status = 'open', expiry = ?, end_ts = ?, title = ?, duration_bucket = NULL WHERE address = ?")
+      .run(nowSec + 500, nowSec + 500, "BTC/USD above 95,000 in 10 min?", addresses[4]);
+
+    const all = queryMarketsPage({ programId: DEFAULT_PROGRAM_ID, section: "live", duration: "all", nowSec, dbPath });
+    const b2m = queryMarketsPage({ programId: DEFAULT_PROGRAM_ID, section: "live", duration: "2m", nowSec, dbPath });
+    const b15m = queryMarketsPage({ programId: DEFAULT_PROGRAM_ID, section: "live", duration: "15m", nowSec, dbPath });
+    const b24h = queryMarketsPage({ programId: DEFAULT_PROGRAM_ID, section: "live", duration: "24h", nowSec, dbPath });
+    const bOther = queryMarketsPage({ programId: DEFAULT_PROGRAM_ID, section: "live", duration: "other", nowSec, dbPath });
+
+    expect(all.total).toBe(5);
+    expect(b2m.total).toBe(1);
+    expect(b15m.total).toBe(1);
+    expect(b24h.total).toBe(1);
+    expect(bOther.total).toBe(2);
+    expect(b2m.total + b15m.total + b24h.total + bOther.total).toBe(all.total);
+    expect(bOther.items.every((m) => m.durationBucket === "other")).toBe(true);
+  });
 });

@@ -90,4 +90,30 @@ describe("HelpPage low-threshold Solana fee breakdown", () => {
       )
     ).toBeInTheDocument();
   });
+
+  it("renders verbatim EN and ZH fee anchor disclosures (1.23% / 0.79%) in the fee section", () => {
+    const { rerender } = render(
+      <LocaleProvider>
+        <HelpPage />
+      </LocaleProvider>
+    );
+
+    expect(
+      screen.getByText(
+        "Measured halfway through a market's life, the fee is about 1.23% on a 15-minute market and about 0.79% on a 24-hour market. Every market starts at 0.50% and reaches the 3.00% cap only in its final stretch."
+      )
+    ).toBeInTheDocument();
+
+    setLocale("zh");
+    rerender(
+      <LocaleProvider>
+        <HelpPage />
+      </LocaleProvider>
+    );
+    expect(
+      screen.getByText(
+        "以盘面寿命过半时计，15 分钟盘的费率约为 1.23%，24 小时盘约为 0.79%。所有盘都从 0.50% 起步，只在最后阶段触及 3.00% 上限。"
+      )
+    ).toBeInTheDocument();
+  });
 });

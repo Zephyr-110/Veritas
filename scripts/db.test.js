@@ -643,3 +643,13 @@ test("legacy v1 backfill marks only past-48h open v1 markets as windowBurn and k
   });
   assert.equal(rowV2Past.status, "open");
 });
+
+test("marketDurationBucket maps non-standard parseable durations to 'other' and unparseable titles to null", () => {
+  assert.equal(dbLib.marketDurationBucket("BTC/USD at or above opening price in 2 min?"), "2m");
+  assert.equal(dbLib.marketDurationBucket("ETH/USD at or above opening price in 15 min?"), "15m");
+  assert.equal(dbLib.marketDurationBucket("SOL/USD at or above opening price in 24 hours?"), "24h");
+  assert.equal(dbLib.marketDurationBucket("LINK/USD above 20 in 1 hour?"), "other");
+  assert.equal(dbLib.marketDurationBucket("BTC/USD above 95,000 in 10 min?"), "other");
+  assert.equal(dbLib.marketDurationBucket("BTC/USD >= 73,479 @ 2026-01-01"), null);
+  assert.equal(dbLib.marketDurationBucket("Custom freeform title"), null);
+});

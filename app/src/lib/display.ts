@@ -23,7 +23,7 @@ const DURATION_ZH_TITLE =
 
 type DurationUnit = "min" | "hour" | "day" | "sec";
 
-export type DurationFilter = "all" | "2m" | "15m" | "24h";
+export type DurationFilter = "all" | "2m" | "15m" | "24h" | "other";
 
 const UNIT_SECONDS: Record<DurationUnit, number> = {
   sec: 1,
@@ -62,19 +62,20 @@ export function marketDurationBucket(
   market: Pick<MarketView, "title">
 ): Exclude<DurationFilter, "all"> | null {
   const sec = marketDurationSec(market);
+  if (sec === null) return null;
   if (sec === 120) return "2m";
   if (sec === 900) return "15m";
   if (sec === 86_400) return "24h";
-  return null;
+  return "other";
 }
 
-/** Picks the shortest-remaining live 2m market, or else the shortest-remaining live market, or null if none. */
+/** Picks the shortest-remaining live market with >= 60s left, else the shortest-remaining live market, or null if none. */
 export function pickSandboxQuickMarket(markets: MarketView[], nowSec: number): MarketView | null {
   const live = markets
     .filter((market) => market.status === "open" && market.expiry > nowSec)
     .sort((a, b) => a.expiry - b.expiry);
   if (live.length === 0) return null;
-  return live.find((market) => marketDurationBucket(market) === "2m") ?? live[0];
+  return live.find((market) => market.expiry - nowSec >= 60) ?? live[0];
 }
 
 function formatDurationTitle(

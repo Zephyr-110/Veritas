@@ -5,7 +5,6 @@ import { useMemo, type CSSProperties } from "react";
 import { useMarketPhaseTime, useMarketsPage } from "@/hooks/use-markets";
 import {
   listSection,
-  marketDurationBucket,
   marketKind,
   pickSandboxQuickMarket,
 } from "@/lib/display";
@@ -137,14 +136,7 @@ export default function HomePage() {
                     data-testid="home-sandbox-quick-jump"
                   >
                     <Button type="button" tone="secondary" className="h-11 px-6">
-                      <StableText
-                        k={
-                          marketDurationBucket(sandboxQuickTarget) === "2m"
-                            ? "sandbox.quickJump2m"
-                            : "sandbox.quickJumpLive"
-                        }
-                        align="center"
-                      />
+                      <StableText k="sandbox.quickJumpLive" align="center" />
                     </Button>
                   </Link>
                 ) : null}

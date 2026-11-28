@@ -84,9 +84,11 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+let currentMarket: MarketView = makeExpiredMarket();
+
 vi.mock("@/hooks/use-market", () => ({
   useMarket: () => ({
-    market: makeExpiredMarket(),
+    market: currentMarket,
     position: emptyPos,
     positionStale: false,
     loading: false,
@@ -148,6 +150,7 @@ const { default: MarketDetailPage } = await import("./page");
 afterEach(() => {
   cleanup();
   setLocale("en");
+  currentMarket = makeExpiredMarket();
 });
 
 describe("MarketDetailPage StatusBand settlement rule wrapping", () => {
@@ -176,5 +179,47 @@ describe("MarketDetailPage StatusBand settlement rule wrapping", () => {
       </LocaleProvider>
     );
     expect(bandRuleCell!.textContent).toContain("读数 ≥ 59,924.44，YES 按 1:1 兑付");
+  });
+
+  it("shows legacy v1 note only when startTs is absent and status is open (hides on v2 open and v1 finalized)", () => {
+    // 1. Legacy v1 open -> shown in EN and ZH
+    currentMarket = { ...makeExpiredMarket(), startTs: undefined, status: "open" };
+    const { rerender } = render(
+      <LocaleProvider>
+        <MarketDetailPage />
+      </LocaleProvider>
+    );
+    expect(screen.getByTestId("legacy-market-note")).toHaveTextContent(
+      "Created under the previous program version — the current program cannot settle this market. It will be marked void once the 48-hour resolve window ends."
+    );
+    act(() => {
+      setLocale("zh");
+    });
+    rerender(
+      <LocaleProvider>
+        <MarketDetailPage />
+      </LocaleProvider>
+    );
+    expect(screen.getByTestId("legacy-market-note")).toHaveTextContent(
+      "该市场由上一版程序创建，当前程序无法为其结算；48 小时裁决窗口结束后将标记为作废。"
+    );
+
+    // 2. v2 open (has startTs) -> hidden
+    currentMarket = { ...makeExpiredMarket(), startTs: NOW - 150, status: "open" };
+    rerender(
+      <LocaleProvider>
+        <MarketDetailPage />
+      </LocaleProvider>
+    );
+    expect(screen.queryByTestId("legacy-market-note")).toBeNull();
+
+    // 3. Legacy v1 finalized -> hidden
+    currentMarket = { ...makeExpiredMarket(), startTs: undefined, status: "windowBurn" };
+    rerender(
+      <LocaleProvider>
+        <MarketDetailPage />
+      </LocaleProvider>
+    );
+    expect(screen.queryByTestId("legacy-market-note")).toBeNull();
   });
 });

@@ -18,12 +18,18 @@ type Tape = "hot" | "unsettled" | "history";
 
 const DURATION_FILTERS: ReadonlyArray<{
   id: DurationFilter;
-  labelKey: "markets.filterAll" | "markets.filter2m" | "markets.filter15m" | "markets.filter24h";
+  labelKey:
+    | "markets.filterAll"
+    | "markets.filter2m"
+    | "markets.filter15m"
+    | "markets.filter24h"
+    | "markets.filterOther";
 }> = [
   { id: "all", labelKey: "markets.filterAll" },
   { id: "2m", labelKey: "markets.filter2m" },
   { id: "15m", labelKey: "markets.filter15m" },
   { id: "24h", labelKey: "markets.filter24h" },
+  { id: "other", labelKey: "markets.filterOther" },
 ];
 
 const PAGE_SIZE = 30;

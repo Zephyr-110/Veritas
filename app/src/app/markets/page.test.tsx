@@ -344,6 +344,25 @@ describe("MarketsPage duration filter chips", () => {
     expect(screen.getByRole("link", { name: /LINK\/USD.*in 1 day\?/ })).toBeInTheDocument();
   });
 
+  it("supports 'Other' duration filter chip for custom parseable durations", async () => {
+    const live15m = makeMarket(10, {
+      title: "BTC/USD at or above opening price in 15 min?",
+      expiry: NOW + 600,
+      endTs: NOW + 600,
+    });
+    const live1h = makeMarket(11, {
+      title: "LINK/USD above 20 in 1 hour?",
+      expiry: NOW + 3600,
+      endTs: NOW + 3600,
+    });
+    marketState.markets = [live15m, live1h];
+
+    renderMarkets();
+    await userEvent.click(screen.getByRole("button", { name: "Other" }));
+    expect(screen.getByRole("link", { name: /in 1 hour\?/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /in 15 min\?/ })).toBeNull();
+  });
+
   it("shows reset filter CTA when a duration filter has no matches", async () => {
     marketState.markets = [
       makeMarket(1, {

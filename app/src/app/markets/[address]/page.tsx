@@ -514,9 +514,20 @@ function StatusBand({
     );
   }
 
+  const showLegacyNote =
+    market.status === "open" && !(market.startTs != null && market.startTs > 0);
+
   return (
     <div onMouseMove={onSpot} className="surface overflow-hidden">
       <div className="band-grid grid grid-cols-2 md:grid-cols-4">{cells}</div>
+      {showLegacyNote ? (
+        <p
+          data-testid="legacy-market-note"
+          className="border-t border-[var(--warn-line)] bg-[var(--warn-soft)] px-5 py-2.5 text-xs font-medium text-[var(--warn)]"
+        >
+          <StableText k="market.legacyNote" block />
+        </p>
+      ) : null}
       {noteKey ? (
         <p className="border-t border-[var(--hair)] bg-[var(--seg-bg)] px-5 py-2.5 text-xs font-medium text-zinc-300">
           <StableText k={noteKey} block />

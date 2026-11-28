@@ -23,10 +23,12 @@ function ValueCard({
   icon: Icon,
   titleKey,
   bodyKey,
+  extraBodyKey,
 }: {
   icon: ComponentType<{ className?: string }>;
   titleKey: string;
   bodyKey: string;
+  extraBodyKey?: string;
 }) {
   return (
     <div onMouseMove={onSpot} className="surface stack-3 p-5 text-center">
@@ -39,6 +41,11 @@ function ValueCard({
       <p className="text-sm leading-relaxed text-zinc-400">
         <StableText k={bodyKey} block align="center" />
       </p>
+      {extraBodyKey ? (
+        <p className="text-xs leading-relaxed text-zinc-400">
+          <StableText k={extraBodyKey} block align="center" />
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -189,7 +196,12 @@ export default function HelpPage() {
         <div className="grid gap-3 sm:grid-cols-3">
           <ValueCard icon={CircleDollarSign} titleKey="help.v1Title" bodyKey="help.v1" />
           <ValueCard icon={ShieldCheck} titleKey="help.v2Title" bodyKey="help.v2" />
-          <ValueCard icon={Percent} titleKey="help.v3Title" bodyKey="help.v3" />
+          <ValueCard
+            icon={Percent}
+            titleKey="help.v3Title"
+            bodyKey="help.v3"
+            extraBodyKey="help.feeAnchors"
+          />
         </div>
       </Reveal>
 

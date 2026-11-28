@@ -6,9 +6,10 @@ import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, unpackAccount } from "@solana/
 import { Connection, PublicKey } from "@solana/web3.js";
 import { computePending, decodeLpPosition, decodeMarket, i80f48ToAmount } from "./codec";
 import { DEFAULT_PROGRAM_ID, LP_POSITION_DISCRIMINATOR, RESOLVE_WINDOW } from "./constants";
-import type { DurationFilter } from "./display";
+import { marketDurationBucket, type DurationFilter } from "./display";
 import { feedByState } from "./feeds";
 import { explorerTx, toUi } from "./format";
+import { currentMarketFeeBps } from "./quote";
 import {
   isEvidenceComplete,
   type EvidenceResponse,
@@ -366,15 +367,56 @@ export function backfillExpiredV1Markets(opts: {
   return info.changes;
 }
 
+export function backfillOtherDurationBuckets(opts: {
+  programId?: string;
+  dbPath?: string;
+} = {}): number {
+  const db = getServerDb(opts.dbPath);
+  const programId = opts.programId?.trim() || DEFAULT_PROGRAM_ID;
+  const rows = db
+    .prepare<[string], { address: string; title: string }>(
+      `SELECT address, title
+       FROM markets
+       WHERE program_id = ?
+         AND duration_bucket IS NULL`
+    )
+    .all(programId);
+  if (rows.length === 0) return 0;
+
+  const updateStmt = db.prepare<[string, string]>(
+    "UPDATE markets SET duration_bucket = ? WHERE address = ?"
+  );
+  let changed = 0;
+  const tx = db.transaction((items: Array<{ address: string; title: string }>) => {
+    for (const item of items) {
+      const bucket = marketDurationBucket({ title: item.title });
+      if (bucket !== null) {
+        updateStmt.run(bucket, item.address);
+        changed += 1;
+      }
+    }
+  });
+  tx(rows);
+  return changed;
+}
+
 function serializeMarketRow(row: MarketDbRow, nowSec?: number): SerializedMarket {
+  const effectiveNow = nowSec ?? Math.floor(Date.now() / 1000);
   const startTs =
     row.start_ts != null && row.start_ts > 0 && row.end_ts > row.start_ts
       ? row.start_ts
       : null;
   const status = deriveIndexedMarketStatus(
     { status: row.status as MarketStatusName, startTs, endTs: row.end_ts },
-    nowSec
+    effectiveNow
   );
+  const feeBps =
+    startTs != null
+      ? currentMarketFeeBps(
+          { startTs, endTs: row.end_ts, feeBps: row.fee_bps },
+          effectiveNow
+        )
+      : row.fee_bps;
   return {
     address: row.address,
     programId: row.program_id,
@@ -404,7 +446,7 @@ function serializeMarketRow(row: MarketDbRow, nowSec?: number): SerializedMarket
     settleAbove: Boolean(row.settle_above),
     settledPrice: row.settled_price,
     settledPublishTime: row.settled_publish_time,
-    feeBps: startTs != null ? 0 : row.fee_bps,
+    feeBps,
     lZero: row.l_zero,
     lastAccrualTs: row.last_accrual_ts,
     cumYesPerShare: row.cum_yes_per_share,
@@ -439,6 +481,7 @@ export function queryMarketsPage(opts: {
   const offset = (page - 1) * pageSize;
   const nowSec = opts.nowSec ?? Math.floor(Date.now() / 1000);
   backfillExpiredV1Markets({ programId, nowSec, dbPath: opts.dbPath });
+  backfillOtherDurationBuckets({ programId, dbPath: opts.dbPath });
 
   const conditions = ["program_id = ?"];
   const params: unknown[] = [programId];
@@ -1260,6 +1303,7 @@ export function queryWalletPositionsPage(opts: {
   const programId = opts.programId?.trim() || DEFAULT_PROGRAM_ID;
   const nowSec = Math.floor(Date.now() / 1000);
   backfillExpiredV1Markets({ programId, nowSec, dbPath: opts.dbPath });
+  backfillOtherDurationBuckets({ programId, dbPath: opts.dbPath });
   const page = Math.max(1, Math.floor(opts.page ?? 1));
   const pageSize = Math.min(50, Math.max(1, Math.floor(opts.pageSize ?? 30)));
   const offset = (page - 1) * pageSize;

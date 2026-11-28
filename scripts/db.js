@@ -103,10 +103,11 @@ function marketDurationSec(title) {
 
 function marketDurationBucket(title) {
   const sec = marketDurationSec(title);
+  if (sec === null) return null;
   if (sec === 120) return "2m";
   if (sec === 900) return "15m";
   if (sec === 86_400) return "24h";
-  return null;
+  return "other";
 }
 
 function feedByState(ocr2State) {

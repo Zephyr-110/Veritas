@@ -17,6 +17,7 @@ import {
   marketDurationSec,
   marketKind,
   money,
+  pickSandboxQuickMarket,
   questionTitle,
   resolveHours,
   timeCopy,
@@ -257,8 +258,45 @@ describe("display", () => {
     expect(marketDurationBucket({ title: "ETH/USD at or above opening price in 15 min?" })).toBe("15m");
     expect(marketDurationBucket({ title: "SOL/USD at or above opening price in 24 hours?" })).toBe("24h");
     expect(marketDurationBucket({ title: "SOL/USD 1 天后能站上开盘价吗？" })).toBe("24h");
-    expect(marketDurationBucket({ title: "LINK/USD above 20 in 1 hour?" })).toBeNull();
+    expect(marketDurationBucket({ title: "LINK/USD above 20 in 1 hour?" })).toBe("other");
+    expect(marketDurationBucket({ title: "SOL/USD at or above opening price in 10 min?" })).toBe("other");
     expect(marketDurationBucket({ title: "BTC/USD >= 73,479 @ 2026-01-01" })).toBeNull();
+    expect(marketDurationBucket({ title: "Custom freeform title" })).toBeNull();
+  });
+
+  it("pickSandboxQuickMarket 选剩余 >= 60s 的最短开启盘，否则回退最短开启盘，无开启盘返回 null", () => {
+    const now = 1_800_000_000;
+    const mTooSoon = makeMarket({
+      title: "BTC/USD at or above opening price in 2 min?",
+      status: "open",
+      expiry: now + 30,
+      endTs: now + 30,
+    });
+    const m15Soon = makeMarket({
+      title: "ETH/USD at or above opening price in 15 min?",
+      status: "open",
+      expiry: now + 90,
+      endTs: now + 90,
+    });
+    const m2Later = makeMarket({
+      title: "SOL/USD at or above opening price in 2 min?",
+      status: "open",
+      expiry: now + 110,
+      endTs: now + 110,
+    });
+    const mEnded = makeMarket({
+      title: "LINK/USD at or above opening price in 15 min?",
+      status: "resolved",
+      expiry: now + 70,
+      endTs: now + 70,
+    });
+
+    // Prefers >= 60s shortest-remaining regardless of 2m vs 15m
+    expect(pickSandboxQuickMarket([mEnded, m2Later, mTooSoon, m15Soon], now)).toBe(m15Soon);
+    // Falls back to shortest live when all live markets have < 60s remaining
+    expect(pickSandboxQuickMarket([mEnded, mTooSoon], now)).toBe(mTooSoon);
+    // Returns null when no live markets exist
+    expect(pickSandboxQuickMarket([mEnded], now)).toBeNull();
   });
 
   it("displayYesPrice 按状态返回胜负兑付价、作废 null 或实时报价", () => {

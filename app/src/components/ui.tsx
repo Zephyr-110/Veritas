@@ -25,7 +25,6 @@ import {
 import {
   kindLabelKey,
   kindTone,
-  marketDurationBucket,
   marketKind,
   pickSandboxQuickMarket,
 } from "@/lib/display";
@@ -1250,14 +1249,7 @@ export function SandboxCapsule() {
                   data-testid="sandbox-quick-jump"
                   className="btn-primary inline-flex h-8 w-full items-center justify-center px-3 text-xs font-semibold"
                 >
-                  <StableText
-                    k={
-                      marketDurationBucket(quickTarget) === "2m"
-                        ? "sandbox.quickJump2m"
-                        : "sandbox.quickJumpLive"
-                    }
-                    align="center"
-                  />
+                  <StableText k="sandbox.quickJumpLive" align="center" />
                 </Link>
               ) : null}
               <Button

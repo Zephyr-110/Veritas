@@ -276,6 +276,7 @@ function pickSeedUsdt(cfg, rng = Math.random) {
 function getConfig() {
   const durationSec = Math.max(30, Math.round(envNum("SANDBOX_DURATION_SEC", 900)));
   const assets = parseAssets(envStr(["SANDBOX_ASSETS"], DEFAULT_ASSETS));
+  const slots = Math.max(assets.length, Math.round(envNum("SANDBOX_SLOTS", assets.length)));
   const titleOverride = envStr(["SANDBOX_TITLE"], "");
   const seedUsdt = Math.max(1.01, envNum("SANDBOX_SEED_USDT", 150));
   const seedMinUsdt = Math.max(
@@ -295,6 +296,7 @@ function getConfig() {
     programId: new PublicKey(envStr(["PROGRAM_ID"], DEFAULT_PROGRAM_ID)),
     collateralMint: new PublicKey(envStr(["COLLATERAL_MINT"], DEFAULT_COLLATERAL_MINT)),
     assets,
+    slots,
     statePath: envStr(["SANDBOX_STATE_PATH"], path.join(__dirname, "state.json")),
     durationSec,
     seedUsdt,
@@ -1249,9 +1251,6 @@ function computeAlignedExpiry(nowSec, durationSec) {
 
 function slotOffsetSec(durationSec, slotIndex, totalSlots) {
   if (totalSlots <= 1) return 0;
-  if (durationSec === 900 && totalSlots === 4) {
-    return [0, 240, 480, 720][slotIndex] || 0;
-  }
   return Math.floor((slotIndex * durationSec) / totalSlots);
 }
 
@@ -1268,6 +1267,51 @@ function computeStaggeredExpiry(nowSec, durationSec, slotIndex, totalSlots) {
   const minTarget = nowSec + minLead;
   const cycle = Math.ceil((minTarget - phase) / durationSec);
   return cycle * durationSec + phase;
+}
+
+function gridAssetForExpiry(assets, expiry, durationSec, totalSlots) {
+  const stepSec = Math.max(1, Math.floor(durationSec / totalSlots));
+  const gridIndex = Math.round((expiry + 5) / stepSec);
+  const idx = ((gridIndex % assets.length) + assets.length) % assets.length;
+  return assets[idx];
+}
+
+function planMissingMarkets(cfg, liveMarkets, nowSec) {
+  const totalSlots = Math.max(cfg.assets.length, Number(cfg.slots || cfg.assets.length));
+  const gridMode = totalSlots > cfg.assets.length;
+
+  if (!gridMode) {
+    const liveAssets = new Set(liveMarkets.map((m) => m.asset));
+    return cfg.assets
+      .map((asset, slotIndex) => ({
+        asset,
+        slotIndex,
+        expiry: computeStaggeredExpiry(nowSec, cfg.durationSec, slotIndex, cfg.assets.length),
+      }))
+      .filter(({ asset }) => !liveAssets.has(asset.key));
+  }
+
+  const stepSec = Math.max(1, Math.floor(cfg.durationSec / totalSlots));
+  const toleranceSec = Math.floor(stepSec / 2);
+  const candidates = [];
+  for (let slotIndex = 0; slotIndex < totalSlots; slotIndex += 1) {
+    const expiry = computeStaggeredExpiry(nowSec, cfg.durationSec, slotIndex, totalSlots);
+    const asset = gridAssetForExpiry(cfg.assets, expiry, cfg.durationSec, totalSlots);
+    candidates.push({ asset, slotIndex, expiry });
+  }
+  candidates.sort((a, b) => a.expiry - b.expiry);
+
+  return candidates.filter(({ asset, expiry }) => {
+    const prevCycleExpiry = expiry - cfg.durationSec;
+    const hasAtExpiry = liveMarkets.some(
+      (m) => m.asset === asset.key && Math.abs(m.expiry - expiry) <= toleranceSec
+    );
+    if (hasAtExpiry) return false;
+    const hasPrevCycleInSlot = liveMarkets.some(
+      (m) => m.expiry > nowSec && Math.abs(m.expiry - prevCycleExpiry) <= toleranceSec
+    );
+    return !hasPrevCycleInSlot;
+  });
 }
 
 function inferAssetKey(entry, ocr2State) {
@@ -1331,9 +1375,10 @@ async function runSelfCheck() {
 
   // Check staggered expiry spacing across all configured slots
   const sampleNow = 1_763_900_000;
-  const expiries = cfg.assets.map((_, idx) =>
-    computeStaggeredExpiry(sampleNow, cfg.durationSec, idx, cfg.assets.length)
-  );
+  const totalSlots = Math.max(cfg.assets.length, Number(cfg.slots || cfg.assets.length));
+  const expiries = Array.from({ length: totalSlots }, (_, idx) =>
+    computeStaggeredExpiry(sampleNow, cfg.durationSec, idx, totalSlots)
+  ).sort((a, b) => a - b);
   if (new Set(expiries).size !== expiries.length) {
     throw new Error(`Staggered expiries collided: ${expiries.join(", ")}`);
   }
@@ -1420,6 +1465,7 @@ async function runSelfCheck() {
     idlPath,
     settleScriptPath,
     durationSec: cfg.durationSec,
+    slots: totalSlots,
     assets: cfg.assets.map((a) => a.key),
     staggeredExpiries: expiries,
     sampleMarketPda: createRes.pdas.market.toBase58(),
@@ -1439,7 +1485,7 @@ async function runTick() {
   let nowSec = Math.floor(Date.now() / 1000);
 
   // 1. Batch-sync open tracked markets, infer asset keys, and self-sweep settlement
-  const liveAssets = await batchSyncOpenMarkets(connection, state, nowSec);
+  await batchSyncOpenMarkets(connection, state, nowSec);
   saveState(cfg.statePath, state);
   const watchDue = scheduleWatches(cfg, settleScriptPath, state.markets, nowSec);
   const watchedAddrs = new Set(watchDue.map((e) => e.address));
@@ -1453,12 +1499,13 @@ async function runTick() {
   if (settledDue.length > 0) saveState(cfg.statePath, state);
 
   // 2. Open missing staggered markets FIRST (guarantees zero gap even if settlement RPC stalls)
-  const missingSlots = cfg.assets
-    .map((asset, slotIndex) => ({ asset, slotIndex }))
-    .filter(({ asset }) => !liveAssets.has(asset.key));
+  const liveMarkets = state.markets.filter((m) => m.status === "open" && Number(m.expiry) > nowSec);
+  const missingSlots = planMissingMarkets(cfg, liveMarkets, nowSec);
 
   if (missingSlots.length === 0) {
-    console.log(`[tick] All staggered assets (${cfg.assets.map((a) => a.key).join(",")}) already live.`);
+    console.log(
+      `[tick] All staggered slots (${cfg.slots} slots across ${cfg.assets.map((a) => a.key).join(",")}) already live.`
+    );
   } else if (!isActiveWindowOpen(cfg, nowSec)) {
     console.log("[tick] Outside SANDBOX_ACTIVE_FILE activity window; skipping creation.");
   } else {
@@ -1489,7 +1536,7 @@ async function runTick() {
       ]);
     }
 
-    for (const { asset, slotIndex } of missingSlots) {
+    for (const { asset, slotIndex, expiry: plannedExpiry } of missingSlots) {
       nowSec = Math.floor(Date.now() / 1000);
       if (solLamports < cfg.minSolLamports) {
         console.warn(
@@ -1523,7 +1570,10 @@ async function runTick() {
 
       const feed = decodeChainlinkFeed(Buffer.from(feedInfo.data));
       const title = titleForAsset(cfg, asset);
-      const expiry = computeStaggeredExpiry(nowSec, cfg.durationSec, slotIndex, cfg.assets.length);
+      const expiry =
+        cfg.slots > cfg.assets.length
+          ? plannedExpiry
+          : computeStaggeredExpiry(nowSec, cfg.durationSec, slotIndex, cfg.assets.length);
       const marketId = Array.from(crypto.randomBytes(MARKET_ID_BYTES));
       const prediction = encodePrediction(title);
 
@@ -1687,4 +1737,8 @@ module.exports = {
   DEFAULT_SEED_MAX_USDT,
   getConfig,
   pickSeedUsdt,
+  slotOffsetSec,
+  computeStaggeredExpiry,
+  gridAssetForExpiry,
+  planMissingMarkets,
 };

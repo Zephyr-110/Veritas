@@ -11,16 +11,20 @@ const {
   RESOLVE_WINDOW_SEC,
   SELF_SETTLE_SLOT_PREFIX,
   classifySettleProcess,
+  computeStaggeredExpiry,
   defaultTitleForAsset,
   getConfig,
+  gridAssetForExpiry,
   parseAssets,
   pickSeedUsdt,
+  planMissingMarkets,
   reapStaleSettleProcesses,
   resolveAssetForEntry,
   scheduleExpiredSettlements,
   selectExpiredSettleEntries,
   selectWatchEntries,
   settleRetryCooldownSec,
+  slotOffsetSec,
 } = require("./tick");
 const { tryLock } = require("./expiry-watch");
 
@@ -297,4 +301,116 @@ test("getConfig defaults SANDBOX_ACTIVE_WINDOW_SEC to 3600 and honors env overri
     if (prev === undefined) delete process.env.SANDBOX_ACTIVE_WINDOW_SEC;
     else process.env.SANDBOX_ACTIVE_WINDOW_SEC = prev;
   }
+});
+
+test("slotOffsetSec uses general floor(slotIndex * duration / totalSlots) formula and getConfig defaults slots to assets.length", () => {
+  assert.deepEqual(
+    [0, 1, 2, 3, 4, 5].map((i) => slotOffsetSec(900, i, 6)),
+    [0, 150, 300, 450, 600, 750]
+  );
+  assert.deepEqual(
+    [0, 1, 2, 3].map((i) => slotOffsetSec(900, i, 4)),
+    [0, 225, 450, 675]
+  );
+
+  const prevSlots = process.env.SANDBOX_SLOTS;
+  const prevAssets = process.env.SANDBOX_ASSETS;
+  try {
+    delete process.env.SANDBOX_SLOTS;
+    delete process.env.SANDBOX_ASSETS;
+    const defCfg = getConfig();
+    assert.equal(defCfg.slots, defCfg.assets.length);
+
+    process.env.SANDBOX_SLOTS = "6";
+    assert.equal(getConfig().slots, 6);
+
+    process.env.SANDBOX_ASSETS = "btc";
+    delete process.env.SANDBOX_SLOTS;
+    assert.equal(getConfig().slots, 1);
+  } finally {
+    if (prevSlots === undefined) delete process.env.SANDBOX_SLOTS;
+    else process.env.SANDBOX_SLOTS = prevSlots;
+    if (prevAssets === undefined) delete process.env.SANDBOX_ASSETS;
+    else process.env.SANDBOX_ASSETS = prevAssets;
+  }
+});
+
+test("planMissingMarkets 6-slot phase grid maintains steady-state 6 live 15m markets, 150s spacing, 4-asset rotation, and +-75s dedup", () => {
+  const assets = parseAssets("btc,eth,sol,link");
+  const cfg = { assets, slots: 6, durationSec: 900 };
+  const startNow = 1_763_900_000;
+
+  // Cold start: 6 consecutive grid expiries spaced by 150s
+  const live = [];
+  const initial = planMissingMarkets(cfg, live, startNow);
+  assert.equal(initial.length, 6);
+  for (let i = 1; i < initial.length; i += 1) {
+    assert.equal(initial[i].expiry - initial[i - 1].expiry, 150);
+  }
+  for (const item of initial) {
+    live.push({ asset: item.asset.key, expiry: item.expiry, status: "open" });
+  }
+
+  // +-75s dedup: jittering an existing market by +40s must not trigger a duplicate
+  const jittered = live.map((m, idx) => (idx === 2 ? { ...m, expiry: m.expiry + 40 } : m));
+  assert.equal(planMissingMarkets(cfg, jittered, startNow).length, 0);
+
+  // Steady-state simulation: tick every 60s across 3 hours (180 ticks)
+  const seenKeys = new Set(live.map((m) => `${m.asset}:${m.expiry}`));
+  let stateLive = [...live];
+  for (let step = 1; step <= 180; step += 1) {
+    const now = startNow + step * 60;
+    stateLive = stateLive.filter((m) => m.expiry > now);
+    const toOpen = planMissingMarkets(cfg, stateLive, now);
+    for (const item of toOpen) {
+      const key = `${item.asset.key}:${item.expiry}`;
+      assert.equal(seenKeys.has(key), false, `duplicate (asset, expiry): ${key}`);
+      seenKeys.add(key);
+      assert.equal(
+        gridAssetForExpiry(assets, item.expiry, 900, 6).key,
+        item.asset.key
+      );
+      stateLive.push({ asset: item.asset.key, expiry: item.expiry, status: "open" });
+    }
+
+    // Invariants at every tick after opening missing slots
+    stateLive.sort((a, b) => a.expiry - b.expiry);
+    assert.equal(stateLive.length, 6, `expected 6 live markets at tick ${step}, got ${stateLive.length}`);
+    for (let i = 1; i < stateLive.length; i += 1) {
+      assert.equal(stateLive[i].expiry - stateLive[i - 1].expiry, 150);
+    }
+    const assetCounts = new Map(assets.map((a) => [a.key, 0]));
+    for (const m of stateLive) {
+      assetCounts.set(m.asset, (assetCounts.get(m.asset) || 0) + 1);
+    }
+    for (const a of assets) {
+      assert.ok(assetCounts.get(a.key) >= 1, `asset ${a.key} missing at tick ${step}`);
+    }
+    // Same-asset markets are 600s apart (300s overlap on 900s duration)
+    for (let i = 0; i < stateLive.length; i += 1) {
+      for (let j = i + 1; j < stateLive.length; j += 1) {
+        if (stateLive[i].asset === stateLive[j].asset) {
+          assert.equal(stateLive[j].expiry - stateLive[i].expiry, 600);
+        }
+      }
+    }
+  }
+});
+
+test("planMissingMarkets preserves legacy 1-asset-per-slot behavior when slots === assets.length", () => {
+  const assets = parseAssets("btc,eth,sol,link");
+  const cfg = { assets, slots: 4, durationSec: 120 };
+  const now = 1_763_900_000;
+  const live = [
+    { asset: "btc", expiry: now + 30, status: "open" },
+    { asset: "eth", expiry: now + 60, status: "open" },
+  ];
+  const missing = planMissingMarkets(cfg, live, now);
+  assert.deepEqual(
+    missing.map((m) => m.asset.key),
+    ["sol", "link"]
+  );
+  // Expiry matches computeStaggeredExpiry for each slot
+  assert.equal(missing[0].expiry, computeStaggeredExpiry(now, 120, 2, 4));
+  assert.equal(missing[1].expiry, computeStaggeredExpiry(now, 120, 3, 4));
 });
