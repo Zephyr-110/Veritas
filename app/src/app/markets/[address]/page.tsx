@@ -205,7 +205,22 @@ export default function MarketDetailPage() {
           </Reveal>
         </div>
         <aside className="desk-rail stack-4 lg:col-start-2 lg:row-start-1 lg:row-span-2">
-          {live ? <DeskSwitcher market={market} position={position} positionStale={positionStale} /> : null}
+          {live ? (
+            !(market.startTs != null && market.startTs > 0) ? (
+              <div data-testid="legacy-trade-disabled">
+                <Card className="stack-2">
+                  <div className="section-title">
+                    <StableText k="desk.trade" />
+                  </div>
+                  <p className="text-sm leading-relaxed text-[var(--warn)]">
+                    <StableText k="market.legacyNote" block />
+                  </p>
+                </Card>
+              </div>
+            ) : (
+              <DeskSwitcher market={market} position={position} positionStale={positionStale} />
+            )
+          ) : null}
           <SettleDesk market={market} position={position} />
           {!live &&
           isFinalizedStatus(market.status) &&
@@ -399,12 +414,12 @@ function StatusBand({
       absDelta >= 0.01
         ? absDelta.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
         : formatFeedPrice(absDelta);
-    const yesFavored = market.settleAbove ? delta >= 0 : delta <= 0;
+    const yesFavored = market.settleAbove ? delta >= 0 : delta < 0;
     const side = yesFavored ? t("common.yes") : t("common.no");
     const dir =
-      Math.abs(delta) < thresholdNum * 0.00005
+      delta === 0
         ? t("band.atThreshold")
-        : delta >= 0
+        : delta > 0
           ? t("band.aboveBy", { delta: deltaText, pct: pct.toFixed(2) })
           : t("band.belowBy", { delta: deltaText, pct: pct.toFixed(2) });
     return { dir, side, pct, yesFavored };

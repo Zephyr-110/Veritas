@@ -10,6 +10,7 @@ const {
   DEFAULT_SETTLE_SLOTS,
   MARKET_ACCOUNT_SIZE,
   MARKET_ACCOUNT_SIZE_V2,
+  PLAN_ONLY_PRE_OPEN_LEAD_SEC,
   RESOLVE_WINDOW_SEC,
   SELF_SETTLE_SLOT_PREFIX,
   classifySettleProcess,
@@ -19,6 +20,7 @@ const {
   gridAssetForExpiry,
   isLegacyEntry,
   isLegacyMarketAccount,
+  mergeStates,
   parseAssets,
   pickSeedUsdt,
   planMissingMarkets,
@@ -29,6 +31,7 @@ const {
   selectExpiredSettleEntries,
   selectWatchEntries,
   settleRetryCooldownSec,
+  shouldCreateInRun,
   slotOffsetSec,
 } = require("./tick");
 const { tryLock } = require("./expiry-watch");
@@ -548,4 +551,85 @@ test("single-market failure in scheduleExpiredSettlements and recycleFinalizedEn
     const fs = require("fs");
     if (fs.existsSync(tmpStatePath)) fs.unlinkSync(tmpStatePath);
   }
+});
+
+test("shouldCreateInRun restricts grid creation to --plan-only while preserving non-grid full tick, and mergeStates avoids dual-process clobber", () => {
+  assert.equal(shouldCreateInRun({ planOnly: true, gridMode: true }), true);
+  assert.equal(shouldCreateInRun({ planOnly: false, gridMode: true }), false);
+  assert.equal(shouldCreateInRun({ planOnly: false, gridMode: false }), true);
+  assert.equal(shouldCreateInRun({ planOnly: true, gridMode: false }), true);
+
+  // Simulate --plan-only adding M_new to disk while full tick marks M_old recycled in memory
+  const disk = {
+    version: 2,
+    nextBetSide: "no",
+    dailyCounts: { "2026-11-28": 10 },
+    markets: [
+      { address: "M_old", status: "resolved", recycled: false },
+      { address: "M_new", status: "open", recycled: false, betTx: "sig-new" },
+    ],
+  };
+  const local = {
+    version: 2,
+    nextBetSide: "yes",
+    dailyCounts: { "2026-11-28": 9 },
+    markets: [{ address: "M_old", status: "resolved", recycled: true }],
+  };
+  const merged = mergeStates(disk, local);
+  assert.equal(merged.dailyCounts["2026-11-28"], 10);
+  const byAddr = new Map(merged.markets.map((m) => [m.address, m]));
+  assert.equal(byAddr.size, 2);
+  assert.equal(byAddr.get("M_old").recycled, true);
+  assert.equal(byAddr.get("M_new").betTx, "sig-new");
+});
+
+test("planMissingMarkets with 30s --plan-only cadence achieves >=840s steady lifetime and 6 live markets with <=10% boundary transient", () => {
+  const assets = parseAssets("btc,eth,sol,link");
+  const cfg = { assets, slots: 6, durationSec: 900 };
+  const startNow = 1_763_900_000;
+  const CREATE_COST_SEC = 4;
+
+  let stateLive = [];
+  const seenExpiries = new Set();
+  const steadyLifetimes = [];
+  let steadySamples = 0;
+  let transientSamples = 0;
+
+  // 360 ticks * 30s = 3 hours
+  for (let step = 0; step <= 360; step += 1) {
+    const tickStart = startNow + step * 30;
+    if (step >= 32) {
+      const prevTick = tickStart - 30;
+      for (let t = prevTick; t < tickStart; t += 1) {
+        const active = stateLive.filter((m) => m.createdAt <= t && m.expiry > t);
+        steadySamples += 1;
+        assert.ok(active.length >= 5 && active.length <= 7, `live=${active.length} at t=${t}`);
+        if (active.length !== 6) transientSamples += 1;
+      }
+    }
+
+    stateLive = stateLive.filter((m) => m.expiry > tickStart);
+    const toOpen = planMissingMarkets(cfg, stateLive, tickStart, {
+      preOpenLeadSec: PLAN_ONLY_PRE_OPEN_LEAD_SEC,
+    });
+    let cursorSec = tickStart;
+    for (const item of toOpen) {
+      cursorSec += CREATE_COST_SEC;
+      assert.equal(seenExpiries.has(item.expiry), false, `duplicate expiry ${item.expiry}`);
+      seenExpiries.add(item.expiry);
+      const lifetime = item.expiry - cursorSec;
+      if (step >= 30) {
+        steadyLifetimes.push(lifetime);
+        assert.ok(lifetime >= 840, `30s --plan-only lifetime ${lifetime}s < 840s`);
+      }
+      stateLive.push({ asset: item.asset.key, expiry: item.expiry, createdAt: cursorSec, status: "open" });
+    }
+  }
+
+  const minLifetime = Math.min(...steadyLifetimes);
+  const avgLifetime = steadyLifetimes.reduce((a, b) => a + b, 0) / steadyLifetimes.length;
+  const transientRatio = transientSamples / steadySamples;
+  assert.ok(minLifetime >= 880, `minLifetime=${minLifetime}s < 880s`);
+  assert.ok(avgLifetime >= 890, `avgLifetime=${avgLifetime.toFixed(1)}s < 890s`);
+  assert.ok(transientRatio <= 0.1, `transientRatio=${(transientRatio * 100).toFixed(2)}% > 10%`);
 });

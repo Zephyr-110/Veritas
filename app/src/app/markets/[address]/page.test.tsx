@@ -104,8 +104,10 @@ vi.mock("@/hooks/use-now", () => ({
   useNow: () => NOW,
 }));
 
+let currentQuotes = emptyQuotes();
+
 vi.mock("@/hooks/use-feeds", () => ({
-  useFeeds: () => ({ quotes: emptyQuotes(), ready: true }),
+  useFeeds: () => ({ quotes: currentQuotes, ready: true }),
 }));
 
 vi.mock("@/components/guest-session", () => ({
@@ -134,7 +136,7 @@ vi.mock("@/components/settle-desk", () => ({
 }));
 
 vi.mock("@/components/trade-desk", () => ({
-  TradeDesk: () => null,
+  TradeDesk: () => <div data-testid="mock-trade-desk">TradeDesk</div>,
 }));
 
 vi.mock("@/components/lp-desk", () => ({
@@ -151,6 +153,7 @@ afterEach(() => {
   cleanup();
   setLocale("en");
   currentMarket = makeExpiredMarket();
+  currentQuotes = emptyQuotes();
 });
 
 describe("MarketDetailPage StatusBand settlement rule wrapping", () => {
@@ -221,5 +224,84 @@ describe("MarketDetailPage StatusBand settlement rule wrapping", () => {
       </LocaleProvider>
     );
     expect(screen.queryByTestId("legacy-market-note")).toBeNull();
+  });
+
+  it("disables trade desk on legacy v1 live market while keeping trade desk interactive on v2 live market", () => {
+    currentMarket = {
+      ...makeExpiredMarket(),
+      startTs: undefined,
+      status: "open",
+      expiry: NOW + 600,
+      endTs: NOW + 600,
+    };
+    const { rerender } = render(
+      <LocaleProvider>
+        <MarketDetailPage />
+      </LocaleProvider>
+    );
+    expect(screen.getByTestId("legacy-trade-disabled")).toBeInTheDocument();
+    expect(screen.queryByTestId("mock-trade-desk")).toBeNull();
+
+    // Normal v2 live market renders interactive trade desk
+    currentMarket = {
+      ...makeExpiredMarket(),
+      startTs: NOW - 300,
+      status: "open",
+      expiry: NOW + 600,
+      endTs: NOW + 600,
+    };
+    rerender(
+      <LocaleProvider>
+        <MarketDetailPage />
+      </LocaleProvider>
+    );
+    expect(screen.queryByTestId("legacy-trade-disabled")).toBeNull();
+    expect(screen.getByTestId("mock-trade-desk")).toBeInTheDocument();
+  });
+
+  it("never contradicts 'At the target' with 'NO favored' when raw spot is slightly below threshold but displays identical to 2 decimals", () => {
+    // Threshold = 59924.44, raw spot = 59924.438 (both display 59,924.44, raw delta = -0.002 < 0)
+    currentMarket = {
+      ...makeExpiredMarket(),
+      startTs: NOW - 300,
+      status: "open",
+      expiry: NOW + 600,
+      endTs: NOW + 600,
+      threshold: 5_992_444_000_000n,
+      priceDecimals: 8,
+      settleAbove: true,
+    };
+    const baseQuotes = emptyQuotes();
+    currentQuotes = {
+      ...baseQuotes,
+      btc: {
+        ...baseQuotes.btc,
+        price: 59924.438,
+        publishTime: Math.floor(Date.now() / 1000) - 2,
+        receivedAt: Date.now(),
+        available: true,
+      },
+    };
+
+    const { rerender } = render(
+      <LocaleProvider>
+        <MarketDetailPage />
+      </LocaleProvider>
+    );
+    expect(screen.queryByText("At the target")).toBeNull();
+    expect(screen.getByText(/NO favored/)).toBeInTheDocument();
+    expect(screen.getByText(/-0\.002/)).toBeInTheDocument();
+
+    act(() => {
+      setLocale("zh");
+    });
+    rerender(
+      <LocaleProvider>
+        <MarketDetailPage />
+      </LocaleProvider>
+    );
+    expect(screen.queryByText("正卡在判定价格上")).toBeNull();
+    expect(screen.getByText(/NO 占先/)).toBeInTheDocument();
+    expect(screen.getByText(/低于 0\.002/)).toBeInTheDocument();
   });
 });

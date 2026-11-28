@@ -365,6 +365,7 @@
     "simSubmitSwap": "Connect wallet to Swap (Sim)",
     "sandboxSwapCta": "Connect real wallet to swap",
     "currentFee": "Current fee",
+    "feeSingleLeg": "{leg}% / leg",
     "feeEstimate": "Fee ≈ {amount} {symbol}"
   },
   "tradeDisable": {
@@ -581,7 +582,7 @@
     "a0": "The 15-minute and 24-hour markets run side by side with staggered openings, so new markets open while others settle. Short-horizon price swings move fast, and traders want to spin up a market the moment they spot a setup; if opening a 15-minute market required heavy market-making capital or a listing committee, fast markets would never get off the ground. A market that resolves in minutes should not demand heavy upfront capital from its creator.",
     "a0Sub": "We lowered market creation to just over 1 USDT (1,000,001 micro-units) with zero manual approval. On creation, the contract calibrates initial depth from the seed deposit and duration T via L₀ = budget / (φ(0)·√T) at 50:50, binds a whitelisted Chainlink OCR2 state account, and initializes the MarketSnapshot PDA. Under the hood, every 1 USDT mints 1 YES + 1 NO (mergeable 1:1 back to 1 USDT via merge_token at any time while open), making fast-market creation effortless while guaranteeing 100% collateralization by construction.",
     "a0Fee": "A threshold this low is only practical on Solana. Creating a market, seeding it and settling it together cost a fraction of a cent in transaction fees, so a pool of this size remains economical. At EVM gas prices, the transaction fees for the same operations would consume a substantial share of a 1 USDT pool.",
-    "a0BetCu": "Placing a bet (user_bet_on) consumes roughly 540,000–560,000 compute units per transaction, measured on devnet.",
+    "a0BetCu": "Placing a bet (user_bet_on) consumes roughly 540,000–560,000 compute units per transaction, measured on devnet (roughly 600,000 CU on a new wallet's first bet when associated token accounts are created).",
     "a1Title": "03 · Liquidity that stays to settlement: pm-AMM (L_eff = L₀√(T−t))",
     "a1": "As a fast market approaches expiry, the outcome becomes clearer. If a traditional constant-product pool (x·y=k) locks liquidity statically in the pool, LPs get bled dry by arbitrageurs (LVR adverse selection) in the final minutes — forcing makers to pull liquidity early right when traders need depth the most.",
     "a1Sub": "We implement Paradigm's pm-AMM Gaussian invariant (P = Φ((y − x) / L_eff)), decaying effective liquidity L_eff = L₀·√(T − t) smoothly with the square root of time remaining. Before every trade, LP action, or settlement, compute_accrual scales active reserves to the new L_eff at constant price P and credits the released YES/NO inventory pro-rata to LPs (withdrawable and mergeable back to USDT at any time) — winding down maker risk automatically while keeping calibrated depth right up to expiry.",

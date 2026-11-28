@@ -24,7 +24,7 @@ No off-chain matching engine, no admin resolver, and no trusted relayer — the 
 | **Chainlink Store Program** | [`HEvSKofvBgfaexv23kMabbYqxasxU3mQ4ibBMEmJWHny`](https://explorer.solana.com/address/HEvSKofvBgfaexv23kMabbYqxasxU3mQ4ibBMEmJWHny?cluster=devnet) |
 | **Tech Stack** | Rust 1.89 · Anchor · Solana · Chainlink OCR2 · Next.js 15 · Vitest · LiteSVM |
 
-**Why Solana.** A market's full lifecycle here — create, seed, expiry snapshot, settle — has to cost almost nothing, because the seed floor is a little over 1 USDT. Expiry snapshots land inside a ±10-second window around expiry, and a complete on-chain settlement (secp256k1 verification of the signed Chainlink OCR2 report) consumes 118k–130k compute units; the whole lifecycle costs a fraction of a cent in fees. Placing a bet (user_bet_on) consumes roughly 540,000–560,000 compute units per transaction, measured on devnet. At EVM gas prices the fees alone would consume a substantial share of a 1 USDT pool, and sub-second slots are what make a ±10-second snapshot window practical.
+**Why Solana.** A market's full lifecycle here — create, seed, expiry snapshot, settle — has to cost almost nothing, because the seed floor is a little over 1 USDT. Expiry snapshots land inside a ±10-second window around expiry, and a complete on-chain settlement (secp256k1 verification of the signed Chainlink OCR2 report) consumes 118k–130k compute units; the whole lifecycle costs a fraction of a cent in fees. Placing a bet (user_bet_on) consumes roughly 540,000–560,000 compute units per transaction, measured on devnet (roughly 600,000 CU on a new wallet's first bet when creating associated token accounts). At EVM gas prices the fees alone would consume a substantial share of a 1 USDT pool, and sub-second slots are what make a ±10-second snapshot window practical.
 
 ---
 
@@ -210,6 +210,8 @@ The client IDL under `app/src/idl/` is generated via `npm run gen-idl` (from `ap
 
 - **Oracle configuration rotation.** Settlement verifies both straddling reports against the bound `ocr2_state` account's live `latest_config_digest` and oracle roster at settlement time. If a feed's configuration rotates before expiry, reports signed under the new configuration continue to settle normally; however, if rotation occurs across expiry or before `resolve_market` executes, straddling reports signed under the superseded configuration fail `OracleDigestMismatch`, and the market voids after the 48-hour window with a 0.5 refund. By design, configuration drift can only ever produce a void, never a wrong winner.
 - **Collateral scope.** Markets accept standard SPL Token mints only; Token-2022 mints are rejected at creation so transfer-tax and hook extensions stay out of the vault accounting. The seed floor (strictly more than 1,000,000 smallest units) assumes a 6-decimal stablecoin; the contract does not enforce mint decimals or a minimum market duration.
+- **Bet transaction compute units.** On Devnet, `user_bet_on` measures roughly 540,000–560,000 CU per transaction (around 600,000 CU on a new wallet's first bet when associated token accounts are created in the same transaction). Compute optimization is scoped for the mainnet release.
+- **Verbose program logs.** The deployed Devnet binary contains several debug-style `msg!` log lines (such as separator banners in `user_bet_on`). Stripping verbose logs is scoped for the mainnet cleanup.
 
 ---
 

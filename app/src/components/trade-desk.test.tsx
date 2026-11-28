@@ -374,7 +374,7 @@ describe("TradeDesk 提交", () => {
     expect(screen.getByText("Balance 12.50 USDT")).toBeInTheDocument();
   });
 
-  it("动态费率市场在下注区展示当前实时费率（单腿 + 双腿）", () => {
+  it("动态费率市场在下注区仅展示单腿费率，换仓区才展示双腿括注", async () => {
     const nowSec = Math.floor(Date.now() / 1000);
     // 900s flagship market at 50% time remaining -> 123 bps/leg = 1.23% / leg
     renderDesk(
@@ -386,9 +386,14 @@ describe("TradeDesk 提交", () => {
       })
     );
     expect(screen.getByText("Current fee")).toBeInTheDocument();
-    expect(screen.getByText(/1\.23% \/ leg/)).toBeInTheDocument();
+    expect(screen.getByText("1.23% / leg")).toBeInTheDocument();
+    expect(screen.queryByText(/total\)/)).toBeNull();
     // 2 USDT default input * 1.23% = 0.0246 -> 0.025 USDT
     expect(screen.getByTestId("trade-fee-estimate")).toHaveTextContent("Fee ≈ 0.025 USDT");
+
+    // Swap tab keeps the two-leg combined parenthetical
+    await userEvent.click(screen.getByRole("button", { name: "Swap" }));
+    expect(screen.getByText(/1\.23% \/ leg \(~2\.44% total\)/)).toBeInTheDocument();
   });
 
   it("买入与换仓均展示本腿手续费金额，小额不截断为 0.00，且支持中英双语", async () => {

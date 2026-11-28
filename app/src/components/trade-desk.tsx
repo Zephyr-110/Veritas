@@ -91,10 +91,13 @@ export function TradeDesk({
   const effL = accrued && accrued.lEff > 0 ? accrued.lEff : undefined;
 
   const liveFeeBps = currentMarketFeeBps(market, now > 0 ? now : market.lastAccrualTs);
-  const feeText = t("market.feeValue", {
-    leg: (liveFeeBps / 100).toFixed(2),
-    combined: combinedFeePct(liveFeeBps).toFixed(2),
-  });
+  const feeText =
+    tab === "bet"
+      ? t("trade.feeSingleLeg", { leg: (liveFeeBps / 100).toFixed(2) })
+      : t("market.feeValue", {
+          leg: (liveFeeBps / 100).toFixed(2),
+          combined: combinedFeePct(liveFeeBps).toFixed(2),
+        });
   let betQuote: { swapOut: bigint; totalOut: bigint; feeIn: bigint } = {
     swapOut: 0n,
     totalOut: 0n,

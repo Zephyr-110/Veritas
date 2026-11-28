@@ -58,7 +58,7 @@ describe("HelpPage low-threshold Solana fee breakdown", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Placing a bet (user_bet_on) consumes roughly 540,000–560,000 compute units per transaction, measured on devnet."
+        "Placing a bet (user_bet_on) consumes roughly 540,000–560,000 compute units per transaction, measured on devnet (roughly 600,000 CU on a new wallet's first bet when associated token accounts are created)."
       )
     ).toBeInTheDocument();
     expect(
@@ -81,7 +81,7 @@ describe("HelpPage low-threshold Solana fee breakdown", () => {
 
     expect(
       screen.getByText(
-        "下单（user_bet_on）每笔交易消耗约 540,000–560,000 计算单元（devnet 实测）。"
+        "下单（user_bet_on）每笔交易消耗约 540,000–560,000 计算单元（devnet 实测）；新钱包首次下单需另建代币账户，整笔约 600,000 计算单元。"
       )
     ).toBeInTheDocument();
     expect(

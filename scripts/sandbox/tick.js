@@ -399,11 +399,66 @@ function loadState(statePath) {
   }
 }
 
+function mergeStates(diskState, localState) {
+  const base =
+    diskState && typeof diskState === "object"
+      ? diskState
+      : { version: 2, nextBetSide: "yes", dailyCounts: {}, markets: [] };
+  const next =
+    localState && typeof localState === "object"
+      ? localState
+      : { version: 2, nextBetSide: "yes", dailyCounts: {}, markets: [] };
+
+  const mergedDaily = { ...(base.dailyCounts || {}) };
+  for (const [day, cnt] of Object.entries(next.dailyCounts || {})) {
+    mergedDaily[day] = Math.max(Number(mergedDaily[day] || 0), Number(cnt || 0));
+  }
+
+  const byAddr = new Map();
+  for (const m of base.markets || []) {
+    if (m && m.address) byAddr.set(m.address, { ...m });
+  }
+  const isFinal = (s) => Boolean(s && s !== "open");
+  for (const m of next.markets || []) {
+    if (!m || !m.address) continue;
+    const prev = byAddr.get(m.address);
+    if (!prev) {
+      byAddr.set(m.address, { ...m });
+      continue;
+    }
+    const maxAttempt = Math.max(
+      Number(prev.lastSettleAttemptAt || 0),
+      Number(m.lastSettleAttemptAt || 0)
+    );
+    byAddr.set(m.address, {
+      ...prev,
+      ...m,
+      status: isFinal(m.status) ? m.status : isFinal(prev.status) ? prev.status : m.status,
+      winner: m.winner ?? prev.winner ?? null,
+      recycled: Boolean(prev.recycled || m.recycled),
+      legacy: Boolean(prev.legacy || m.legacy),
+      legacyLogged: Boolean(prev.legacyLogged || m.legacyLogged),
+      betSide: m.betSide ?? prev.betSide ?? null,
+      betTx: m.betTx ?? prev.betTx ?? null,
+      ...(maxAttempt > 0 ? { lastSettleAttemptAt: maxAttempt } : {}),
+    });
+  }
+
+  return {
+    version: Math.max(Number(base.version || 2), Number(next.version || 2)),
+    nextBetSide: next.nextBetSide || base.nextBetSide || "yes",
+    dailyCounts: mergedDaily,
+    markets: Array.from(byAddr.values()),
+  };
+}
+
 function saveState(statePath, state) {
   const dir = path.dirname(statePath);
   fs.mkdirSync(dir, { recursive: true });
-  const tmpPath = `${statePath}.${process.pid}.tmp`;
-  fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2) + "\n", "utf8");
+  const disk = fs.existsSync(statePath) ? loadState(statePath) : null;
+  const merged = disk ? mergeStates(disk, state) : state;
+  const tmpPath = `${statePath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(merged, null, 2) + "\n", "utf8");
   fs.renameSync(tmpPath, statePath);
 }
 
@@ -1330,8 +1385,14 @@ function gridAssetForExpiry(assets, expiry, durationSec, totalSlots) {
 }
 
 const GRID_PRE_OPEN_LEAD_SEC = 30;
+const PLAN_ONLY_PRE_OPEN_LEAD_SEC = 15;
 
-function planMissingMarkets(cfg, liveMarkets, nowSec) {
+function shouldCreateInRun({ planOnly = false, gridMode = false } = {}) {
+  if (planOnly) return true;
+  return !gridMode;
+}
+
+function planMissingMarkets(cfg, liveMarkets, nowSec, opts = {}) {
   const totalSlots = Math.max(cfg.assets.length, Number(cfg.slots || cfg.assets.length));
   const gridMode = totalSlots > cfg.assets.length;
 
@@ -1348,7 +1409,11 @@ function planMissingMarkets(cfg, liveMarkets, nowSec) {
 
   const stepSec = Math.max(1, Math.floor(cfg.durationSec / totalSlots));
   const toleranceSec = Math.floor(stepSec / 2);
-  const preOpenLeadSec = Math.min(GRID_PRE_OPEN_LEAD_SEC, Math.floor(stepSec / 2));
+  const configuredLead =
+    opts.preOpenLeadSec != null
+      ? Number(opts.preOpenLeadSec)
+      : envNum("SANDBOX_PLAN_LEAD_SEC", GRID_PRE_OPEN_LEAD_SEC);
+  const preOpenLeadSec = Math.max(0, Math.min(configuredLead, Math.floor(stepSec / 2)));
   const maxOpenExpiry = nowSec + cfg.durationSec + preOpenLeadSec;
   const candidates = [];
   for (let slotIndex = 0; slotIndex < totalSlots; slotIndex += 1) {
@@ -1546,8 +1611,12 @@ async function runSelfCheck() {
   });
 }
 
-async function runTick() {
+async function runTick({ planOnly = false } = {}) {
+  const runStartMs = Date.now();
+  const tag = planOnly ? "tick:plan-only" : "tick";
   const cfg = getConfig();
+  const gridMode = cfg.slots > cfg.assets.length;
+  console.log(`[${tag}] run start slots=${cfg.slots} gridMode=${gridMode}`);
   const { idl } = loadIdl(cfg.programId);
   const settleScriptPath = resolveSettleScript();
   const payer = loadKeypair(cfg.walletPath);
@@ -1558,182 +1627,202 @@ async function runTick() {
   const state = loadState(cfg.statePath);
   let nowSec = Math.floor(Date.now() / 1000);
 
-  // 1. Batch-sync open tracked markets, infer asset keys, and self-sweep settlement
+  // 1. Batch-sync open tracked markets, infer asset keys, and (in full mode) self-sweep settlement
   try {
     await batchSyncOpenMarkets(connection, state, nowSec);
     saveState(cfg.statePath, state);
   } catch (err) {
-    console.warn(`[tick] batchSyncOpenMarkets error (continuing): ${err?.message || err}`);
+    console.warn(`[${tag}] batchSyncOpenMarkets error (continuing): ${err?.message || err}`);
   }
-  let watchedAddrs = new Set();
-  try {
-    const watchDue = scheduleWatches(cfg, settleScriptPath, state.markets, nowSec);
-    watchedAddrs = new Set(watchDue.map((e) => e.address));
-  } catch (err) {
-    console.warn(`[tick] scheduleWatches error (continuing): ${err?.message || err}`);
-  }
-  try {
-    const settledDue = await scheduleExpiredSettlements(
-      cfg,
-      settleScriptPath,
-      state.markets,
-      nowSec,
-      watchedAddrs
-    );
-    if (settledDue.length > 0) saveState(cfg.statePath, state);
-  } catch (err) {
-    console.warn(`[tick] scheduleExpiredSettlements error (continuing): ${err?.message || err}`);
-  }
-
-  // 2. Open missing staggered markets FIRST (guarantees zero gap even if settlement RPC stalls)
-  nowSec = Math.floor(Date.now() / 1000);
-  const liveMarkets = state.markets.filter((m) => m.status === "open" && Number(m.expiry) > nowSec);
-  const missingSlots = planMissingMarkets(cfg, liveMarkets, nowSec);
-
-  if (missingSlots.length === 0) {
-    console.log(
-      `[tick] All staggered slots (${cfg.slots} slots across ${cfg.assets.map((a) => a.key).join(",")}) already live.`
-    );
-  } else if (!isActiveWindowOpen(cfg, nowSec)) {
-    console.log("[tick] Outside SANDBOX_ACTIVE_FILE activity window; skipping creation.");
-  } else {
-    const mintMeta = await fetchMintMeta(connection, cfg.collateralMint);
-    const scale = 10 ** mintMeta.decimals;
-    const minSeedAtoms = BigInt(Math.round(cfg.seedMinUsdt * scale));
-    const maxSeedAtoms = BigInt(Math.round(cfg.seedMaxUsdt * scale));
-    const betAtoms = BigInt(Math.round(cfg.betUsdt * scale));
-    if (minSeedAtoms <= 1_000_000n) {
-      throw new Error("SANDBOX_SEED_MIN_USDT must produce > 1,000,000 raw collateral units");
+  if (!planOnly) {
+    let watchedAddrs = new Set();
+    try {
+      const watchDue = scheduleWatches(cfg, settleScriptPath, state.markets, nowSec);
+      watchedAddrs = new Set(watchDue.map((e) => e.address));
+    } catch (err) {
+      console.warn(`[tick] scheduleWatches error (continuing): ${err?.message || err}`);
     }
+    try {
+      const settledDue = await scheduleExpiredSettlements(
+        cfg,
+        settleScriptPath,
+        state.markets,
+        nowSec,
+        watchedAddrs
+      );
+      if (settledDue.length > 0) saveState(cfg.statePath, state);
+    } catch (err) {
+      console.warn(`[tick] scheduleExpiredSettlements error (continuing): ${err?.message || err}`);
+    }
+  }
 
-    const creatorCollateralAta = ataOf(cfg.collateralMint, payer.publicKey, mintMeta.tokenProgram);
-    let [solLamports, usdtBal] = await Promise.all([
-      connection.getBalance(payer.publicKey, "confirmed"),
-      safeTokenAmount(connection, creatorCollateralAta, mintMeta.tokenProgram),
-    ]);
+  // 2. Open missing staggered markets (sole writer in grid mode is --plan-only; non-grid full tick unchanged)
+  let createdCount = 0;
+  if (!shouldCreateInRun({ planOnly, gridMode })) {
+    console.log("[tick] Grid mode creation delegated to --plan-only; skipping create step in full tick.");
+  } else {
+    nowSec = Math.floor(Date.now() / 1000);
+    const liveMarkets = state.markets.filter((m) => m.status === "open" && Number(m.expiry) > nowSec);
+    const missingSlots = planMissingMarkets(cfg, liveMarkets, nowSec, {
+      preOpenLeadSec: planOnly
+        ? envNum("SANDBOX_PLAN_LEAD_SEC", PLAN_ONLY_PRE_OPEN_LEAD_SEC)
+        : undefined,
+    });
 
-    // If SOL or collateral is tight because resolved markets haven't been reclaimed yet, reclaim once on-demand.
-    if (
-      cfg.recycleFunds &&
-      (usdtBal.amount < maxSeedAtoms + betAtoms || solLamports < cfg.minSolLamports)
-    ) {
-      await recycleFinalizedEntries(connection, program, payer, cfg, state);
-      [solLamports, usdtBal] = await Promise.all([
+    if (missingSlots.length === 0) {
+      console.log(
+        `[${tag}] All staggered slots (${cfg.slots} slots across ${cfg.assets.map((a) => a.key).join(",")}) already live.`
+      );
+    } else if (!isActiveWindowOpen(cfg, nowSec)) {
+      console.log(`[${tag}] Outside SANDBOX_ACTIVE_FILE activity window; skipping creation.`);
+    } else {
+      const mintMeta = await fetchMintMeta(connection, cfg.collateralMint);
+      const scale = 10 ** mintMeta.decimals;
+      const minSeedAtoms = BigInt(Math.round(cfg.seedMinUsdt * scale));
+      const maxSeedAtoms = BigInt(Math.round(cfg.seedMaxUsdt * scale));
+      const betAtoms = BigInt(Math.round(cfg.betUsdt * scale));
+      if (minSeedAtoms <= 1_000_000n) {
+        throw new Error("SANDBOX_SEED_MIN_USDT must produce > 1,000,000 raw collateral units");
+      }
+
+      const creatorCollateralAta = ataOf(cfg.collateralMint, payer.publicKey, mintMeta.tokenProgram);
+      let [solLamports, usdtBal] = await Promise.all([
         connection.getBalance(payer.publicKey, "confirmed"),
         safeTokenAmount(connection, creatorCollateralAta, mintMeta.tokenProgram),
       ]);
-    }
 
-    for (const { asset, slotIndex, expiry: plannedExpiry } of missingSlots) {
-      nowSec = Math.floor(Date.now() / 1000);
-      if (solLamports < cfg.minSolLamports) {
-        console.warn(
-          `[tick] Operator SOL balance ${solLamports} lamports is below SANDBOX_MIN_SOL_LAMPORTS (${cfg.minSolLamports}); skipping creation and continuing settlement & recycling.`
-        );
-        break;
-      }
-
-      const today = utcDayKey(nowSec);
-      const todayCount = Number(state.dailyCounts[today] || 0);
-      if (cfg.dailyMaxMarkets > 0 && todayCount >= cfg.dailyMaxMarkets) {
-        console.log(`[tick] Daily cap (${cfg.dailyMaxMarkets}) reached for ${today}; skipping ${asset.key}.`);
-        break;
-      }
-
-      const marketSeedUsdt = pickSeedUsdt(cfg);
-      const seedAtoms = BigInt(Math.round(marketSeedUsdt * scale));
-
-      if (usdtBal.amount < seedAtoms + betAtoms) {
-        console.warn(
-          `[tick] Collateral balance ${usdtBal.amount} below ${seedAtoms + betAtoms}; cannot open ${asset.key}; continuing settlement & recycling.`
-        );
-        break;
-      }
-
-      try {
-        const feedInfo = await connection.getAccountInfo(asset.feed, "confirmed");
-        if (!feedInfo) {
-          console.warn(`[tick] Chainlink feed account not found for ${asset.symbol}: ${asset.feed.toBase58()}`);
-          continue;
-        }
-
-        const feed = decodeChainlinkFeed(Buffer.from(feedInfo.data));
-        const title = titleForAsset(cfg, asset);
-        const expiry =
-          cfg.slots > cfg.assets.length
-            ? plannedExpiry
-            : computeStaggeredExpiry(nowSec, cfg.durationSec, slotIndex, cfg.assets.length);
-        const marketId = Array.from(crypto.randomBytes(MARKET_ID_BYTES));
-        const prediction = encodePrediction(title);
-
-        const { pdas, ixs: createIxs } = await buildCreateMarketIxs(program, {
-          creator: payer.publicKey,
-          collateralMint: cfg.collateralMint,
-          ocr2State: asset.ocr2State,
-          marketId,
-          prediction,
-          expiry,
-          collateralAmount: seedAtoms,
-          threshold: feed.answer,
-          settleAbove: true,
-          tokenProgram: mintMeta.tokenProgram,
-        });
-
-        const createSig = await sendAndConfirm(connection, payer, createIxs);
-        const marketAddr = pdas.market.toBase58();
-        const entry = {
-          address: marketAddr,
-          asset: asset.key,
-          idHex: Buffer.from(marketId).toString("hex"),
-          title,
-          expiry,
-          threshold: feed.answer.toString(),
-          priceDecimals: feed.decimals,
-          status: "open",
-          winner: null,
-          createdAt: nowSec,
-          createTx: createSig,
-          betSide: null,
-          betTx: null,
-          recycled: false,
-        };
-        state.markets.push(entry);
-        scheduleWatches(cfg, settleScriptPath, [entry]);
-        state.dailyCounts[today] = todayCount + 1;
-        saveState(cfg.statePath, state);
-        console.log(
-          `[create] (${asset.symbol}) ${marketAddr} seed=${marketSeedUsdt.toFixed(2)} USDT expiry=${expiry} threshold=${feed.answer.toString()} tx=${createSig}`
-        );
-        await persistCreatedMarketToDb(connection, cfg.programId, pdas.market, nowSec);
-
-        // Place alternating 2 USDT opening bet on the new market
-        const side = state.nextBetSide === "no" ? "no" : "yes";
-        const betIxs = await buildUserBetOnIxs(program, {
-          market: pdas.market,
-          pdas,
-          signer: payer.publicKey,
-          collateralMint: cfg.collateralMint,
-          tokenProgram: mintMeta.tokenProgram,
-          collateralAmount: betAtoms,
-          side,
-          minOut: betAtoms / 2n,
-        });
-        const betSig = await sendAndConfirm(connection, payer, betIxs);
-        entry.betSide = side;
-        entry.betTx = betSig;
-        state.nextBetSide = side === "yes" ? "no" : "yes";
-        saveState(cfg.statePath, state);
-        console.log(`[bet] (${asset.symbol}) ${marketAddr} side=${side} amount=${cfg.betUsdt} USDT tx=${betSig}`);
-        await persistCreatedMarketToDb(connection, cfg.programId, pdas.market, nowSec);
-
+      // In full tick mode only, reclaim on-demand if funds are tight (--plan-only stays fast and non-blocking)
+      if (
+        !planOnly &&
+        cfg.recycleFunds &&
+        (usdtBal.amount < maxSeedAtoms + betAtoms || solLamports < cfg.minSolLamports)
+      ) {
+        await recycleFinalizedEntries(connection, program, payer, cfg, state);
         [solLamports, usdtBal] = await Promise.all([
           connection.getBalance(payer.publicKey, "confirmed"),
           safeTokenAmount(connection, creatorCollateralAta, mintMeta.tokenProgram),
         ]);
-      } catch (err) {
-        console.error(`[create] error on ${asset.symbol} (continuing): ${err?.message || err}`);
+      }
+
+      for (const { asset, slotIndex, expiry: plannedExpiry } of missingSlots) {
+        nowSec = Math.floor(Date.now() / 1000);
+        if (solLamports < cfg.minSolLamports) {
+          console.warn(
+            `[${tag}] Operator SOL balance ${solLamports} lamports is below SANDBOX_MIN_SOL_LAMPORTS (${cfg.minSolLamports}); skipping creation.`
+          );
+          break;
+        }
+
+        const today = utcDayKey(nowSec);
+        const todayCount = Number(state.dailyCounts[today] || 0);
+        if (cfg.dailyMaxMarkets > 0 && todayCount >= cfg.dailyMaxMarkets) {
+          console.log(`[${tag}] Daily cap (${cfg.dailyMaxMarkets}) reached for ${today}; skipping ${asset.key}.`);
+          break;
+        }
+
+        const marketSeedUsdt = pickSeedUsdt(cfg);
+        const seedAtoms = BigInt(Math.round(marketSeedUsdt * scale));
+
+        if (usdtBal.amount < seedAtoms + betAtoms) {
+          console.warn(
+            `[${tag}] Collateral balance ${usdtBal.amount} below ${seedAtoms + betAtoms}; cannot open ${asset.key}.`
+          );
+          break;
+        }
+
+        try {
+          const feedInfo = await connection.getAccountInfo(asset.feed, "confirmed");
+          if (!feedInfo) {
+            console.warn(`[${tag}] Chainlink feed account not found for ${asset.symbol}: ${asset.feed.toBase58()}`);
+            continue;
+          }
+
+          const feed = decodeChainlinkFeed(Buffer.from(feedInfo.data));
+          const title = titleForAsset(cfg, asset);
+          const expiry =
+            cfg.slots > cfg.assets.length
+              ? plannedExpiry
+              : computeStaggeredExpiry(nowSec, cfg.durationSec, slotIndex, cfg.assets.length);
+          const marketId = Array.from(crypto.randomBytes(MARKET_ID_BYTES));
+          const prediction = encodePrediction(title);
+
+          const { pdas, ixs: createIxs } = await buildCreateMarketIxs(program, {
+            creator: payer.publicKey,
+            collateralMint: cfg.collateralMint,
+            ocr2State: asset.ocr2State,
+            marketId,
+            prediction,
+            expiry,
+            collateralAmount: seedAtoms,
+            threshold: feed.answer,
+            settleAbove: true,
+            tokenProgram: mintMeta.tokenProgram,
+          });
+
+          const createSig = await sendAndConfirm(connection, payer, createIxs);
+          const marketAddr = pdas.market.toBase58();
+          const entry = {
+            address: marketAddr,
+            asset: asset.key,
+            idHex: Buffer.from(marketId).toString("hex"),
+            title,
+            expiry,
+            threshold: feed.answer.toString(),
+            priceDecimals: feed.decimals,
+            status: "open",
+            winner: null,
+            createdAt: nowSec,
+            createTx: createSig,
+            betSide: null,
+            betTx: null,
+            recycled: false,
+          };
+          state.markets.push(entry);
+          if (!planOnly) {
+            scheduleWatches(cfg, settleScriptPath, [entry]);
+          }
+          state.dailyCounts[today] = todayCount + 1;
+          saveState(cfg.statePath, state);
+          createdCount += 1;
+          console.log(
+            `[create] (${asset.symbol}) ${marketAddr} seed=${marketSeedUsdt.toFixed(2)} USDT expiry=${expiry} threshold=${feed.answer.toString()} tx=${createSig}`
+          );
+          await persistCreatedMarketToDb(connection, cfg.programId, pdas.market, nowSec);
+
+          // Place alternating 2 USDT opening bet on the new market
+          const side = state.nextBetSide === "no" ? "no" : "yes";
+          const betIxs = await buildUserBetOnIxs(program, {
+            market: pdas.market,
+            pdas,
+            signer: payer.publicKey,
+            collateralMint: cfg.collateralMint,
+            tokenProgram: mintMeta.tokenProgram,
+            collateralAmount: betAtoms,
+            side,
+            minOut: betAtoms / 2n,
+          });
+          const betSig = await sendAndConfirm(connection, payer, betIxs);
+          entry.betSide = side;
+          entry.betTx = betSig;
+          state.nextBetSide = side === "yes" ? "no" : "yes";
+          saveState(cfg.statePath, state);
+          console.log(`[bet] (${asset.symbol}) ${marketAddr} side=${side} amount=${cfg.betUsdt} USDT tx=${betSig}`);
+          await persistCreatedMarketToDb(connection, cfg.programId, pdas.market, nowSec);
+
+          [solLamports, usdtBal] = await Promise.all([
+            connection.getBalance(payer.publicKey, "confirmed"),
+            safeTokenAmount(connection, creatorCollateralAta, mintMeta.tokenProgram),
+          ]);
+        } catch (err) {
+          console.error(`[create] error on ${asset.symbol} (continuing): ${err?.message || err}`);
+        }
       }
     }
+  }
+
+  if (planOnly) {
+    console.log(`[${tag}] run done elapsedMs=${Date.now() - runStartMs} created=${createdCount}`);
+    return;
   }
 
   // Expiry watchers and the global sweep run independently of fund recycling.
@@ -1752,6 +1841,7 @@ async function runTick() {
   }
 
   await runIncrementalSyncSafe(connection, cfg.programId, 2);
+  console.log(`[${tag}] run done elapsedMs=${Date.now() - runStartMs} created=${createdCount}`);
 }
 
 async function main() {
@@ -1761,7 +1851,7 @@ async function main() {
     await runSelfCheck();
     return;
   }
-  await runTick();
+  await runTick({ planOnly: args.includes("--plan-only") });
 }
 
 if (require.main === module) main().catch((err) => {
@@ -1833,6 +1923,9 @@ module.exports = {
   computeStaggeredExpiry,
   gridAssetForExpiry,
   planMissingMarkets,
+  shouldCreateInRun,
+  mergeStates,
+  PLAN_ONLY_PRE_OPEN_LEAD_SEC,
   isLegacyMarketAccount,
   isLegacyEntry,
 };
